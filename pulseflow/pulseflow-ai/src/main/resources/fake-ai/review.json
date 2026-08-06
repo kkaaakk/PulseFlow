@@ -1,0 +1,43 @@
+{
+  "summary": "本次活动点击表现优于历史平均，转化率小幅提升。",
+  "highlights": [
+    {
+      "title": "点击率明显提升",
+      "description": "本次点击率为12.6%，高于历史平均9.1%。",
+      "evidenceKeys": [
+        "metrics.clickRate",
+        "historicalBaseline.clickRate"
+      ]
+    }
+  ],
+  "problems": [
+    {
+      "title": "点击到转化仍存在损耗",
+      "description": "点击率提升明显，但转化率只比历史平均高0.3个百分点。",
+      "evidenceKeys": [
+        "metrics.conversionRate",
+        "historicalBaseline.conversionRate"
+      ]
+    }
+  ],
+  "nextActions": [
+    {
+      "action": "下一次优先使用直接利益型文案",
+      "reason": "该版本点击率和转化率均为最高",
+      "evidenceKeys": [
+        "contentVariants"
+      ]
+    },
+    {
+      "action": "进一步检查落地页和结算链路",
+      "reason": "点击提升幅度大于转化提升幅度",
+      "evidenceKeys": [
+        "metrics.clickRate",
+        "metrics.conversionRate"
+      ]
+    }
+  ],
+  "limitations": [
+    "当前结论未控制不同用户分群带来的偏差"
+  ]
+}

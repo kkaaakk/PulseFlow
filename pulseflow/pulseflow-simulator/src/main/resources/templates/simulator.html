@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>PulseFlow Event Simulator</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f5f5f5; padding: 2rem; }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { color: #333; margin-bottom: 0.5rem; }
+        .subtitle { color: #666; margin-bottom: 2rem; }
+        .card { background: white; border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .card h2 { font-size: 1.1rem; color: #333; margin-bottom: 1rem; }
+        .form-row { display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+        .form-group { display: flex; flex-direction: column; flex: 1; min-width: 120px; }
+        label { font-size: 0.85rem; color: #666; margin-bottom: 0.3rem; }
+        select, input { padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-size: 0.9rem; }
+        button { padding: 0.6rem 1.2rem; background: #4f46e5; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+        button:hover { background: #4338ca; }
+        button.secondary { background: #6b7280; }
+        button.secondary:hover { background: #4b5563; }
+        .btn-group { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+        #output { background: #1e1e1e; color: #4ec9b0; padding: 1rem; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 0.85rem; max-height: 300px; overflow-y: auto; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PulseFlow Simulator</h1>
+        <p class="subtitle">Event simulation and testing tool</p>
+
+        <div class="card">
+            <h2>Generate Single Event</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>User ID</label>
+                    <input type="number" id="userId" value="1024">
+                </div>
+                <div class="form-group">
+                    <label>Event Type</label>
+                    <select id="eventType">
+                        <option value="LOGIN">LOGIN</option>
+                        <option value="CONTENT_VIEW" selected>CONTENT_VIEW</option>
+                        <option value="SEARCH">SEARCH</option>
+                        <option value="LIKE">LIKE</option>
+                        <option value="FAVORITE">FAVORITE</option>
+                        <option value="ADD_CART">ADD_CART</option>
+                        <option value="REMOVE_CART">REMOVE_CART</option>
+                        <option value="ORDER_CREATE">ORDER_CREATE</option>
+                        <option value="ORDER_PAID">ORDER_PAID</option>
+                        <option value="SHARE">SHARE</option>
+                        <option value="CLICK">CLICK</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Target ID</label>
+                    <input type="number" id="targetId" value="8866">
+                </div>
+                <div class="form-group" style="justify-content: flex-end;">
+                    <button onclick="generateEvent()">Send Event</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Quick Actions</h2>
+            <div class="btn-group">
+                <button onclick="simulateJourney()">Simulate User Journey</button>
+                <button onclick="generateBulk(10)">Generate 10 Random Events</button>
+                <button onclick="generateBulk(100)">Generate 100 Random Events</button>
+                <button class="secondary" onclick="clearOutput()">Clear Output</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Output</h2>
+            <div id="output">Ready. Click a button to start simulation.</div>
+        </div>
+    </div>
+
+    <script>
+        function log(msg) {
+            const out = document.getElementById('output');
+            out.textContent += '\n' + new Date().toLocaleTimeString() + ' ' + msg;
+            out.scrollTop = out.scrollHeight;
+        }
+
+        async function apiCall(url) {
+            try {
+                const resp = await fetch(url);
+                const data = await resp.json();
+                log('✓ ' + url + ' → ' + JSON.stringify(data));
+            } catch (e) {
+                log('✗ ' + url + ' → ' + e.message);
+            }
+        }
+
+        function generateEvent() {
+            const userId = document.getElementById('userId').value;
+            const eventType = document.getElementById('eventType').value;
+            const targetId = document.getElementById('targetId').value;
+            const url = '/api/simulator/generate?userId=' + userId + '&eventType=' + eventType + '&targetId=' + targetId;
+            log('>>> Generating: userId=' + userId + ' eventType=' + eventType);
+            apiCall(url);
+        }
+
+        function simulateJourney() {
+            const userId = document.getElementById('userId').value;
+            log('=== Simulating user journey for userId=' + userId + ' ===');
+            apiCall('/api/simulator/user-journey?userId=' + userId);
+        }
+
+        function generateBulk(count) {
+            log('>>> Generating ' + count + ' random events...');
+            apiCall('/api/simulator/bulk?count=' + count);
+        }
+
+        function clearOutput() {
+            document.getElementById('output').textContent = 'Cleared.';
+        }
+    </script>
+</body>
+</html>

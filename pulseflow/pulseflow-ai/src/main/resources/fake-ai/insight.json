@@ -1,0 +1,43 @@
+{
+  "summary": "该人群活跃度高，但加购后的购买转化偏弱，价格敏感特征明显。",
+  "findings": [
+    {
+      "title": "活跃度高于全站平均",
+      "description": "目标人群7日活跃率为78%，全站基线为59%。",
+      "evidenceKeys": [
+        "metrics.activeRate7d",
+        "baseline.activeRate7d"
+      ],
+      "importance": "HIGH"
+    },
+    {
+      "title": "加购未购买比例较高",
+      "description": "42%的目标用户存在加购后未购买行为。",
+      "evidenceKeys": [
+        "metrics.cartWithoutPurchaseRate"
+      ],
+      "importance": "HIGH"
+    }
+  ],
+  "strategySuggestions": [
+    {
+      "type": "OFFER",
+      "suggestion": "优先采用明确的满减优惠",
+      "reason": "价格敏感用户占比为35%",
+      "evidenceKeys": [
+        "metrics.priceSensitiveRate"
+      ]
+    },
+    {
+      "type": "FREQUENCY",
+      "suggestion": "限制短期重复触达",
+      "reason": "流失风险用户占比为18%",
+      "evidenceKeys": [
+        "metrics.churnRiskRate"
+      ]
+    }
+  ],
+  "risks": [
+    "该人群包含一定比例的流失风险用户，不适合高频轰炸"
+  ]
+}

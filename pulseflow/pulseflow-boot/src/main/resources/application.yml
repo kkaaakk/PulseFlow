@@ -1,0 +1,100 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: pulseflow
+  datasource:
+    url: jdbc:mysql://localhost:3306/pulseflow?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      connection-timeout: 30000
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 3
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      max-poll-records: 100
+    listener:
+      ack-mode: manual
+  redis:
+    host: localhost
+    port: 6379
+    password:
+    database: 0
+    timeout: 3000ms
+    lettuce:
+      pool:
+        max-active: 16
+        max-idle: 8
+        min-idle: 4
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+xxl:
+  job:
+    admin:
+      # xxl-job-admin is a separate web app and must NOT share port 8080 with
+      # this app. Run it on 8081 (its server.port) and point the executor here.
+      addresses: http://localhost:8081/xxl-job-admin
+    accessToken: default_token
+    executor:
+      appname: pulseflow-executor
+      address:
+      ip:
+      port: 9999
+      logpath: /data/applogs/xxl-job/jobhandler
+      logretentiondays: 30
+
+sa-token:
+  token-name: token
+  timeout: 2592000
+  active-timeout: -1
+  is-concurrent: true
+  is-share: true
+  token-style: uuid
+  is-log: false
+
+logging:
+  level:
+    com.pulseflow: DEBUG
+    org.springframework.kafka: INFO
+
+# AI Campaign Copilot — default off, mock-on for local/CI.
+# API key MUST come from env var; never commit a real key.
+pulseflow:
+  ai:
+    enabled: false
+    provider: openai-compatible
+    base-url: ${PULSEFLOW_AI_BASE_URL:}
+    api-key: ${PULSEFLOW_AI_API_KEY:}
+    model: ${PULSEFLOW_AI_MODEL:}
+    timeout-seconds: 30
+    max-retries: 1
+    mock-enabled: true
+    draft-ttl-hours: 24
+    audience-preview-limit: 100000

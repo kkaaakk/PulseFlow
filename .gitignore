@@ -1,0 +1,41 @@
+# ---- Build artifacts ----
+target/
+build/
+out/
+*.class
+
+# ---- IDE / editor ----
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+*.swo
+*~
+
+# ---- Workspace tooling (not part of the project) ----
+.trae/
+.workbuddy/
+.obsidian/
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Logs ----
+*.log
+logs/
+
+# ---- Secrets / env (never commit) ----
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.jks
+
+# ---- Local-only runtime data ----
+data/
+runtime/

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "campaignName": "高活跃未购买用户召回",
+  "objective": "CONVERSION",
+  "audience": {
+    "logic": "AND",
+    "conditions": [
+      {
+        "field": "activeDays7d",
+        "operator": "GTE",
+        "value": 5,
+        "valueType": "INTEGER"
+      },
+      {
+        "field": "spend30d",
+        "operator": "GTE",
+        "value": 500,
+        "valueType": "DECIMAL"
+      },
+      {
+        "field": "daysSinceLastPurchase",
+        "operator": "GTE",
+        "value": 3,
+        "valueType": "INTEGER"
+      }
+    ]
+  },
+  "channel": "IN_APP",
+  "schedule": {
+    "type": "ONCE",
+    "sendAt": "2026-08-03T20:00:00+08:00",
+    "timezone": "Asia/Shanghai"
+  },
+  "frequencyCap": {
+    "maxTimes": 1,
+    "windowHours": 24
+  },
+  "promotionFacts": [
+    {
+      "type": "FULL_REDUCTION",
+      "threshold": 300,
+      "discount": 30
+    }
+  ],
+  "missingFields": [],
+  "warnings": []
+}
