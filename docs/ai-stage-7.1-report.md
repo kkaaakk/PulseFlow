@@ -229,6 +229,8 @@ pulseflow:
 - `GITHUB_ACTIONS=true` 但无 `PULSEFLOW_TEST_DOCKER`：enforcer 失败 ✅
 - `GITHUB_ACTIONS=true` + `PULSEFLOW_TEST_DOCKER=true`：enforcer 通过 ✅
 
+**CI 真实跑通**（最终验收）：推送后 GitHub Actions Runner 上 `mvn clean verify` 全绿，boot 模块 11 个 IT 全跑零跳过零失败——`FlywayMigrationIT`（2，Testcontainers MySQL 8.0 迁移 V1~V5）+ `EventIdempotentConsumptionIT`（3，事件幂等消费）+ `AiModeBootstrapIT`（6，AI 双模式启动）。run 31139293006，BUILD SUCCESS。过程中修复 4 个 CI-only 潜伏 bug（详见 §12）。
+
 ---
 
 ## 3. 新增文件
@@ -450,13 +452,15 @@ Total time:  01:03 min
 | pulseflow-ai | ✅ | 82 tests, 0 fail | — | SUCCESS |
 | pulseflow-job | ✅ | 0 tests | — | SUCCESS |
 | pulseflow-simulator | ✅ | 0 tests | — | SUCCESS |
-| pulseflow-boot | ✅ | — | 11 tests (6 run + 5 skip Docker), 0 fail | SUCCESS |
+| pulseflow-boot | ✅ | — | 11 tests (6 run + 5 Docker IT), 0 fail | SUCCESS |
 
 **单元测试合计：98 tests, 0 failures**
-**集成测试合计：11 tests (6 run + 5 Docker-skipped), 0 failures**
-**总计：109 tests, 5 skipped (Docker), 0 failures**
+**集成测试合计：11 tests (6 run + 5 Docker IT), 0 failures**
+**总计：109 tests, 0 failures**
 
-**结论：全模块 `mvn clean verify` BUILD SUCCESS。failsafe 插件自动执行 `*IT`，核心模块有回归保护，无回归。**
+> 本地（Docker Desktop 29.x 与 Testcontainers 不兼容）5 个 Docker IT 默认跳过；**CI 环境通过 enforcer 强制 `PULSEFLOW_TEST_DOCKER=true` 真实执行，已验证全绿**（详见 §2.14 / §12）。
+
+**结论：全模块 `mvn clean verify` BUILD SUCCESS。failsafe 插件自动执行 `*IT`，核心模块有回归保护，无回归。CI 已真实跑通 Docker 集成测试。**
 
 ---
 
@@ -466,13 +470,13 @@ Total time:  01:03 min
 |---|---|---|
 | 本轮新增失败 | 无 | — |
 | 历史已有失败 | 无 | — |
-| 环境依赖跳过 | `FlywayMigrationIT` (2) / `EventIdempotentConsumptionIT` (3) | Testcontainers + Docker Desktop 29.x 兼容问题，`@EnabledIfEnvironmentVariable` 默认跳过。**CI 环境通过 enforcer 强制 `PULSEFLOW_TEST_DOCKER=true` 执行**（7.2） |
+| 环境依赖跳过 | `FlywayMigrationIT` (2) / `EventIdempotentConsumptionIT` (3) | Testcontainers + Docker Desktop 29.x 兼容问题，本地 `@EnabledIfEnvironmentVariable` 默认跳过。**CI 环境通过 enforcer 强制 `PULSEFLOW_TEST_DOCKER=true` 真实执行，已验证 11 IT 全跑全过（0 skipped）**（7.2） |
 
 ---
 
 ## 11. 已知问题与局限
 
-1. **Testcontainers 本地兼容性**：Docker Desktop 29.x 的 `_ping` 返回 Status 400，Testcontainers 无法初始化。本地迁移验证改用 docker CLI 直跑 MySQL 容器。**CI 环境通过 GitHub Actions + enforcer 强制执行 Docker 测试**（7.2 解决）。
+1. **Testcontainers 本地兼容性**：Docker Desktop 29.x 的 `_ping` 返回 Status 400，Testcontainers 无法初始化。本地迁移验证改用 docker CLI 直跑 MySQL 容器。**CI 环境通过 GitHub Actions + enforcer 强制执行 Docker 测试，已获得完整绿色流水线**（7.2 解决）。
 
 2. **指标基线口径**：v1 用候选池本身作为 site-wide baseline（非真实全站），且候选池有 50000 上限。**7.2 已通过 `DataQuality` 元数据返回前端**，展示"当前对比基线来自候选用户池"。
 
@@ -490,20 +494,29 @@ Total time:  01:03 min
 
 ## 12. 下一阶段建议
 
-阶段 7.1 + 7.2 完成后，AI Campaign Copilot 已达到工程上可信状态，**不建议继续堆功能**。本轮已处理用户评审提出的三个最终验收项中的两项：
+阶段 7.1 + 7.2 完成后，AI Campaign Copilot 已达到工程上可信状态，**不建议继续堆功能**。用户评审提出的三个最终验收项**已全部完成**：
 
 - ✅ **统计数据归集延迟不被误判为永久数据不足**：新增 `DATA_NOT_READY` 状态 + `data-ready-delay-minutes` 宽限期，`sentCount=0` 在宽限期内可重试，仅 `audience=0` 或宽限期后才永久跳过
 - ✅ **所有 Campaign 创建入口写入 `created_by`**：确认唯一生产创建入口 `confirmAndCreate` 已写入，无其他普通 Campaign 创建接口；历史 `null` 记录默认拒绝普通用户访问
+- ✅ **CI 首次运行验证**：推送代码到 GitHub，CI 工作流在 Runner 上真实跑通 Docker 集成测试。`FlywayMigrationIT`（2 tests）+ `EventIdempotentConsumptionIT`（3 tests）在 Testcontainers MySQL 8.0 上全跑全过，boot 模块 11 IT 零跳过零失败，获得完整绿色流水线（run 31139293006）。
 
-剩余唯一验收项与可选优化方向：
+**CI 通过过程中修复的 4 个 CI-only 潜伏 bug**（本地因 Testcontainers 跳过从未暴露，CI 强制执行后才显现）：
 
-1. **CI 首次运行验证**（唯一剩余验收项）：推送代码到 GitHub，确认 CI 工作流在 Runner 上真实跑通 Docker 集成测试（`FlywayMigrationIT` + `EventIdempotentConsumptionIT`），获得一次完整绿色流水线。**CI 通过前表述为"本地完整回归通过，CI 已配置强制执行 Docker 集成测试"；CI 通过后再表述为"全量自动化测试和数据库、事件幂等集成测试全部通过"。**
-2. **核心模块测试增强**：补充频控边界、标签规则计算、Review Job 状态过滤、Redis 状态重建/降级测试。
-3. **真实模型集成测试**：通过环境变量显式开启，使用固定输入只校验结构/字段/业务约束。
-4. **指标基线优化**：接入真实全站基线，区分 baseline 与目标人群的时间窗口版本。
-5. **内容相似度检查**：引入字符 n-gram Jaccard 或编辑距离比例。
-6. **PII 检测扩展**：覆盖详细地址、设备 ID、Cookie/Token/API Key 格式。
-7. **AI 接口轻量去重**（成本保护，非阻塞）：为 `parse`/`insight`/`contents` 增加 `Idempotency-Key` 或 `draftId+taskType` 短时间去重，复用最近成功结果，避免前端重复点击消耗 Token。
+1. `flyway-mysql` 被父 pom 锁成 `10.12.0`，与 `flyway-core` 9.22.3 不匹配 → `AbstractMethodError: MySQLDatabase.ensureSupported()`。改为 `${flyway.version}` 对齐。
+2. `EventIdempotentConsumptionIT.TestApp` 用 `@TestConfiguration`（非 `@SpringBootConfiguration`）→ `@SpringBootTest(classes=...)` 找不到启动配置源。改用 `@SpringBootConfiguration`。
+3. Redisson 3.29.0 注册的是 `RedissonAutoConfigurationV2`（非 `RedissonAutoConfiguration`），exclude 旧类名失败。后改为 `@ImportAutoConfiguration` 只导入数据层自动配置，从根上避免 Sa-Token Redis / Redisson / Kafka / XXL-JOB 排除链不收敛。
+4. `FlywayMigrationIT` 仍校验 V5 已删除的旧索引 `idx_ai_review_status`（V5 改名为 `idx_ai_review_status_retry`）。更新为新索引名 + 补 V5 列校验。
+
+> 三项验收全部完成后，项目可进入：README 包装 → 架构图 → 演示数据 → 接口演示 → 简历描述 → 面试讲解。当前应停止开发，把已有能力讲清楚、演示稳定。
+
+可选优化方向（非阻塞，不影响收口）：
+
+1. **核心模块测试增强**：补充频控边界、标签规则计算、Review Job 状态过滤、Redis 状态重建/降级测试。
+2. **真实模型集成测试**：通过环境变量显式开启，使用固定输入只校验结构/字段/业务约束。
+3. **指标基线优化**：接入真实全站基线，区分 baseline 与目标人群的时间窗口版本。
+4. **内容相似度检查**：引入字符 n-gram Jaccard 或编辑距离比例。
+5. **PII 检测扩展**：覆盖详细地址、设备 ID、Cookie/Token/API Key 格式。
+6. **AI 接口轻量去重**（成本保护，非阻塞）：为 `parse`/`insight`/`contents` 增加 `Idempotency-Key` 或 `draftId+taskType` 短时间去重，复用最近成功结果，避免前端重复点击消耗 Token。
 
 ---
 
@@ -527,6 +540,7 @@ Total time:  01:03 min
 | 状态码规范 | ✅ 403/404/409/422/429/503 |
 | 配置化参数 | ✅ lockStaleMinutes/maxRetryCount/cooldown（7.2） |
 | CI 强制 Docker 测试 | ✅ GitHub Actions + enforcer（7.2） |
+| CI 真实跑通 Docker IT | ✅ run 31139293006，11 IT 全跑零跳过零失败 |
 | 完整回归 | ✅ BUILD SUCCESS, 109 tests, 0 回归 |
 
 **阶段 7.1 + 7.2 完成。AI Campaign Copilot 达到：核心链路完整、AI 边界清晰、具备工程可靠性的事件驱动智能用户运营平台。**
