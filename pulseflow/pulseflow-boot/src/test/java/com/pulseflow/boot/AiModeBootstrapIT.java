@@ -208,8 +208,9 @@ class AiModeBootstrapIT {
     // ------------------------------------------------------------------
 
     /**
-     * Verifies Flyway V1~V4 migration scripts run cleanly on MySQL 8.0 and
-     * that V4's state-machine columns / index exist on {@code campaign_ai_review}.
+     * Verifies Flyway V1~V5 migration scripts run cleanly on MySQL 8.0 and
+     * that V4/V5's state-machine columns, retry-split columns, rebuilt scan
+     * index and campaign ownership column exist.
      *
      * <p>Requires Docker. Skipped automatically by surefire (IT naming
      * convention); run via {@code mvn verify -pl pulseflow-boot
@@ -237,7 +238,7 @@ class AiModeBootstrapIT {
                 .withReuse(true);
 
         @Test
-        @DisplayName("V1~V4 迁移成功，campaign_ai_review 表含 V4 新增列 locked_by/locked_at/version")
+        @DisplayName("V1~V5 迁移成功，campaign_ai_review 含状态机列+重试调度索引，campaign 含 created_by")
         void flywayMigrationCreatesStateMachineColumns() throws Exception {
             org.flywaydb.core.Flyway flyway = org.flywaydb.core.Flyway.configure()
                     .dataSource(mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword())
@@ -248,21 +249,36 @@ class AiModeBootstrapIT {
             try (java.sql.Connection conn = java.sql.DriverManager.getConnection(
                     mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword());
                  java.sql.Statement stmt = conn.createStatement()) {
+                // V4 状态机列 (locked_by/locked_at/version) + V5 重试拆分列
+                // (failure_code/retryable/retry_count/next_retry_at) = 共 7 列
                 try (java.sql.ResultSet rs = stmt.executeQuery(
-                        "SHOW COLUMNS FROM campaign_ai_review WHERE Field IN ('locked_by','locked_at','version')")) {
+                        "SHOW COLUMNS FROM campaign_ai_review WHERE Field IN ("
+                                + "'locked_by','locked_at','version',"
+                                + "'failure_code','retryable','retry_count','next_retry_at')")) {
                     int count = 0;
                     while (rs.next()) count++;
-                    assertThat(count).isEqualTo(3);
+                    assertThat(count).isEqualTo(7);
                 }
+                // V5 重建了扫描索引：DROP idx_ai_review_status -> CREATE idx_ai_review_status_retry
+                try (java.sql.ResultSet rs = stmt.executeQuery(
+                        "SHOW INDEX FROM campaign_ai_review WHERE Key_name = 'idx_ai_review_status_retry'")) {
+                    assertThat(rs.next()).isTrue();
+                }
+                // 旧索引名应已被 V5 删除
                 try (java.sql.ResultSet rs = stmt.executeQuery(
                         "SHOW INDEX FROM campaign_ai_review WHERE Key_name = 'idx_ai_review_status'")) {
+                    assertThat(rs.next()).isFalse();
+                }
+                // V5 资源归属列
+                try (java.sql.ResultSet rs = stmt.executeQuery(
+                        "SHOW COLUMNS FROM campaign WHERE Field = 'created_by'")) {
                     assertThat(rs.next()).isTrue();
                 }
             }
         }
 
         @Test
-        @DisplayName("V1~V4 迁移成功，核心表与 AI 表全部存在")
+        @DisplayName("V1~V5 迁移成功，核心表与 AI 表全部存在")
         void coreTablesExistAfterMigration() throws Exception {
             org.flywaydb.core.Flyway flyway = org.flywaydb.core.Flyway.configure()
                     .dataSource(mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword())

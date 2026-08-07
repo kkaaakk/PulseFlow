@@ -50,7 +50,9 @@ import static org.junit.jupiter.api.Assertions.*;
 // CI / any environment with a working Testcontainers setup.
 @EnabledIfEnvironmentVariable(named = "PULSEFLOW_TEST_DOCKER", matches = "true")
 @Testcontainers
-@SpringBootTest(classes = EventIdempotentConsumptionIT.TestApp.class)
+@SpringBootTest(
+        classes = EventIdempotentConsumptionIT.TestApp.class,
+        webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class EventIdempotentConsumptionIT {
 
     @Container
@@ -84,7 +86,7 @@ class EventIdempotentConsumptionIT {
     @SpringBootConfiguration
     @EnableAutoConfiguration(exclude = {
             KafkaAutoConfiguration.class,
-            org.redisson.spring.starter.RedissonAutoConfiguration.class
+            org.redisson.spring.starter.RedissonAutoConfigurationV2.class
     })
     @MapperScan("com.pulseflow.mapper")
     @Import({EventPersistenceService.class, MyMetaObjectHandler.class})
