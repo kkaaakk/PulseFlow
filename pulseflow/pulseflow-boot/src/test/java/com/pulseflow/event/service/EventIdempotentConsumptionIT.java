@@ -1,5 +1,6 @@
 package com.pulseflow.event.service;
 
+import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.pulseflow.common.config.MyMetaObjectHandler;
 import com.pulseflow.entity.UserEvent;
@@ -12,8 +13,11 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
-import org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
+import org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration;
+import org.springframework.boot.autoconfigure.transaction.TransactionAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -75,18 +79,26 @@ class EventIdempotentConsumptionIT {
     }
 
     /**
-     * 最小化配置：只扫描 mapper，导入 EventPersistenceService + MetaObjectHandler，
-     * 排除 Kafka/Redisson 自动配置（这两个组件的 bean 不在本测试范围内）。
+     * 最小化配置：只导入数据层自动配置（DataSource / Flyway / MyBatis-Plus / 事务），
+     * 扫描 mapper，导入 EventPersistenceService + MetaObjectHandler。
      *
-     * <p>使用 {@link SpringBootConfiguration}（而非 {@code @TestConfiguration}）作为
-     * {@code @SpringBootTest(classes=...)} 的主配置源。{@code @TestConfiguration}
-     * 不是 {@code @SpringBootConfiguration}，作为 classes 参数时 Spring Boot 会
-     * 找不到启动配置类，抛 "Unable to find a @SpringBootConfiguration"。</p>
+     * <p>用 {@link ImportAutoConfiguration} 而非 {@code @EnableAutoConfiguration}，
+     * 精确只拉数据层自动配置，从根上避免 Sa-Token Redis / Redisson / Kafka / XXL-JOB
+     * 等 bean 被自动装配进来——这些组件在本测试范围外，且 {@code @EnableAutoConfiguration}
+     * 的 exclude 链无法收敛（排除 Redisson 后 SaTokenDaoRedisJackson 又缺
+     * RedisConnectionFactory）。</p>
+     *
+     * <p>同时使用 {@link SpringBootConfiguration}（而非 {@code @TestConfiguration}）作为
+     * {@code @SpringBootTest(classes=...)} 的主配置源，并设 {@code webEnvironment=NONE}
+     * 避免加载 web 自动配置。</p>
      */
     @SpringBootConfiguration
-    @EnableAutoConfiguration(exclude = {
-            KafkaAutoConfiguration.class,
-            org.redisson.spring.starter.RedissonAutoConfigurationV2.class
+    @ImportAutoConfiguration({
+            DataSourceAutoConfiguration.class,
+            DataSourceTransactionManagerAutoConfiguration.class,
+            TransactionAutoConfiguration.class,
+            FlywayAutoConfiguration.class,
+            MybatisPlusAutoConfiguration.class
     })
     @MapperScan("com.pulseflow.mapper")
     @Import({EventPersistenceService.class, MyMetaObjectHandler.class})
