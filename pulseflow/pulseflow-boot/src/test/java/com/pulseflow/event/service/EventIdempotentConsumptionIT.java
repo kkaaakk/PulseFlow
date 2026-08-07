@@ -11,10 +11,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -75,8 +75,13 @@ class EventIdempotentConsumptionIT {
     /**
      * 最小化配置：只扫描 mapper，导入 EventPersistenceService + MetaObjectHandler，
      * 排除 Kafka/Redisson 自动配置（这两个组件的 bean 不在本测试范围内）。
+     *
+     * <p>使用 {@link SpringBootConfiguration}（而非 {@code @TestConfiguration}）作为
+     * {@code @SpringBootTest(classes=...)} 的主配置源。{@code @TestConfiguration}
+     * 不是 {@code @SpringBootConfiguration}，作为 classes 参数时 Spring Boot 会
+     * 找不到启动配置类，抛 "Unable to find a @SpringBootConfiguration"。</p>
      */
-    @TestConfiguration
+    @SpringBootConfiguration
     @EnableAutoConfiguration(exclude = {
             KafkaAutoConfiguration.class,
             org.redisson.spring.starter.RedissonAutoConfiguration.class
