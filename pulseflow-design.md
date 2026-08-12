@@ -2,7 +2,7 @@
 
 > **版本**：3.0  
 > **文档日期**：2026-08-12  
-> **代码基线**：`kkaaakk/PulseFlow` `main` @ `a2215b13f9ea0c61b0b6c7be68aaa0fcf92c1bdd`  
+> **代码基线**：`kkaaakk/PulseFlow` `main` @ `7db6d36d21a6e3c914c36d3ca28e04790768bd0c`  
 > **状态**：核心业务闭环 + AI Campaign Copilot 已实现，CI 全绿
 
 ---

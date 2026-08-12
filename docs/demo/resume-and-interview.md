@@ -1,6 +1,6 @@
 # PulseFlow 简历描述与面试讲稿
 
-> 配套：[README](../README.md) · [演示脚本](demo/demo-scenario.md) · [架构图见 README](../README.md#架构总览)
+> 配套：[README](../../README.md) · [演示脚本](demo-scenario.md) · [架构图见 README](../../README.md#架构总览)
 >
 > 简历原则：不罗列类名，用三条把"做了什么 + 怎么做 + 为什么可信"讲清楚。
 
@@ -51,13 +51,13 @@
 >
 > 具体怎么做。运营输入一段自然语言，比如'筛选近7天活跃≥5天、近30天消费>500元、近3天未购买的用户，今晚8点发满300减30站内信，每24h最多触达1次'。LLM 产出的是一个 DSL 草稿，然后过一道 Guardrail 校验层，这是 Java 确定性代码，AI 过不了这关就执行不了。
 >
-> 校验有六道：第一，字段白名单——`AiFieldRegistry` 里只有 11 个受信字段，AI 编一个不存在的字段直接 422。第二，类型 + 范围——每个字段声明 INTEGER/DECIMAL/STRING/BOOLEAN 加 min/max，`activeDays7d` 不能超过 7 这种业务边界强校验。第三，时间合法性——`sendAt` 必须未来、必须带 offset、还要和 timezone 交叉校验。第四，频控约束——`maxTimes` 和 `windowHours` 必须 >0。第五，文案的优惠事实以**服务端草稿为准**，请求体改不了，`ContentFactValidator` 会丢弃任何提到草稿里不存在的数字的文案——AI 改不了优惠力度。第六，复盘的 `evidenceKeys` + 数字一致性校验——AI 结论里的数字必须等于 Java 算出来的数字，对不上 422。
+> 校验有六道：第一，字段白名单——`AiFieldRegistry` 里只有 12 个受信字段，AI 编一个不存在的字段直接 422。第二，类型 + 范围——每个字段声明 INTEGER/DECIMAL/STRING/BOOLEAN 加 min/max，`activeDays7d` 不能超过 7 这种业务边界强校验。第三，时间合法性——`sendAt` 必须未来、必须带 offset、还要和 timezone 交叉校验。第四，频控约束——`maxTimes` 和 `windowHours` 必须 >0。第五，文案的优惠事实以**服务端草稿为准**，请求体改不了，`ContentFactValidator` 会丢弃任何提到草稿里不存在的数字的文案——AI 改不了优惠力度。第六，复盘的 `evidenceKeys` + 数字一致性校验——AI 结论里的数字必须等于 Java 算出来的数字，对不上 422。
 >
 > 还有一个权限细节：`operatorId` 从 Sa-Token 登录态取，请求体里的 `operatorId` 字段被忽略，防伪造。资源归属上，`requireDraftOwner` 校验草稿归属，`requireCampaignOwner` 校验 Campaign 归属，历史 `created_by=null` 数据默认拒绝——防猜 ID 越权。
 >
-> 校验通过后，确认创建由人触发，走的是原有的 `confirmAndCreate`，写真实 `campaign` + `campaign_rule`，之后由确定性 `DecisionEngine` 执行。**AI 全程没碰业务库**，它只产出草稿。
+> 校验通过后，确认创建由人触发，走的是原有的 `confirmAndCreate`，写真实 `campaign` + `campaign_rule`，之后由确定性 `DecisionEngine` 执行。**LLM 不直接产生业务副作用，所有落库由经过校验的 Java 服务完成**，AI 只产出草稿。
 >
-> 聚合指标这一层我也守住了——**指标由 Java 计算，AI 只解释**。比如 CTR、CVR、平均消费都是 `PerformanceSummaryCalculator` 算好持久化的，AI 拿到的是数字，它只写文字总结。这样 AI 即使幻觉也改不了指标本身。"
+> 聚合指标这一层我也守住了——**指标由 Java 计算，AI 只解释**。比如 deliveryRate、clickRate、conversionRate 等复盘比率由 `PerformanceSummaryCalculator` 计算，人群平均消费等洞察指标由 `AudienceMetricsAggregator` 聚合，AI 拿到的是数字，它只写文字总结。这样 AI 即使幻觉也改不了指标本身。"
 
 ** anticipate 的问题**：
 - *为什么不直接让 AI 调函数/Agent 执行？* → 函数调用让模型直接副作用业务系统，幻觉就是真实事故。我的设计里 AI 产出的是**可校验的数据结构**（DSL），不是动作，校验失败就 422，安全边界清晰。

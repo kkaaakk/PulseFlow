@@ -8,6 +8,8 @@ import org.springframework.util.StreamUtils;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 
 /**
@@ -39,6 +41,11 @@ public class FakeAiModelClient implements AiModelClient {
     public AiResponse generateStructured(AiRequest request) {
         long started = System.currentTimeMillis();
         String fixture = loadFixture(request.getTaskType());
+
+        // Dynamically update sendAt to now+1h so demo fixtures never expire.
+        if (request.getTaskType() == AiTaskType.PARSE_DSL) {
+            fixture = replaceSendAt(fixture);
+        }
 
         return AiResponse.builder()
                 .requestId(request.getRequestId())
@@ -73,6 +80,12 @@ public class FakeAiModelClient implements AiModelClient {
             log.warn("Fake fixture {} not loadable, using inline fallback: {}", path, e.getMessage());
             return inlineFallback(taskType);
         }
+    }
+
+    private String replaceSendAt(String json) {
+        OffsetDateTime future = OffsetDateTime.now().plusHours(1).withMinute(0).withSecond(0).withNano(0);
+        String futureStr = future.format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX"));
+        return json.replaceAll("\"sendAt\"\\s*:\\s*\"[^\"]*\"", "\"sendAt\": \"" + futureStr + "\"");
     }
 
     private String inlineFallback(AiTaskType taskType) {

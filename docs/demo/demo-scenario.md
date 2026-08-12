@@ -120,7 +120,7 @@ AI 产出的 DSL 必须落在下面的结构上（字段全部来自 `AiFieldReg
   "channel": "IN_APP",
   "schedule": {
     "type": "ONCE",
-    "sendAt": "2026-08-07T20:00:00+08:00",
+    "sendAt": "<now+1h, FakeAiModelClient 动态生成>",
     "timezone": "Asia/Shanghai"
   },
   "frequencyCap": {"maxTimes": 1, "windowHours": 24},
@@ -283,7 +283,7 @@ curl -s -X POST "http://localhost:8080/api/events" \
     "userId": 1024,
     "eventType": "CAMPAIGN_CLICK",
     "targetId": 1,
-    "eventTime": "2026-08-07T20:05:00",
+        "eventTime": "<当前时间，按演示时调整>",,
     "properties": {"taskId": 1, "campaignId": 1}
   }'
 ```
@@ -298,7 +298,7 @@ curl -s -X POST "http://localhost:8080/api/events" \
     "userId": 1024,
     "eventType": "ORDER_PAID",
     "targetId": 9999,
-    "eventTime": "2026-08-07T20:30:00",
+        "eventTime": "<当前时间，按演示时调整>",,
     "properties": {"orderId": "ord_demo_001", "price": 328.00}
   }'
 ```

@@ -87,7 +87,7 @@ flowchart TD
 
 | 风险 | 对应防护 |
 |---|---|
-| 模型编造不存在的字段 | `AiFieldRegistry` 11 个白名单字段，不在表内直接拒绝 |
+| 模型编造不存在的字段 | `AiFieldRegistry` 12 个白名单字段，不在表内直接拒绝 |
 | 类型/范围错乱（活跃天数=999） | 每字段声明 `ValueType` + `min/max`，`activeDays7d ≤ 7` 等业务边界强校验 |
 | 时间填过去 / 时区错 | `sendAt` 必须未来 + 必须带 offset + 与 `timezone` 交叉校验 |
 | 文案里优惠金额被改 | 优惠事实只从服务端草稿读取，请求体 `operatorId`/优惠字段一律忽略 |
@@ -252,15 +252,17 @@ Flyway 自动执行 [`V1~V5`](pulseflow/pulseflow-boot/src/main/resources/db/mig
 
 | 版本 | 内容 |
 |---|---|
-| V1~V3 | 核心表：user_event / user_metric_hourly / user_behavior_summary / user_tag / campaign / campaign_rule / delivery_task / delivery_log / attribution_record |
-| V4 | AI 复盘状态机列（locked_by / locked_at / version）+ 扫描索引 |
-| V5 | 状态拆分（failure_code / retryable / retry_count / next_retry_at）+ `campaign.created_by` 资源归属 + 重试调度索引 |
+| V1 | 15 张核心表：user_event / user_metric_hourly / user_behavior_summary / user_tag / campaign / campaign_rule / delivery_task / delivery_record / attribution_record 等 |
+| V2 | 渠道幂等表：in_app_message / push_record |
+| V3 | AI Campaign Copilot 表：campaign_ai_draft / campaign_ai_review / campaign_performance_summary / campaign_content_variant |
+| V4 | AI 复盘状态机列（locked_by / locked_at / version）+ 扫描索引 idx_ai_review_status |
+| V5 | 状态拆分（failure_code / retryable / retry_count / next_retry_at）+ `campaign.created_by` 资源归属 + 重试调度索引 idx_ai_review_status_retry |
 
 ---
 
 ## AI Campaign Copilot API
 
-所有 `/api/**` 端点需 Sa-Token 登录，`operatorId` 从 `StpUtil.getLoginId()` 服务端获取（忽略请求体，防伪造）。
+所有 `/api/**` 端点需 Sa-Token 登录（例外：`/api/events` 公开事件接入，`/api/auth/dev-login` 仅演示模式 opt-in 启用），`operatorId` 从 `StpUtil.getLoginId()` 服务端获取（忽略请求体，防伪造）。
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
@@ -275,7 +277,7 @@ Flyway 自动执行 [`V1~V5`](pulseflow/pulseflow-boot/src/main/resources/db/mig
 
 ### DSL 字段白名单（AiFieldRegistry）
 
-AI 只能引用这 11 个受信字段：
+AI 只能引用这 12 个受信字段：
 
 | fieldCode | 类型 | 含义 |
 |---|---|---|
