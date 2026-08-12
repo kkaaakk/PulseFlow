@@ -1,879 +1,1586 @@
-# PulseFlow — 实时用户行为决策引擎 设计方案
+# PulseFlow — 实时用户行为决策引擎 + AI Campaign Copilot 设计方案
 
-> **版本**: 2.9 | **日期**: 2026-07-31 | **状态**: 开发基线就绪
+> **版本**：3.0  
+> **文档日期**：2026-08-12  
+> **代码基线**：`kkaaakk/PulseFlow` `main` @ `a2215b13f9ea0c61b0b6c7be68aaa0fcf92c1bdd`  
+> **状态**：核心业务闭环 + AI Campaign Copilot 已实现，CI 全绿
 
 ---
 
 ## 一、项目定位
 
-### 一句话描述
+### 1.1 一句话描述
 
-面向内容社区与电商增长场景的事件驱动实时行为决策引擎 — 采集用户行为，实时更新用户状态，按规则自动决策并执行动作，追踪转化效果形成闭环。
+PulseFlow 是一个面向内容社区与电商增长场景的**事件驱动实时用户行为决策引擎**：系统采集用户行为，实时更新用户画像，按 Campaign 规则进行决策，自动创建并执行触达任务，最后通过点击与转化归因形成闭环；在此基础上增加 **AI Campaign Copilot**，用于辅助 Campaign 创建、人群洞察、营销文案生成和活动复盘。
 
-### 不是什么东西
+### 1.2 核心原则
 
-- 不是运营后台管理工具（虽然包含必要的活动配置）
-- 不是群发消息系统（核心是决策，触达只是动作之一）
-- 不是用户管理系统（用户基础信息只用最少字段）
+PulseFlow 的核心不是“AI 自动运营”，而是：
 
-### 核心闭环
-
-```
-用户行为发生 → 实时状态更新 → 规则决策命中 → 自动执行动作 → 后续行为反馈 → 转化归因
+```text
+确定性 Java 业务引擎负责执行
++
+AI 负责理解、解释、建议和复盘
 ```
 
-### 项目名称
+AI 可以：
 
-**PulseFlow** — 取自"用户行为脉搏"，强调实时性和流式处理特性。
+- 把自然语言运营需求转换成受约束的 Campaign DSL；
+- 对目标人群的聚合画像做解释；
+- 根据真实优惠事实生成营销文案；
+- 基于后端真实计算的活动指标生成复盘。
+
+AI 不可以：
+
+- 直接执行 SQL；
+- 直接修改用户画像；
+- 绕过 Campaign 规则校验；
+- 绕过频控和去重；
+- 自动激活 Campaign；
+- 直接触发消息发送；
+- 向模型发送用户级完整行为轨迹和敏感个人信息。
+
+### 1.3 当前完整闭环
+
+```text
+用户行为
+  ↓
+Kafka 事件流
+  ↓
+MySQL 事实落盘 + Redis 实时状态
+  ↓
+三级用户画像
+  ↓
+Campaign 规则决策
+  ↓
+触达任务
+  ↓
+Kafka Delivery
+  ↓
+频控 + 渠道发送
+  ↓
+点击 / 目标转化事件
+  ↓
+Last-Touch 转化归因
+  ↓
+Campaign Performance Summary
+  ↓
+AI Campaign Review
+```
+
+同时，Campaign 创建侧存在一条辅助链路：
+
+```text
+自然语言运营需求
+  ↓
+AI Campaign DSL
+  ↓
+字段白名单 / 类型 / 操作符 / 业务边界校验
+  ↓
+人群预估 + 人群洞察 + 文案建议
+  ↓
+人工确认
+  ↓
+正式 Campaign（DRAFT）
+  ↓
+仍然进入原有确定性 Campaign 引擎
+```
 
 ---
 
-## 二、整体架构
+# 二、整体架构
 
-### 2.1 事件处理管道
+## 2.1 当前逻辑架构
 
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                         PulseFlow                            │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  行为接入层                                                   │
+│  REST API → Kafka(pulseflow.raw.events)                      │
+│                 │                                            │
+│                 ▼                                            │
+│  ┌──────────────────────────────────────────────────────┐    │
+│  │ 事件处理                                             │    │
+│  │ MySQL 事实落盘 → Redis 实时画像 → DecisionEngine     │    │
+│  └───────────────┬──────────────────────────────────────┘    │
+│                  │                                           │
+│          ┌───────┴─────────┐                                 │
+│          ▼                 ▼                                 │
+│     用户画像体系        Campaign 决策                         │
+│  实时/窗口/长期标签    EVENT/DELAYED/SCHEDULED                │
+│                            │                                 │
+│                            ▼                                 │
+│                      delivery_task                           │
+│                            │                                 │
+│                            ▼                                 │
+│                  Kafka(pulseflow.delivery)                   │
+│                            │                                 │
+│                            ▼                                 │
+│                   Lua 频控 + 渠道发送                         │
+│                            │                                 │
+│                            ▼                                 │
+│                     点击 / 转化归因                           │
+│                            │                                 │
+│                            ▼                                 │
+│                   活动效果聚合与 AI 复盘                       │
+│                                                              │
+├──────────────────────────────────────────────────────────────┤
+│ AI Campaign Copilot                                          │
+│                                                              │
+│ 自然语言 → DSL → 草稿 → 人群洞察 → 文案 → 人工确认            │
+│                                 │                            │
+│                                 └──→ 原 Campaign 引擎执行     │
+│                                                              │
+│ Campaign 结束 → 效果摘要 → AI Review → 结构化复盘             │
+└──────────────────────────────────────────────────────────────┘
 ```
-┌──────────┐     ┌──────────┐     ┌──────────────────────────────┐
-│ 行为接入  │────▶│  Kafka   │────▶│        消费分发               │
-│ REST API │     │ 事件管道  │     │                              │
-└──────────┘     └──────────┘     └──┬──────────┬──────────┬─────┘
-                                     │          │          │
-                                  Redis      MySQL        ES
-                               实时状态·频控  业务数据  行为索引(Stage2)
-                               延迟任务·缓存  补偿任务
-```
 
-### 2.2 异构数据架构
+## 2.2 当前基础设施职责
 
-| 组件 | 角色 | 存储内容 | 可靠性要求 |
-|------|------|----------|-----------|
-| **Kafka** | 事件管道，削峰解耦 | 原始事件流（限时保留） | — |
-| **Redis** | 实时状态与缓存 | 实时指标、用户状态、频控计数、延迟任务ZSET、归因宽限ZSET | 可重建 |
-| **MySQL** | 核心业务事实 + 补偿队列 | 事件归档、用户、活动配置、触达任务、归因记录、小时指标桶、补偿任务、活动执行实例 | 不可丢 |
-| **Elasticsearch** | 行为检索(Stage 2) | 行为明细索引、聚合分析 | 可重建 |
+| 组件 | 当前职责 | 数据可靠性定位 |
+|---|---|---|
+| Kafka | 原始行为事件流、触达任务分发、削峰解耦 | 可重复投递，消费者必须幂等 |
+| MySQL | 核心事实数据、Campaign、触达、归因、补偿、AI 草稿与审计 | **核心事实来源，不可丢** |
+| Redis | 实时画像、事件处理标记、频控、延迟任务、归因宽限队列 | 可重建，允许通过补偿恢复 |
+| XXL-JOB | 窗口指标、标签、Campaign 扫描、补偿恢复、AI 复盘等后台任务 | 调度入口 |
+| Sa-Token | 管理端身份和 AI 资源访问控制 | 用户身份来源 |
+| Flyway | MySQL Schema 演进 | V1～V5 |
+| AI Provider | 结构化 DSL / Insight / Content / Review 生成 | 可关闭，不得成为核心业务单点 |
 
-**一致性原则**：
+> **Elasticsearch 不是当前主链路已落地组件。** 旧版文档中的 ES 行为检索属于后续 Stage 2 扩展方向，不再画入当前已实现架构。
 
-- MySQL 是唯一事实来源。事件写入和小时指标桶更新放在**同一个本地事务**中。补偿任务也写入 MySQL。
-- Redis 可通过 Kafka 事件或 MySQL 数据重建，不强求与 MySQL 实时一致。更新失败写入 MySQL 补偿任务，由 XXL-JOB 异步重放。
-- ES 通过补偿任务重索引，允许短暂延迟。
-- Kafka 消费者必须支持重复执行（幂等消费）。
+## 2.3 一致性原则
 
-### 2.3 部署模式
-
-第一版按**模块化单体**部署，模块间通过接口调用而非 RPC。后续可按模块拆分为微服务（CDP 框架天然支持一套代码双部署）。
-
-### 2.4 Kafka 分区策略
-
-**生产者必须以 userId 为 Key 投递消息**：
-
-```java
-kafkaTemplate.send("pulseflow.raw.events",
-    String.valueOf(event.getUserId()),  // Key: userId，保证同一用户进入同一分区
-    eventJson);
-```
-
-原因：同一用户的 `ADD_CART → REMOVE_CART → ORDER_PAID` 等关联事件如果在不同分区被不同消费者乱序处理，会导致购物车状态和实时决策错误。
-
-这个约束写入代码规范，消费者代码依赖此假设。
-
-**即使按用户分区，跨来源迟到事件仍然可能发生**，通过 `eventTime` 校验和归因宽限窗口处理。
+1. **MySQL 保存不可丢的业务事实。**
+2. **Redis 保存可重建的实时状态。** Redis 更新失败时通过 `data_compensation_task` 恢复。
+3. Kafka 消费路径必须允许重复执行，数据库 UK、Redis processed flag 和业务 dedup key 分层兜底。
+4. Campaign 真正执行永远走确定性业务引擎，AI 不绕过规则、频控、幂等和发送链路。
+5. AI 输出必须经过 Java 校验后才能进入业务系统。
+6. AI 失败不得影响非 AI Campaign 主链路启动和运行。
 
 ---
 
-## 三、五条核心链路
+# 三、五条核心确定性业务链路
 
-### 链路 1：行为接入与幂等消费
+## 链路 1：行为接入与幂等消费
 
-#### 1.1 完整处理流程
+### 3.1.1 接入流程
 
-```
+```text
 POST /api/events
-  → 校验 eventId 格式、必填字段、eventTime 偏差（±5min 内）
-  → 以 userId 为 Key 投递 Kafka
-  → 返回 202 Accepted（仅在 Kafka broker 确认写入后，而非 send() 后立即返回）
-
-Kafka Consumer 接收（单分区内保证同一用户事件顺序）:
-
-  第一阶段 — MySQL 事务:
-    BEGIN
-      INSERT INTO user_event (UNIQUE KEY uk_event_id 兜底幂等)
-      INSERT INTO user_metric_hourly ... ON DUPLICATE KEY UPDATE
-    COMMIT
-    若 DuplicateKeyException:
-      → **不直接 ACK**（第一次处理可能在 MySQL 成功后、Redis 更新前宕机）
-      → 仅跳过 user_event 和指标桶写入
-      → **从 MySQL 查询该 eventId 的原始事件记录**作为标准事件
-      → 使用数据库中已保存的事件继续执行第二阶段和第三阶段
-
-  第二阶段 — Redis Lua 原子更新:
-    EVAL lua_upsert_realtime_metrics.lua
-      → 检查 event:processed:{eventId} 是否存在
-      → 不存在 → HINCRBY / HSET 实时指标 + SET 处理标记(EX 604800)  -- 7天，≥ Kafka 保留期
-      → 存在 → 跳过（幂等，重复执行安全）
-
-  第三阶段 — 即时决策评估:
-    DecisionEngine 加载关联活动 → 规则评估 → 快速预过滤 → 创建触达任务
-
-  全部阶段成功:
-    → ACK Kafka
-
-  第二阶段或第三阶段失败:
-    → INSERT INTO data_compensation_task (
-        event_id, task_type='EVENT_REPLAY', payload, status='PENDING'
-      ) ON DUPLICATE KEY UPDATE
-          status = 'PENDING', retry_count = 0,
-          next_retry_at = NOW(), locked_at = NULL,
-          last_error = VALUES(last_error)
-    → 补偿任务写入成功 → ACK Kafka
-
-  第一阶段 MySQL 事务失败:
-    → 不 ACK，抛出异常，由 Kafka 消费者重投
-
-  补偿任务写入也失败:
-    → 不 ACK，由 Kafka 消费者重投
+  ↓
+校验 eventId / userId / eventType / eventTime 等字段
+  ↓
+计算 receivedAt / effectiveEventTime / clockSkew
+  ↓
+以 userId 作为 Kafka Key
+  ↓
+pulseflow.raw.events
 ```
 
-**ACK 规则**：只有事实数据已落 MySQL（第一阶段成功），或者失败步骤已成功写入补偿任务时才能 ACK。任何其他情况一律不 ACK，交给 Kafka 重投。DuplicateKeyException 在第一阶段说明数据已存在，等同于第一阶段成功。
+同一用户事件以 `userId` 作为 Kafka Key，目的是尽量保证同一用户在同一分区内的事件顺序。
 
-**DuplicateKeyException 的正确语义**：仅表示该事件已在 MySQL 落盘一次，不代表上次处理的 Redis 和决策阶段也完成了。重复消费时从 DB 读取标准事件继续执行——MySQL 始终是唯一事实来源，不依赖 Kafka 重放消息的字段内容。
+### 3.1.2 EventConsumer 三阶段
 
-#### 1.2 补偿任务恢复
+当前 `EventConsumer` 把消费流程拆成三阶段：
 
-两个阶段的需求（重建 Redis + 重试决策）合并为**单一补偿任务类型**，避免两条记录之间没有依赖字段导致顺序错乱：
-
-```
-CompensationJob 每 30 秒:
-  1. 恢复卡死的 PROCESSING 任务:
-     UPDATE data_compensation_task
-     SET status = 'PENDING',
-         retry_count = retry_count + 1,
-         next_retry_at = NOW()
-     WHERE status = 'PROCESSING'
-       AND locked_at < NOW() - INTERVAL 5 MINUTE
-       AND retry_count < max_retry
-
-  2. 事务领取新任务（避免 MySQL 1093 自引用限制 + 多实例并发安全）:
-     BEGIN;
-       SELECT id FROM data_compensation_task
-       WHERE status = 'PENDING' AND next_retry_at <= NOW()
-       ORDER BY id LIMIT 1
-       FOR UPDATE SKIP LOCKED;
-
-       UPDATE data_compensation_task
-       SET status = 'PROCESSING', locked_at = NOW()
-       WHERE id = ?;
-     COMMIT;
-
-  3. 固定恢复流程:
-     task_type = EVENT_REPLAY:
-       ① 重放 Redis Lua 更新（幂等）
-       ② 重新加载活动规则 → 决策评估
-       ③ delivery_task.dedup_key UK 阻止任何重复触达
-       ④ status = DONE
-
-     执行失败:
-       → retry_count + 1, locked_at = NULL
-       → 未超 max_retry: status = PENDING, next_retry_at = {退避时间}
-       → 已超 max_retry: status = FAILED
+```text
+Kafka raw event
+  │
+  ├─ Phase 1：MySQL 事实事务
+  │    ├─ INSERT user_event
+  │    └─ UPSERT user_metric_hourly
+  │
+  ├─ Phase 2：Redis 实时画像 Lua
+  │    ├─ event:processed:{eventId} 幂等判断
+  │    ├─ 更新 user:rt / user:daily / user:cart
+  │    └─ 写 processed flag
+  │
+  └─ Phase 3：DecisionEngine
+       ├─ EVENT Campaign 即时决策
+       ├─ DELAYED Campaign 延迟任务创建
+       └─ 命中后创建 delivery_task
 ```
 
-#### 1.3 事件模型
+### 3.1.3 MySQL 幂等语义
 
-```json
-{
-  "eventId": "evt_20260731_10001",
-  "userId": 1024,
-  "eventType": "ADD_CART",
-  "targetId": 8866,
-  "eventTime": "2026-07-31T09:30:00",
-  "properties": {
-    "category": "AI",
-    "price": 29.9,
-    "cartItemId": "ci_501"
-  }
-}
+`user_event.event_id` 有唯一约束。
+
+重复事件到达时：
+
+```text
+DuplicateKeyException
+  ≠ “整条业务已经完成”
+
+它只代表：
+这个 eventId 已经至少成功写入 MySQL 一次。
 ```
 
-#### 1.4 事件类型
+因此重复消费不能直接认定 Redis 和 DecisionEngine 也处理过。
 
-`LOGIN | CONTENT_VIEW | SEARCH | LIKE | FAVORITE | ADD_CART | REMOVE_CART | ORDER_CREATE | ORDER_PAID | SHARE | CLICK`
+当前实现会从 MySQL 读取该 `eventId` 对应的**标准事件记录**，后续 Redis 和决策阶段继续使用数据库中的 canonical event，而不是相信新的 Kafka 重放 payload。
 
-#### 1.5 客户端时间校验
+### 3.1.4 Redis 实时更新
 
+核心思想：
+
+```text
+if event:processed:{eventId} exists:
+    skip
+else:
+    update realtime metrics
+    set processed flag
 ```
-eventTime 校验规则:
-  1. |eventTime - receivedAt| <= 5min → clock_skew = false
-     → effective_event_time = eventTime
-  2. 偏差 > 5min → clock_skew = true
-     → effective_event_time = receivedAt
-     → 记录告警
+
+典型 Key：
+
+```text
+user:rt:{userId}
+user:daily:{userId}:{yyyyMMdd}
+user:cart:{userId}
+event:processed:{eventId}
 ```
 
-三个时间字段保留，新增 `effective_event_time` 作为统一的业务计算基准：
-- `event_time`：客户端发生时间（保存，用于审计追溯）
-- `received_at`：服务端接收时间
-- `effective_event_time`：实际业务时间（实时指标、小时桶、归因匹配均使用此字段）
+事件处理标记 TTL 为 7 天，用来阻止 Kafka 重放导致 Redis 指标重复累计。
 
-> `effective_event_time` 确保恶意或错误的未来/过去时间不会污染日期 Key、时间桶区间和归因窗口。
+### 3.1.5 补偿机制
+
+如果 Phase 2 或 Phase 3 失败：
+
+```text
+data_compensation_task
+  task_type = EVENT_REPLAY
+  status = PENDING
+```
+
+`CompensationJob` 后续固定重放：
+
+```text
+EVENT_REPLAY
+  ↓
+重新执行 Redis 实时状态更新（幂等）
+  ↓
+重新执行 DecisionEngine
+  ↓
+delivery_task.dedup_key 再次兜底
+```
+
+如果连补偿任务都无法落 MySQL，则消费逻辑抛异常，让 Kafka 有机会再次投递。
+
+### 3.1.6 转化事件旁路
+
+当前 `ORDER_PAID` 同时被视为归因目标事件。
+
+当事件主处理阶段完成后，会调用 `AttributionService.onTargetEvent(...)` 创建归因等待任务，使行为事件链能够继续进入链路 5。
 
 ---
 
-### 链路 2：三级用户画像计算
+## 链路 2：三级用户画像计算
 
-```
-┌────────────────────────────────────────────────────┐
-│                  用户画像 (UserProfile)              │
-│                                                    │
-│  ┌──────────────┐  ┌──────────────┐  ┌───────────┐ │
-│  │ 实时指标      │  │ 窗口指标      │  │ 长期标签   │ │
-│  │ Redis Hash   │  │ MySQL聚合    │  │ MySQL+Cache│ │
-│  │              │  │              │  │            │ │
-│  │ lastLoginAt  │  │ search1h     │  │ AI_PREF    │ │
-│  │ todayViews   │  │ active7d     │  │ HIGH_VALUE │ │
-│  │ cartItems    │  │ spend30d     │  │ CHURN_RISK │ │
-│  │              │  │ fav7d        │  │ PRICE_SEN  │ │
-│  └──────┬───────┘  └──────┬───────┘  └─────┬─────┘ │
-│         │                 │                 │       │
-│    事件消费时更新      XXL-JOB 每小时      XXL-JOB 每日 │
-│    (Lua原子操作)     (读时间桶聚合)    (策略模式规则)  │
-└────────────────────────────────────────────────────┘
+PulseFlow 不把用户画像做成单一字段，而是拆成三层：
+
+```text
+实时状态
++
+窗口指标
++
+长期标签
 ```
 
-#### 2.1 实时指标（Redis）
+### 3.2.1 第一层：实时状态 Redis
 
-**Key 设计**（分离长期状态、当日计数和购物车）：
-```
-user:rt:{userId}                       长期实时状态 (无 TTL)
-  ├── last_login_at
-  └── last_active_at
+```text
+user:rt:{userId}
+  last_login_at
+  last_active_at
 
-user:daily:{userId}:{yyyyMMdd}         当日计数 (TTL 48h)
-  ├── views
-  └── search_count
+user:daily:{userId}:{yyyyMMdd}
+  views
+  search_count
 
-user:cart:{userId}                     购物车 (HASH, 无 TTL)
-  cartItemId → JSON (商品信息)
-
-注：Redis HASH 字段值只能是字符串，不能嵌套 HASH，因此购物车拆为独立 Key。
+user:cart:{userId}
+  cartItemId -> JSON
 ```
 
-**更新方式**（Lua 原子化，根据事件类型操作对应 Key）：
+事件消费时实时更新，适合 DecisionEngine 的即时判断。
 
-```
-lua_upsert_realtime_metrics.lua:
-  1. EXISTS event:processed:{eventId} → 跳过，return
-  2. 根据 eventType:
-     LOGIN       → HSET user:rt  last_login_at {effectiveEventTime}
-     CONTENT_VIEW → HINCRBY user:daily views 1
-     SEARCH      → HINCRBY user:daily search_count 1
-     ADD_CART    → HSET user:cart {cartItemId} {json}
-     REMOVE_CART → HDEL user:cart {cartItemId}
-     ORDER_PAID  → HDEL user:cart {cartItemId}
-  3. HSET user:rt last_active_at {effectiveEventTime}
-  4. SET event:processed:{eventId} 1 EX 604800  -- 7天，≥ Kafka 保留期
-  5. return ok
+### 3.2.2 第二层：窗口指标
+
+底层先把行为写成小时桶：
+
+```text
+user_metric_hourly
 ```
 
-#### 2.2 窗口指标（基于时间桶聚合）
+然后通过 XXL-JOB 聚合为：
 
-**小时指标桶** `user_metric_hourly`（与 user_event 同一事务写入）：
-
-```sql
-INSERT INTO user_metric_hourly (user_id, metric_hour, event_type, event_count, duration_sum, amount_sum)
-VALUES (?, ?, ?, 1, ?, ?)
-ON DUPLICATE KEY UPDATE
-    event_count = event_count + 1,
-    duration_sum = duration_sum + VALUES(duration_sum),
-    amount_sum = amount_sum + VALUES(amount_sum);
+```text
+user_metric_daily
+user_behavior_summary
 ```
 
-**日指标桶** `user_metric_daily`：
+当前窗口指标用于表达类似：
 
-XXL-JOB 每小时重算昨天完整 24 小时 + 今天已封闭小时（避免部分覆盖）：
-
-```sql
-INSERT INTO user_metric_daily (user_id, metric_date, event_type, event_count, duration_sum, amount_sum)
-SELECT user_id, DATE(metric_hour), event_type,
-       SUM(event_count), SUM(duration_sum), SUM(amount_sum)
-FROM user_metric_hourly
-WHERE metric_hour >= DATE_SUB(CURDATE(), INTERVAL 1 DAY)   -- 昨天 00:00 起
-  AND metric_hour <  DATE_FORMAT(NOW(), '%Y-%m-%d %H:00:00')  -- 已封闭小时
-GROUP BY DATE(metric_hour), user_id, event_type
-ON DUPLICATE KEY UPDATE
-    event_count = VALUES(event_count),
-    duration_sum = VALUES(duration_sum),
-    amount_sum = VALUES(amount_sum);
+```text
+search_1h
+active_7d
+spend_30d
+fav_7d
 ```
 
-> 聚合范围：昨天 00:00 至当前已封闭小时。每次覆盖昨天完整 24h + 今天已封闭小时，不会因窗口偏移导致历史数据被部分覆盖。
+其价值是避免每次规则判断都从原始 `user_event` 扫描大时间范围。
 
-XXL-JOB 每小时聚合窗口指标（读日桶+当前小时桶）：
+### 3.2.3 第三层：长期标签
 
+`TagRecalcJob` 根据窗口指标和标签策略周期性计算：
+
+```text
+AI_PREF
+HIGH_VALUE
+CHURN_RISK
+PRICE_SENSITIVE
+...
 ```
-近1小时: 读当前小时桶
-近7天:   读最近 7 个日桶
-近30天:  读最近 30 个日桶
+
+结果写入：
+
+```text
+user_tag
 ```
 
-#### 2.3 长期标签（策略模式）
+### 3.2.4 ProfileService 对上层提供统一查询
 
-8 种标签规则，XXL-JOB 每日凌晨重算。
+Campaign 与 AI 层不需要自己理解底层所有表，而是通过 Profile 相关服务访问：
+
+```text
+hasTag(...)
+getMetricValue(...)
+getWindowMetrics(...)
+getUserTags(...)
+```
+
+这样实时指标、窗口指标和长期标签可以作为一个统一用户画像能力被 DecisionEngine 和 AI 聚合层复用。
 
 ---
 
-### 链路 3：三种触发模式与决策执行
+## 链路 3：Campaign 决策与三种触发模式
 
-#### 3.1 事件触发（即时决策）
+Campaign 有三种触发模式：
 
-```
-Kafka 消费事件（在链路1的 Redis 更新之后）
-  → 加载该事件类型关联的活跃活动
-  → 规则条件评估（读取 Redis 实时指标 + MySQL 窗口指标/标签缓存）
-  → 命中 → 快速预过滤（免打扰、已退订、已转化）
-  → 通过 → 创建触达任务（含 dedup_key）
-
-若 Redis 更新失败:
-  → 写入 EVENT_REPLAY 补偿任务
-  → 由 CompensationJob 在 Redis 状态恢复 + 决策重试后创建触达任务
-  → delivery_task.dedup_key UK 防止重复触达
+```text
+EVENT
+DELAYED
+SCHEDULED
 ```
 
-> 创建任务阶段不调用计数型频控 Lua。频控只在真正发送前执行一次（见链路 4.2）。
+### 3.3.1 EVENT：事件即时触发
 
-#### 3.2 延迟触发（Redis ZSET + Lua 原子领取）
-
-**数据结构**：
-- `delay:pending:{taskType}` — 待执行 ZSET，score = 到期时间戳
-- `delay:processing:{taskType}` — 处理中 ZSET，score = 领取时间戳
-
-```
-独立线程每秒轮询 → Lua 领取(pending→processing)
-  → MySQL 检查条件
-  → 条件满足 → 创建触达任务 → ZREM processing
-  → 条件不再满足 → CANCELLED → ZREM processing
-
-恢复 Job（XXL-JOB 每 5 分钟）:
-  → 扫描 processing 超时任务 → 放回 pending（最多 3 次）
-  → 超限 → 写入 dead_letter 记录
-```
-
-#### 3.3 定时触发（统一扫描 + 执行实例表）
-
-**核心原则**：不为每个活动动态创建 XXL-JOB 任务。使用单一 `CampaignSelectionJob` 统一扫描 + `campaign_execution` 实例表防止执行中断。
-
-**campaign_execution 表**：
-
-```sql
-CREATE TABLE campaign_execution (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    campaign_id BIGINT NOT NULL,
-    scheduled_at DATETIME NOT NULL,
-    status ENUM('PENDING','RUNNING','DONE','FAILED') DEFAULT 'PENDING',
-    started_at DATETIME,
-    finished_at DATETIME,
-    retry_count INT DEFAULT 0,
-    last_error VARCHAR(512),
-    UNIQUE KEY uk_campaign_schedule (campaign_id, scheduled_at),
-    KEY idx_status (status, started_at)
-) ENGINE=InnoDB;
+```text
+EventConsumer Phase 3
+  ↓
+DecisionEngine.evaluate(event)
+  ↓
+查找 ACTIVE + EVENT Campaign
+  ↓
+按 eventType 匹配
+  ↓
+加载 CampaignRule
+  ↓
+读取 Profile / Event 条件
+  ↓
+规则全部匹配
+  ↓
+UserPreferenceService 快速预过滤
+  ↓
+生成 dedup_key
+  ↓
+DeliveryService.createDeliveryTask(...)
 ```
 
-**完整流程**（两阶段）：
+预过滤包括免打扰、退订、已转化等不应该继续创建触达任务的场景。
 
-```
-CampaignSelectionJob 每分钟执行:
+### 3.3.2 DELAYED：延迟触发
 
-  -- 步骤0: 恢复卡死的 RUNNING 实例
-  UPDATE campaign_execution SET status='PENDING', retry_count=retry_count+1
-  WHERE status='RUNNING' AND started_at < NOW() - INTERVAL 10 MINUTE
-    AND retry_count < 3;
+典型场景：加购后一定时间仍未购买。
 
-  -- 超过最大重试的 RUNNING 标记为 FAILED
-  UPDATE campaign_execution SET status='FAILED'
-  WHERE status='RUNNING' AND started_at < NOW() - INTERVAL 10 MINUTE
-    AND retry_count >= 3;
-
-  -- ========== 阶段A: 为新到期活动创建执行实例 ==========
-  -- 扫描 next_trigger_at <= NOW() 的活跃活动
-  FOR each campaign WHERE status='ACTIVE' AND trigger_type='SCHEDULED'
-                    AND next_trigger_at <= NOW():
-    BEGIN
-      -- 乐观锁推进 next_trigger_at
-      UPDATE campaign
-      SET next_trigger_at = {基于 cron_expression 计算的下次时间},
-          last_trigger_at = NOW(),
-          version = version + 1
-      WHERE id = ? AND version = ?;
-
-      -- 检查影响行数，非 1 则 ROLLBACK
-
-      -- 创建执行实例
-      INSERT INTO campaign_execution (campaign_id, scheduled_at, status)
-      VALUES (?, {本次原 next_trigger_at}, 'PENDING');
-    COMMIT
-
-  -- ========== 阶段B: 执行所有 PENDING 实例 ==========
-  -- 新创建的 PENDING 和恢复的 PENDING 都走此阶段
-  SELECT ce.* FROM campaign_execution ce
-  JOIN campaign c ON c.id = ce.campaign_id
-  WHERE ce.status = 'PENDING' AND c.status = 'ACTIVE'
-  ORDER BY ce.scheduled_at LIMIT 10;
-
-  FOR each execution:
-    -- 条件更新领取
-    UPDATE campaign_execution SET status='RUNNING', started_at=NOW()
-    WHERE id = ? AND status = 'PENDING';
-
-    -- 只有影响行数为 1 的节点继续
-    -- 执行人群圈选 + 创建触达任务(dedup_key = {executionId}:{userId})
-    -- 标记 DONE
-    UPDATE campaign_execution SET status='DONE', finished_at=NOW()
-```
+```text
+ADD_CART
+  ↓
+DecisionEngine 匹配 DELAYED Campaign
+  ↓
+生成 delayed task id
+  ↓
+Redis ZSET pending
+  ↓
+到期后 Lua 原子 pending → processing
+  ↓
+DelayedTaskExecutor 再检查条件
+  ↓
+条件仍满足 → 创建 delivery_task
+条件已失效 → 取消
 ```
 
-**关键设计**：CampaignSelectionJob 统一负责新到期活动的执行和恢复后 PENDING 实例的执行。恢复逻辑已内置在步骤 0，不另设独立 RecoveryJob。
+延迟任务通过 Redis ZSET 实现时间排序，并有 processing 区和恢复任务防止执行中途宕机造成任务永久丢失。
 
-**XXL-JOB 任务总览**（9 个）：
+### 3.3.3 SCHEDULED：定时圈选
 
-| Job | 频率 | 功能 |
-|-----|------|------|
-| WindowMetricJob | 每小时 | 聚合小时桶→窗口指标 |
-| DailyMetricJob | 每小时 | 小时桶→日桶全量覆盖 |
-| TagRecalcJob | 每日 02:00 | 策略模式重算长期标签 |
-| CampaignSelectionJob | 每 1 分钟 | 统一扫描 + 乐观锁推进 |
-| RetryCompensationJob | 每 1 分钟 | 扫描 WAIT_RETRY 任务重新置为 PENDING，超限改 FAILED |
-| CompensationJob | 每 30 秒 | 扫描 data_compensation_task 重建 Redis + 重试决策 |
-| DelayTaskRecoveryJob | 每 5 分钟 | 恢复超时的延迟任务 |
-| DataCleanupJob | 每日 03:00 | 清理过期事件、历史日志 |
-| DispatchRetryJob | 每 30 秒 | 补偿 Kafka 投递失败的触达任务 |
+定时 Campaign 不会给每个活动动态创建一个 XXL-JOB。
+
+系统使用统一：
+
+```text
+CampaignSelectionJob
+```
+
+流程：
+
+```text
+扫描到期 ACTIVE + SCHEDULED Campaign
+  ↓
+推进 next_trigger_at + version
+  ↓
+创建 campaign_execution(PENDING)
+  ↓
+CAS：PENDING → RUNNING
+  ↓
+分页扫描 ACTIVE 用户
+  ↓
+DecisionEngine.evaluateBatch(...)
+  ↓
+命中 → delivery_task
+  ↓
+execution DONE
+```
+
+`campaign_execution` 把“一次 Campaign 调度”实体化，使某一轮定时圈选具备独立状态和 dedup 语义。
+
+定时 Campaign 的去重键为：
+
+```text
+{campaignExecutionId}:{userId}
+```
+
+因此同一天允许有不同 execution，不会被简单“按日期去重”误伤。
+
+### 3.3.4 决策异常传播约定
+
+当前 `DecisionEngine` 区分：
+
+```text
+业务可跳过异常
+  → 内部消化
+
+基础设施异常（DB / Redis / Kafka 等）
+  → 向上抛
+```
+
+事件触发场景由 `EventConsumer` 将基础设施失败转成 `EVENT_REPLAY` 补偿；定时场景则由 `CampaignSelectionJob` 将 execution 重新置为待重试状态。
 
 ---
 
-### 链路 4：触达执行与频控
+## 链路 4：触达执行与频控
 
-#### 4.1 触达任务创建与去重
+这是旧文档里容易被 AI 新链路遮掉的一条关键核心链路。
 
-```
-决策引擎生成 dedup_key:
-  事件触发:   {campaignId}:{userId}:{eventId}
-  延迟触发:   {campaignId}:{userId}:{cartItemId}:{addCartEventId}
-  定时圈选:   {campaignExecutionId}:{userId}
+### 3.4.1 DeliveryTask 创建
 
-INSERT INTO delivery_task (..., dedup_key, trigger_event_id)
-  → UNIQUE KEY uk_dedup (dedup_key) 保证不重复
+DecisionEngine 不直接发消息，只创建：
+
+```text
+delivery_task
 ```
 
-定时圈选改用 `{campaignExecutionId}:{userId}` 而非日期，解决同一天执行两次被误判重复的问题。
+并生成业务去重键：
 
-#### 4.2 四级频控（Lua 原子检查+占用）
+| 类型 | dedup_key |
+|---|---|
+| EVENT | `{campaignId}:{userId}:{eventId}` |
+| DELAYED | `{campaignId}:{userId}:{cartItemId}:{addCartEventId}` |
+| SCHEDULED | `{campaignExecutionId}:{userId}` |
 
-频控的判超限和占位必须在**同一个 Lua 脚本**中完成，防止两个实例同时通过检查。
+`delivery_task.uk_dedup` 保证同一个业务动作不会重复创建任务。
 
-**计数语义**：发送前 Lua 原子判断并占用额度，一次触达任务只消耗一次额度——内部重试通过 `freq:reserved:{taskId}` 标记跳过重复计数，避免了故障时不断重试挤占用户频控额度的问题。
+### 3.4.2 轻量 Outbox 投递
 
-```lua
--- KEYS[1] = freq:user:{userId}:{date}
--- KEYS[2] = freq:campaign:{campaignId}:{userId}
--- KEYS[3] = freq:reserved:{taskId}
--- ARGV[1] = 用户日上限
--- ARGV[2] = 活动周上限
--- ARGV[3] = 活动频控 TTL
+`DeliveryService`：
 
--- 重试任务已占用过额度，直接放行
-if redis.call('EXISTS', KEYS[3]) == 1 then
-    return {1, 'RETRY_OK'}
-end
-
-local userCount = tonumber(redis.call('GET', KEYS[1]) or 0)
-local campaignCount = tonumber(redis.call('GET', KEYS[2]) or 0)
-
-if userCount >= tonumber(ARGV[1]) then
-    return {0, 'USER_LIMIT'}
-end
-if campaignCount >= tonumber(ARGV[2]) then
-    return {0, 'CAMPAIGN_LIMIT'}
-end
-
-redis.call('INCR', KEYS[1])
-redis.call('INCR', KEYS[2])
-redis.call('SET', KEYS[3], '1', 'EX', 86400)  -- 24h，覆盖最大重试周期
-redis.call('EXPIRE', KEYS[1], 86400)
-redis.call('EXPIRE', KEYS[2], tonumber(ARGV[3]))
-
-return {1, 'OK'}
+```text
+INSERT delivery_task
+  status = PENDING
+  dispatch_status = PENDING
+  ↓
+发送 Kafka pulseflow.delivery
+  ↓
+Broker ACK 成功
+  ↓
+dispatch_status = PUBLISHED
 ```
 
-**执行时机**：仅在真正发送前调用一次，不在创建任务时预占。创建任务阶段只做免打扰时段和已转化过滤的非原子快速预判。
+如果 Kafka 投递失败，数据库中的任务仍保留为 `dispatch_status=PENDING`，由 `DispatchRetryJob` 后续重发。
 
-#### 4.3 触达执行与渠道幂等
+### 3.4.3 DeliveryConsumer 抢占
 
+消费者拿到任务后不会直接发送，而是先：
+
+```text
+UPDATE delivery_task
+SET status = PROCESSING
+WHERE id = ? AND status = PENDING
 ```
-触达链路完整流程:
 
-  1. INSERT delivery_task (status=PENDING, dispatch_status=PENDING)
-  
-  2. 投递 Kafka (topic: delivery)
-     → 成功: UPDATE dispatch_status='PUBLISHED', published_at=NOW()
-     → 失败: 任务留在 DB，dispatch_status 保持 PENDING
+只有影响行数为 1 的消费者实例继续执行。
 
-  3. Kafka Consumer 消费:
-     → 条件更新领取: 
-       UPDATE task SET status='PROCESSING', processing_at=NOW()
-       WHERE status='PENDING'
-     → 仅行数为 1 的实例继续
+这解决重复 Kafka 消息或多消费者并发情况下的重复处理问题。
 
-  4. 频控检查 (Lua 原子)
-     → 先查 freq:reserved:{taskId} 是否存在:
-       存在 → 跳过计数（本次是重试），直接允许
-     → 不存在 → 判断额度 + INCR + SET reserved 标记(EX 86400)
-     → 未通过 → task status='CANCELLED'
+### 3.4.4 Lua 原子频控
 
-  5. 通过 biz-message 策略模式发送，taskId 作为渠道业务键:
-     
-     站内信:    INSERT INTO in_app_message (business_key=taskId, ...)
-                → UNIQUE KEY uk_business_key 保证不重复
-                → INSERT INTO delivery_record (UK task_id)
+发送前调用 `FrequencyControlService`。
 
-     模拟 Push: INSERT INTO push_record (business_key=taskId, ...)
-                → UNIQUE KEY uk_business_key 保证不重复
-                → INSERT INTO delivery_record (UK task_id)
+使用三个 Redis Key：
 
-     邮件:      外部 SMTP 无法绝对保证幂等
-                → 先 INSERT delivery_record (UK task_id)，成功后再发送邮件
-                → 发送成功 UPDATE delivery_record status='SENT'
-                → 发送失败 UPDATE delivery_record status='FAILED'
-                → 重试时不重复 INSERT delivery_record（UK 已存在，更新状态即可）
+```text
+freq:user:{userId}:{date}
+freq:campaign:{campaignId}:{userId}
+freq:reserved:{taskId}
+```
 
-  6. UPDATE task status='SENT'
+Lua 在一次原子操作内完成：
 
-  渠道发送失败:
-     → delivery_record.status = 'FAILED', error_msg = {错误详情}
-     → delivery_task.status = 'WAIT_RETRY'
-     → delivery_task.next_retry_at = NOW() + {退避时间}
-     → delivery_task.last_error = {错误详情}
-     → retry_count + 1（retry_count 仅在发送失败或 PROCESSING 超时时增加）
+```text
+检查 task 是否已经占过额度
+  ↓
+检查用户日频控
+  ↓
+检查 Campaign 周频控
+  ↓
+INCR 两级计数
+  ↓
+写 freq:reserved:{taskId}
+```
 
+因此两个并发实例不会同时“检查通过后一起加一”。
 
-DispatchRetryJob 每 30 秒:
-  SELECT * FROM delivery_task
-  WHERE dispatch_status = 'PENDING'
-    AND created_at < NOW() - INTERVAL 30 SECOND
-  ORDER BY id LIMIT 100
+`freq:reserved:{taskId}` 还保证同一个 delivery task 在失败重试时只消耗一次频控额度。
 
-  → 重新投递 Kafka
-  → 成功 → dispatch_status = 'PUBLISHED'
+### 3.4.5 渠道幂等
 
-ProcessingRecoveryJob（在 RetryCompensationJob 中合并）:
-  -- 将到期的 WAIT_RETRY 任务重置，重新走 Outbox 投递链路
-  UPDATE delivery_task
-  SET status = 'PENDING',
-      dispatch_status = 'PENDING',
-      published_at = NULL,
-      processing_at = NULL,
-      next_retry_at = NULL
-  WHERE status = 'WAIT_RETRY'
-    AND next_retry_at <= NOW()
-    AND retry_count < max_retry;
-  -- 重置后由 DispatchRetryJob 重新投递 Kafka
+当前支持：
 
-  -- 恢复卡在 PROCESSING 的触达任务（消费后进程宕机）→ 此步增加 retry_count
-  UPDATE delivery_task
-  SET status = 'WAIT_RETRY', retry_count = retry_count + 1
-  WHERE status = 'PROCESSING'
-    AND processing_at < NOW() - INTERVAL 5 MINUTE
-    AND retry_count < max_retry;
-  -- 站内信和模拟 Push 已有 business_key=taskId，重试不会重复发送
-  -- 重试时命中 business_key UK → 视为发送成功，补写 delivery_record + 更新 SENT
+```text
+IN_APP
+PUSH
+EMAIL（MVP 模拟）
+```
 
-  -- 终态：超过最大重试次数的任务
-  UPDATE delivery_task SET status = 'FAILED'
-  WHERE status IN ('PROCESSING', 'WAIT_RETRY')
-    AND retry_count >= max_retry;
+站内信：
 
-  UPDATE data_compensation_task SET status = 'FAILED'
-  WHERE status = 'PROCESSING'
-    AND retry_count >= max_retry;
+```text
+in_app_message.business_key = taskId
+UNIQUE KEY
+```
+
+模拟 Push：
+
+```text
+push_record.business_key = taskId
+UNIQUE KEY
+```
+
+因此如果“渠道写入成功，但 delivery_task 状态更新前进程宕机”，重试时命中业务唯一键，不会生成第二条站内信/Push。
+
+EMAIL 当前仍属于 MVP 模拟路径。真实外部 SMTP 无法仅依赖本地数据库做到绝对 exactly-once，未来接真实邮件服务时需要结合供应商业务幂等能力进一步加强。
+
+### 3.4.6 失败与恢复
+
+```text
+渠道发送失败
+  ↓
+delivery_task = WAIT_RETRY
+retry_count + 1
+next_retry_at = backoff time
+```
+
+`RetryCompensationJob` 负责恢复：
+
+```text
+WAIT_RETRY 到期
+  ↓
+PENDING + dispatch_status=PENDING
+  ↓
+DispatchRetryJob 再投 Kafka
+```
+
+同时会处理长时间卡在 `PROCESSING` 的任务，超过最大重试次数后进入 `FAILED`。
+
+---
+
+## 链路 5：点击与转化归因
+
+### 3.5.1 当前归因模型
+
+```text
+CLICK_LAST_TOUCH
+```
+
+目标：一个转化事件只归因给归因窗口内最近一次有效点击。
+
+### 3.5.2 完整流程
+
+```text
+消息发送
+  ↓
+delivery_record
+  ↓
+用户点击
+  ↓
+click_event
+  ↓
+ORDER_PAID 等目标事件进入 EventConsumer
+  ↓
+attribution_task
+  ↓
+Redis delay:attribution 等待宽限窗口
+  ↓
+AttributionTaskConsumer
+  ↓
+查询 24h 内有效 click_event
+  ↓
+过滤 click_time > sent_at
+     click_time < target_event_time
+  ↓
+选择最近一条 click
+  ↓
+attribution_record
+```
+
+### 3.5.3 防重复归因
+
+```text
+attribution_record.uk_target_event_id
+```
+
+保证同一个目标转化事件最多生成一条归因记录。
+
+### 3.5.4 为什么有宽限窗口
+
+Kafka userId 分区只能减少同一来源事件乱序，不能完全消灭客户端网络延迟、跨来源到达时间差等问题。
+
+因此目标转化事件到达后不会立刻最终归因，而是先进入等待队列，给稍晚到达的点击事件一个短暂宽限时间。
+
+---
+
+# 四、四条 AI Campaign Copilot 链路
+
+AI 是当前 PulseFlow 的增强层，共四条明确业务链路。
+
+---
+
+## AI 链路 1：自然语言 → Campaign DSL → AI Draft → 正式 Campaign
+
+### 4.1.1 输入
+
+运营人员可以输入类似：
+
+```text
+筛选最近7天活跃不少于5天、最近30天消费超过500元的用户，
+今晚8点通过站内信发送满300减30优惠，
+每个用户24小时最多触达一次。
+```
+
+### 4.1.2 CampaignIntentService
+
+处理流程：
+
+```text
+自然语言
+  ↓
+SensitiveDataSanitizer
+  ↓
+CampaignIntentPromptBuilder
+  ↓
+AiModelClient.generateStructured
+  ↓
+AiOutputParser
+  ↓
+CampaignDsl
+  ↓
+CampaignDslValidator
+  ↓
+AudiencePreviewService
+  ↓
+campaign_ai_draft
+```
+
+### 4.1.3 DSL Guardrail
+
+AI 不是自由生成执行代码，而是输出受约束 DSL。
+
+Java 侧检查：
+
+```text
+字段白名单
+字段类型
+操作符
+数值上下界
+规则层级
+条件数量
+渠道枚举
+时间格式
+频控范围
+优惠事实
+missingFields
+warnings
+```
+
+只有通过校验的 DSL 才能进入 `VALIDATED`。
+
+### 4.1.4 Draft 状态机
+
+```text
+GENERATED / NEEDS_CONFIRMATION / VALIDATED
+        │
+        ├─ operator edit → 重新校验
+        │
+        ├─ 超时 → EXPIRED
+        │
+        └─ VALIDATED + confirm
+                  ↓
+               CONFIRMED
+```
+
+Draft 默认有 TTL，当前配置为 24 小时。
+
+### 4.1.5 人工确认后创建 Campaign
+
+`confirmAndCreate(...)` 会在事务中：
+
+```text
+重新校验 DSL
+  ↓
+INSERT campaign
+  status = DRAFT
+  created_by = operatorId
+  ↓
+DSL → CampaignRule
+  ↓
+INSERT campaign_rule
+  ↓
+Draft → CONFIRMED
+```
+
+重点：
+
+```text
+AI 确认 ≠ 自动发送
+```
+
+AI 创建的 Campaign 仍然是 `DRAFT`，必须进入原有 Campaign 生命周期，真正执行时仍由原有 DecisionEngine、频控、幂等和 Delivery 链路负责。
+
+---
+
+## AI 链路 2：目标人群预估与人群洞察
+
+### 4.2.1 目标
+
+让运营人员在正式确认 Campaign 前知道：
+
+- 大概会命中多少用户；
+- 这批用户有哪些明显画像特征；
+- 与当前基线相比有什么差异；
+- 哪些结论有真实指标支撑。
+
+### 4.2.2 数据流
+
+```text
+campaign_ai_draft.dsl_json
+  ↓
+AudienceMetricsAggregator
+  ↓
+只计算聚合指标
+  ↓
+AudienceInsightPromptBuilder
+  ↓
+AiModelClient
+  ↓
+InsightResult(JSON)
+  ↓
+InsightEvidenceValidator
+  ↓
+返回聚合指标 + AI 洞察 + DataQuality
+```
+
+### 4.2.3 隐私边界
+
+模型只接收：
+
+```text
+人数
+比例
+均值
+标签分布
+聚合基线
+```
+
+不发送：
+
+```text
+用户姓名
+手机号
+地址
+身份证
+单个用户完整行为轨迹
+用户级订单明细
+设备唯一标识
+```
+
+### 4.2.4 Evidence 校验
+
+AI 输出的 finding 必须引用后端输入中真实存在的 `evidenceKeys`。
+
+如果模型编造了不存在的证据，Java 校验层会丢弃或拒绝该输出，而不是直接展示给运营人员。
+
+### 4.2.5 当前数据质量说明
+
+当前 v1 会同时返回 `DataQuality`，明确告诉前端：
+
+- baseline 目前使用候选池口径；
+- `cartWithoutPurchaseRate` 等部分指标是代理口径；
+- `topCategories`、`memberLevelDistribution` 当前不可用。
+
+因此 AI 不应该把这些缺失数据包装成“确定事实”。
+
+---
+
+## AI 链路 3：策略与营销文案生成
+
+### 4.3.1 输入来源
+
+文案生成不会信任前端重新传入优惠金额。
+
+真正的优惠事实来自：
+
+```text
+campaign_ai_draft.dsl_json.promotionFacts
+```
+
+也就是服务器端已经保存并校验过的 Campaign DSL。
+
+### 4.3.2 数据流
+
+```text
+Draft DSL
+  ↓
+objective / channel / audienceSummary / promotionFacts
+  ↓
+tone / length / forbiddenWords
+  ↓
+CampaignContentPromptBuilder
+  ↓
+AiModelClient
+  ↓
+ContentResult(JSON)
+  ↓
+ContentFactValidator
+  ↓
+可用文案 variants
+```
+
+默认可以生成多个差异化版本，例如：
+
+```text
+DIRECT_BENEFIT
+URGENCY
+PERSONALIZED
+```
+
+### 4.3.3 ContentFactValidator
+
+Java 层负责检查：
+
+```text
+标题长度
+正文长度
+禁用词
+模板结构
+金额和折扣数字
+优惠事实一致性
+PII
+虚构紧迫性
+有效期
+```
+
+例如系统真实优惠是“满 300 减 30”，模型不能改成“满 200 减 50”。
+
+这保证大模型负责表达，而不是负责定义事实。
+
+---
+
+## AI 链路 4：Campaign 效果摘要与 AI 活动复盘
+
+这是旧版主设计文档没有同步进去的当前关键链路。
+
+### 4.4.1 触发入口
+
+新增：
+
+```text
+CampaignReviewJob
+```
+
+Job 会扫描最近一段时间已经结束的 Campaign。当前代码的 look-back window 为 72 小时。
+
+### 4.4.2 Performance Summary 由后端计算
+
+在调用 AI 前先计算：
+
+```text
+campaign_performance_summary
+```
+
+指标包括：
+
+```text
+targetAudienceCount
+sentCount
+deliveredCount
+clickedCount
+convertedCount
+unsubscribeCount
+
+deliveryRate
+clickRate
+conversionRate
+unsubscribeRate
+```
+
+这些指标由后端事实表计算，AI 只读，不让模型自己猜数字。
+
+### 4.4.3 数据成熟度判断
+
+在调用 AI 之前先判断数据是否足够：
+
+```text
+目标人数 = 0
+  → SKIPPED_INSUFFICIENT_DATA
+
+目标人数 > 0，但 sentCount = 0，仍处于数据归集宽限期
+  → DATA_NOT_READY
+  → next_retry_at 后再试
+
+宽限期结束仍无发送数据
+  → SKIPPED_INSUFFICIENT_DATA
+
+数据充分
+  → 调用 AI Review
+```
+
+这样可以避免刚结束的 Campaign 因触达数据尚未聚合完成，就被永久误判为“无效果”。
+
+### 4.4.4 Review 并发状态机
+
+`campaign_ai_review` 当前不是简单 SUCCESS / FAILED，而是有明确状态机：
+
+```text
+PENDING
+  ↓ CAS 抢占
+PROCESSING
+  ├─ AI 成功 → SUCCESS
+  ├─ 暂时失败 → RETRYABLE_FAILED
+  ├─ 数据未成熟 → DATA_NOT_READY
+  ├─ 永久数据不足 → SKIPPED_INSUFFICIENT_DATA
+  └─ 重试耗尽 / 永久错误 → PERMANENT_FAILED
+```
+
+多个 XXL-JOB executor 同时扫描同一个 Campaign 时，通过条件 UPDATE 抢 `PROCESSING` 锁，只有一个节点真正调用大模型，防止重复 AI 成本。
+
+### 4.4.5 可重试失败
+
+AI Provider timeout、5xx 或可重试输出错误：
+
+```text
+RETRYABLE_FAILED
+retry_count + 1
+next_retry_at = exponential backoff
+```
+
+超过最大重试次数后：
+
+```text
+PERMANENT_FAILED
+```
+
+### 4.4.6 Evidence 校验
+
+AI Review 输出完成后还会经过 `ReviewEvidenceValidator`。
+
+因此最终复盘必须围绕后端真实计算的 summary 指标，而不是让模型凭空生成“转化提升 30%”之类的结论。
+
+### 4.4.7 最终闭环
+
+```text
+Campaign 执行
+  ↓
+Delivery / Click / Attribution 事实数据
+  ↓
+PerformanceSummaryCalculator
+  ↓
+campaign_performance_summary
+  ↓
+CampaignReviewJob
+  ↓
+CampaignReviewService
+  ↓
+AI Review + Evidence Validator
+  ↓
+campaign_ai_review
+```
+
+至此 PulseFlow 从“实时行为 → 决策 → 触达 → 归因”扩展成了完整的 Campaign 生命周期：
+
+```text
+创建前：AI 理解运营意图
+创建中：AI 洞察人群、辅助生成内容
+执行时：确定性 Java 引擎负责真实决策与发送
+结束后：AI 基于真实指标复盘
 ```
 
 ---
 
-### 链路 5：转化归因
+# 五、数据库设计
 
-#### 5.1 归因模型
+## 5.1 当前 Flyway 版本
 
-**CLICK_LAST_TOUCH**（点击后 Last-Touch 归因）：
-
-```
-触达发送 → delivery_record
-用户点击 → click_event
-目标事件到达 → INSERT attribution_task + ZADD delay:attribution
-
-宽限窗口到期（5min）后执行归因匹配:
-  1. 查询归因窗口内(24h)该用户的有效 click_event
-  2. 过滤: click_time > sent_at AND click_time < target_event_time
-  3. 选最近一条 click（LAST-TOUCH）
-  4. INSERT INTO attribution_record (UK uk_target_event_id)
-  5. DuplicateKeyException → 已归因，跳过
+```text
+V1__init.sql
+V2__channel_tables.sql
+V3__ai_campaign_tables.sql
+V4__ai_review_state_machine.sql
+V5__review_status_split_and_ownership.sql
 ```
 
-#### 5.2 防错机制
+## 5.2 当前共 21 张物理表
 
-| 场景 | 处理方式 |
-|------|---------|
-| 一单多活动 | `UNIQUE KEY uk_target_event_id` 保证一个目标事件只归因一次 |
-| 点击迟到 | 宽限窗口 5min 等待迟到 click_event |
-| 事件乱序 | `eventTime` 业务判断 + `receivedAt` 降级（clock_skew 时） |
-| 客户端时间伪造 | ±5min 校验，超限标记 clock_skew，归因降级 |
+### 用户、行为、画像：6 张
+
+```text
+user_profile
+user_event
+user_metric_hourly
+user_metric_daily
+user_behavior_summary
+user_tag
+```
+
+### Campaign：3 张
+
+```text
+campaign
+campaign_rule
+campaign_execution
+```
+
+### 触达：4 张
+
+```text
+delivery_task
+delivery_record
+in_app_message
+push_record
+```
+
+### 归因：3 张
+
+```text
+click_event
+attribution_task
+attribution_record
+```
+
+### 补偿：1 张
+
+```text
+data_compensation_task
+```
+
+### AI Campaign Copilot：4 张
+
+```text
+campaign_ai_draft
+ai_generation_record
+campaign_performance_summary
+campaign_ai_review
+```
+
+总计：
+
+```text
+15（V1） + 2（V2） + 4（V3） = 21 张
+```
+
+V4、V5 不新增表，而是增强 `campaign_ai_review` 状态机并给 `campaign` 增加 ownership 字段。
+
+## 5.3 AI 表职责
+
+### campaign_ai_draft
+
+保存：
+
+```text
+自然语言原始需求
+Campaign DSL
+校验状态
+校验错误 / warnings
+预估人群数量
+确认后的 campaignId
+operatorId
+```
+
+### ai_generation_record
+
+保存每次 AI 调用审计：
+
+```text
+requestId
+taskType
+provider / model
+promptVersion
+脱敏后的输入
+结构化输出
+Token
+Latency
+ErrorCode
+Draft / Campaign 关联
+```
+
+### campaign_performance_summary
+
+保存后端真实计算的 Campaign 效果指标。
+
+### campaign_ai_review
+
+保存 AI Review、状态机、锁、失败类型和重试信息。
 
 ---
 
-## 四、数据库设计
+# 六、Kafka 与 Redis 设计
 
-### 4.1 表结构总览（14 张核心表）
+## 6.1 Kafka Topic
 
-```
-用户与行为:
-  user_profile             用户基础信息
-  user_event               行为事件归档（原始数据）
+| Topic | 用途 | Key |
+|---|---|---|
+| `pulseflow.raw.events` | 用户行为事件 | `userId` |
+| `pulseflow.delivery` | 触达任务分发 | `userId` |
 
-指标与标签:
-  user_metric_hourly       小时指标桶
-  user_metric_daily        日指标桶
-  user_behavior_summary    行为汇总（窗口指标结果）
-  user_tag                 用户标签结果
+`userId` 作为 Key 的主要目的，是让同一用户尽量进入同一分区，减少行为状态乱序。
 
-活动与规则:
-  campaign                 触达活动定义（含 next_trigger_at / version）
-  campaign_rule            活动圈选规则（JSON）
-  campaign_execution       活动执行实例（防止中断丢失）
+## 6.2 Redis Key
 
-触达与点击:
-  delivery_task            触达任务（含 dedup_key / trigger_event_id）
-  delivery_record          触达发送记录
-  click_event              点击事件
-
-归因与补偿:
-  attribution_task         归因等待任务
-  attribution_record       归因结果
-  data_compensation_task   数据补偿任务（Redis 重建 + 决策重试）
-```
-
-### 4.2 新增及变更表 DDL
-
-```sql
--- 活动执行实例（防止定时活动执行中断）
-CREATE TABLE campaign_execution (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    campaign_id BIGINT NOT NULL,
-    scheduled_at DATETIME NOT NULL,
-    status ENUM('PENDING','RUNNING','DONE','FAILED') DEFAULT 'PENDING',
-    started_at DATETIME,
-    finished_at DATETIME,
-    retry_count INT DEFAULT 0,
-    last_error VARCHAR(512),
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_campaign_schedule (campaign_id, scheduled_at),
-    KEY idx_status (status, started_at, created_at)
-) ENGINE=InnoDB;
-
--- 数据补偿任务（补偿队列 MySQL 持久化）
-CREATE TABLE data_compensation_task (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    event_id VARCHAR(64) NOT NULL,
-    task_type VARCHAR(32) NOT NULL,     -- 当前版本仅 EVENT_REPLAY
-    payload JSON NOT NULL,
-    status ENUM('PENDING','PROCESSING','DONE','FAILED') DEFAULT 'PENDING',
-    retry_count INT DEFAULT 0,
-    max_retry INT DEFAULT 5,
-    next_retry_at DATETIME,
-    locked_at DATETIME,
-    last_error VARCHAR(512),
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_event_task (event_id, task_type),
-    KEY idx_status_retry (status, next_retry_at)
-) ENGINE=InnoDB;
-```
-
-补偿任务重复写入时显式恢复（而非仅重置 retry_count）：
-```sql
-INSERT INTO data_compensation_task (event_id, task_type, payload, status, next_retry_at, last_error)
-VALUES (?, 'EVENT_REPLAY', ?, 'PENDING', NOW(), ?)
-ON DUPLICATE KEY UPDATE
-    status = 'PENDING',
-    retry_count = 0,
-    next_retry_at = NOW(),
-    locked_at = NULL,
-    last_error = VALUES(last_error);
-
-**变更表**（对 v2.0 DDL 的修改）：
-
-```sql
--- delivery_task 新增 dispatch 字段（轻量 Outbox 模式）+ processing_at（PROCESSING 超时恢复）
-ALTER TABLE delivery_task
-    ADD COLUMN dispatch_status ENUM('PENDING','PUBLISHED') DEFAULT 'PENDING',
-    ADD COLUMN published_at DATETIME,
-    ADD COLUMN processing_at DATETIME,
-    ADD KEY idx_dispatch (dispatch_status, created_at),
-    ADD KEY idx_processing (status, processing_at);
-
--- user_event: 新增 effective_event_time 字段（所有业务计算基准）
--- 建表时须包含:
---   effective_event_time DATETIME(3) NOT NULL,
---   KEY idx_effective_time (effective_event_time)
-
--- user_metric_hourly: metric_hour 使用 DATETIME 类型
--- （建表时直接使用 DATETIME NOT NULL，不再使用 VARCHAR）
+| Key | 用途 | TTL / 备注 |
+|---|---|---|
+| `event:processed:{eventId}` | Redis 事件处理幂等标记 | 7d |
+| `user:rt:{userId}` | 长期实时状态 | 无固定 TTL |
+| `user:daily:{userId}:{yyyyMMdd}` | 当日实时计数 | 约 48h |
+| `user:cart:{userId}` | 当前购物车状态 | Hash |
+| `user:window:{userId}` | 窗口指标缓存 | 短 TTL |
+| `delay:pending:{taskType}` | 延迟任务待执行 | ZSET |
+| `delay:processing:{taskType}` | 延迟任务处理中 | ZSET |
+| `delay:attribution` | 归因宽限等待 | ZSET |
+| `freq:user:{userId}:{date}` | 用户日频控 | 24h |
+| `freq:campaign:{campaignId}:{userId}` | Campaign 周频控 | 7d |
+| `freq:reserved:{taskId}` | 单任务频控占用标记 | 24h |
 
 ---
 
-## 五、项目结构
+# 七、XXL-JOB 任务体系
 
-```
+当前 `pulseflow-job` 中共有 **10 个 handler**：
+
+| Job | 主要职责 |
+|---|---|
+| `WindowMetricJob` | 计算窗口指标 |
+| `DailyMetricJob` | 小时桶聚合日桶 |
+| `TagRecalcJob` | 重算长期标签 |
+| `CampaignSelectionJob` | 定时 Campaign 扫描、execution 创建与执行恢复 |
+| `RetryCompensationJob` | 触达 WAIT_RETRY / PROCESSING 恢复 |
+| `CompensationJob` | EVENT_REPLAY：恢复 Redis + 重试决策 |
+| `DelayTaskRecoveryJob` | 恢复卡死延迟任务 |
+| `DispatchRetryJob` | 重新投递未 PUBLISHED 的 delivery task |
+| `DataCleanupJob` | 清理历史过期数据 |
+| `CampaignReviewJob` | 扫描结束 Campaign 并触发 AI 复盘 |
+
+> XXL-JOB handler 的具体 cron/执行频率由 XXL-JOB Admin 配置；代码负责注册 handler 与实现任务语义，不应把文档中的建议频率误认为 Java 代码里的固定调度表达式。
+
+---
+
+# 八、当前 Maven 模块结构
+
+当前一共 **8 个模块**：
+
+```text
 pulseflow/
 ├── pom.xml
-├── pulseflow-common/                    # 通用接口与模型
-├── pulseflow-event/                     # 行为事件接入与消费
-│   └── service/
-│       └── EventConsumer.java           # 含补偿任务写入逻辑
-├── pulseflow-profile/                   # 用户画像与标签
-├── pulseflow-campaign/                  # 决策引擎、触达与归因
-│   ├── decision/
-│   │   └── DecisionEngine.java
-│   ├── delay/
-│   │   └── DelayedTaskManager.java
-│   ├── delivery/
-│   │   ├── DeliveryService.java
-│   │   ├── DeliveryConsumer.java
-│   │   └── FrequencyControlService.java
-│   └── attribution/
-│       ├── AttributionService.java
-│       └── AttributionTaskConsumer.java
-├── pulseflow-job/                       # 定时任务（9个）
-│   └── handler/
-│       ├── WindowMetricJob.java
-│       ├── DailyMetricJob.java
-│       ├── TagRecalcJob.java
-│       ├── CampaignSelectionJob.java
-│       ├── RetryCompensationJob.java
-│       ├── CompensationJob.java         # EVENT_REPLAY: 重建Redis + 重试决策
-│       ├── DelayTaskRecoveryJob.java
-│       ├── DispatchRetryJob.java       # Kafka 投递失败补偿
-│       └── DataCleanupJob.java
-├── pulseflow-simulator/                 # 事件模拟器
-└── pulseflow-boot/                      # 启动与配置（聚合入口）
+│
+├── pulseflow-common
+│   ├── entity
+│   ├── mapper
+│   ├── enums
+│   ├── dto
+│   ├── util
+│   └── exception
+│
+├── pulseflow-event
+│   ├── controller/EventController
+│   ├── service/EventService
+│   ├── service/EventPersistenceService
+│   └── consumer/EventConsumer
+│
+├── pulseflow-profile
+│   ├── ProfileService
+│   ├── UserPreferenceService
+│   └── TagRule / tag strategy
+│
+├── pulseflow-campaign
+│   ├── decision/DecisionEngine
+│   ├── profile/RealtimeProfileUpdateService
+│   ├── delay/DelayedTaskManager
+│   ├── delay/DelayedTaskExecutor
+│   ├── delivery/DeliveryService
+│   ├── delivery/DeliveryConsumer
+│   ├── delivery/FrequencyControlService
+│   └── attribution/*
+│
+├── pulseflow-ai
+│   ├── api
+│   ├── application
+│   ├── domain
+│   ├── provider
+│   ├── prompt
+│   ├── guardrail
+│   ├── infrastructure
+│   └── support
+│
+├── pulseflow-job
+│   └── handler/*        # 10 个 XXL-JOB handler
+│
+├── pulseflow-simulator
+│   └── 事件模拟 / 演示入口
+│
+└── pulseflow-boot
+    ├── PulseFlowApplication
+    ├── config
+    └── db/migration/V1~V5
 ```
 
-模块依赖：`common ← event/profile/campaign → job → boot`，boot 横向聚合。
+## 8.1 模块依赖原则
+
+核心方向：
+
+```text
+common
+  ↑
+profile / campaign / event
+  ↑
+ai（可选增强层）
+  ↑
+job / boot 聚合运行
+```
+
+其中 AI 模块实际依赖：
+
+```text
+pulseflow-common
+pulseflow-profile
+pulseflow-campaign
+```
+
+重要约束：
+
+```text
+pulseflow-campaign 不反向依赖 pulseflow-ai
+```
+
+因此关闭 AI 后，原始行为决策主链仍能独立工作。
 
 ---
 
-## 六、CDP 框架组件映射
+# 九、AI Provider 与 Guardrail 架构
 
-### MVP 阶段（8 个组件）
+## 9.1 Provider 抽象
 
-| CDP 组件 | PulseFlow 使用场景 |
-|----------|-------------------|
-| **base-stream** | Kafka 事件生产/消费，以 userId 为 Key 分区 |
-| **base-job** | 9 个 XXL-JOB 任务（含补偿、恢复、Outbox 重发） |
-| **base-cache** | 活动规则、消息模板缓存（Caffeine 本地，不用于实时状态） |
-| **base-lock** | 标签重算并发控制，防止多节点重复 |
-| **base-flyway** | 14 张表 DDL 演进 |
-| **com-auth** | 管理端认证 |
-| **biz-message** | 站内信 + 模拟 Push 渠道（taskId 作为业务键幂等） |
-| **biz-log** | 决策审计日志 |
+```text
+AiModelClient
+├── OpenAiCompatibleClient
+└── FakeAiModelClient
+```
 
-### Stage 2 扩展（4 个组件）
+`OpenAiCompatibleClient` 用于真实 OpenAI-compatible Provider；`FakeAiModelClient` 用于本地、测试和 CI。
 
-`biz-fulltext` / `base-sharding` / `base-export` / `base-cotime`，触发条件同 v2.0。
+当前配置原则：
 
----
+```text
+pulseflow.ai.enabled = false（默认）
+pulseflow.ai.mock-enabled = true
+API Key 只从环境变量读取
+```
 
-## 七、MVP 执行路线图
+因此 AI Provider 不可用时不会阻止 PulseFlow 核心业务启动。
 
-| Phase | 内容 | 工期 |
-|-------|------|:--:|
-| 1 | 骨架 + 行为管道（含 Kafka userId 分区 + 补偿任务写入） | 1.5 周 |
-| 2 | 三级画像 + 标签（含日桶全量覆盖 + 策略模式 8 规则） | 1.5 周 |
-| 3 | 决策引擎 + 触达（含 campaign_execution + Lua 频控 + 渠道幂等） | 2 周 |
-| 4 | 归因 + 模拟器 + 补偿恢复（含 CompensationJob + 故障测试） | 1.5 周 |
-| 5 | Testcontainers 测试 + 打磨 | 1 周 |
+## 9.2 四类结构化 AI Task
 
-**总工期：7-8 周**。
+```text
+PARSE_DSL
+INSIGHT
+CONTENT
+REVIEW
+```
 
----
+所有核心 AI 输出都要求 JSON 结构化解析，不让业务代码依赖自由文本正则抽取。
 
-## 八、关键风险与对策
+## 9.3 Guardrail 组件
 
-| 风险 | 对策 |
-|------|------|
-| Redis 更新失败（补偿队列不可写） | MySQL `data_compensation_task` 持久化 |
-| Redis 失败导致决策丢失 | `EVENT_REPLAY` 补偿任务 + dedup_key UK 防重 |
-| 定时活动执行中断 | `campaign_execution` 实例表 + CampaignSelectionJob 内置恢复 |
-| 同一用户事件乱序 | Kafka userId 分区键 + eventTime 校验 |
-| 频控并发绕过 | Lua 原子判超限+自增+TTL |
-| 同一天执行两次被误判重复 | 定时 dedup_key 使用 `{executionId}:{userId}` |
-| 渠道发送成功但 DB 失败 | 站内信/Push 用 business_key UK 幂等；邮件诚实说明局限性 |
+```text
+AiFieldRegistry
+CampaignDslValidator
+AiOutputParser
+SensitiveDataSanitizer
+InsightEvidenceValidator
+ContentFactValidator
+ReviewEvidenceValidator
+```
 
----
+### 设计思想
 
-## 九、简历表述（最终版）
+```text
+LLM 给候选答案
+        ↓
+Java 做最终裁决
+```
 
-### 项目名称
-
-**PulseFlow — 实时用户行为决策引擎**
-
-### 技术栈
-
-Spring Boot 3 · MyBatis-Plus · Kafka · Redis · Redisson · MySQL · XXL-JOB · Sa-Token · Flyway
-
-### 项目描述
-
-面向内容与电商增长场景，构建用户行为采集、实时状态计算、规则决策、自动动作执行及转化归因的事件驱动处理链路。
-
-### 项目亮点
-
-- 通过 **MySQL 本地事务与 Redis Lua 分层处理**实现消费幂等：事件归档与指标桶同事务提交，Redis 实时状态通过事件标记完成原子判重与更新；Redis 故障时写入 MySQL 补偿任务异步恢复，并触发决策重试保证关键路径不丢决策
-- 设计实时状态、窗口指标和长期标签**三级用户画像体系**，Lua 原子更新 Redis 跨日计数与购物车状态，基于时间桶聚合与 XXL-JOB 分片任务计算滑动窗口指标，策略模式扩展 8 种可插拔标签规则
-- 实现即时事件、延迟任务和批量定时**三种触发模式**；基于 Redis ZSET 与 Lua 完成延迟任务 pending→processing 原子领取与超时恢复；定时活动通过统一扫描 + 乐观锁抢占 + `campaign_execution` 实例表防止执行中断
-- 设计**点击后 LAST-TOUCH 转化归因链路**，通过持久化归因等待任务 + Redis 宽限窗口处理迟到点击事件，结合客户端时间偏差校验降级策略、事件时序校验及目标事件唯一约束，避免同一次转化被多个活动重复归因
-- 实现 **Lua 原子频控**（判超限+自增+TTL 一步完成）防止并发绕过，触达任务**业务去重键**机制防止重复创建，内部渠道通过业务键保证发送幂等
+这也是 PulseFlow AI 与普通“接一个大模型聊天接口”的核心区别。
 
 ---
 
-## 十、附录
+# 十、可靠性与幂等设计总览
 
-### Kafka Topic 规划
-
-| Topic | 用途 | 分区数 | Key |
-|-------|------|:-----:|-----|
-| pulseflow.raw.events | 原始行为事件 | 4 | userId |
-| pulseflow.delivery | 触达发送任务 | 2 | userId |
-
-### Redis Key 规划
-
-| Key Pattern | 用途 | TTL |
-|-------------|------|:--:|
-| `event:processed:{eventId}` | 事件处理标记 | 604800s (7d) |
-| `user:rt:{userId}` | 长期实时状态(Hash) | — |
-| `user:daily:{userId}:{yyyyMMdd}` | 当日计数(Hash) | 48h |
-| `user:cart:{userId}` | 购物车(Hash) | — |
-| `user:window:{userId}` | 窗口指标缓存(Hash) | 3600s |
-| `delay:pending:{taskType}` | 延迟任务待执行(ZSET) | — |
-| `delay:processing:{taskType}` | 延迟任务处理中(ZSET) | — |
-| `delay:attribution` | 归因宽限等待(ZSET) | — |
-| `freq:user:{userId}:{date}` | 用户日频控(String) | 86400s |
-| `freq:campaign:{campaignId}:{userId}` | 活动周频控(String) | 604800s |
-| `freq:reserved:{taskId}` | 触达任务频控占用标记(String) | 86400s (24h) |
-
-### dedup_key 生成规则
-
-| 触发类型 | dedup_key 格式 | 示例 |
-|----------|---------------|------|
-| 事件触发 | `{campaignId}:{userId}:{eventId}` | `5:1024:evt_001` |
-| 延迟触发 | `{campaignId}:{userId}:{cartItemId}:{addCartEventId}` | `5:1024:ci_501:evt_100` |
-| 定时圈选 | `{campaignExecutionId}:{userId}` | `42:1024` |
+| 风险 | 当前机制 |
+|---|---|
+| Kafka 重复行为事件 | `user_event.uk_event_id` |
+| MySQL 已成功、Redis 未更新 | Duplicate 后重新读取 canonical event，继续下游 |
+| Redis 更新重复执行 | `event:processed:{eventId}` + Lua |
+| Redis / DecisionEngine 故障 | `data_compensation_task(EVENT_REPLAY)` |
+| 同一触达任务重复创建 | `delivery_task.uk_dedup` |
+| Delivery Kafka 投递失败 | `dispatch_status=PENDING` + `DispatchRetryJob` |
+| Delivery Kafka 重复消息 | `PENDING → PROCESSING` CAS 抢占 |
+| 频控并发绕过 | Lua 原子“检查 + 占用” |
+| 重试重复消耗频控 | `freq:reserved:{taskId}` |
+| 站内信重复发送 | `in_app_message.uk_business_key` |
+| 模拟 Push 重复发送 | `push_record.uk_business_key` |
+| 定时 Campaign 多节点重复执行 | optimistic version + `campaign_execution` + CAS |
+| 同一转化重复归因 | `attribution_record.uk_target_event_id` |
+| AI 重复复盘 | `campaign_ai_review.uk_campaign_ai_review` + PROCESSING CAS lock |
+| AI 暂时失败 | RETRYABLE_FAILED + `next_retry_at` + backoff |
+| AI 空数据胡编结论 | DATA_NOT_READY / SKIPPED_INSUFFICIENT_DATA |
+| AI 编造指标 | Evidence Validator |
+| AI 编造优惠 | PromotionFact + ContentFactValidator |
+| AI 越权查看资源 | operatorId / campaign.created_by 校验 |
 
 ---
 
-> **文档维护**: 本文件随项目推进持续更新。修订历史：v1.0 初始方案 → v2.0 修订幂等链路、去重键、归因持久化、时间校验、调度模式、表数量 → v2.1 修订补偿队列 MySQL 化、Redis 失败决策重试、Kafka userId 分区、campaign_execution 防中断、Lua 频控、渠道幂等、dedup_key 格式修正 → v2.2 修订 DuplicateKeyException 不直接 ACK、补偿任务合并 EVENT_REPLAY、购物车拆分独立 Hash、频控语义简化、execution 与 next_trigger 同事务、delivery_task Outbox 模式、metric_hour/scheduled_at 改为 DATETIME → v2.3 补偿任务 PROCESSING 超时恢复、重复事件从 DB 读标准事件、CampaignSelectionJob 统一执行恢复、重试不重复占频控额度、触达 PROCESSING 超时恢复、effective_event_time 统一时间、9 个 XXL-JOB 任务。
+# 十一、测试与 CI 状态
+
+当前 `main` 已完成一次真实 GitHub Actions 全绿验收。
+
+## 11.1 当前测试结果
+
+```text
+单元测试：98
+集成测试：11
+总计：109
+失败：0
+```
+
+Boot 集成测试包括：
+
+```text
+FlywayMigrationIT              2
+EventIdempotentConsumptionIT   3
+AiModeBootstrapIT              6
+--------------------------------
+合计                           11
+```
+
+CI 中 Testcontainers MySQL 8.0 实际执行 V1～V5 Flyway 迁移，并验证事件幂等消费和 AI 双模式启动。
+
+## 11.2 CI 设计
+
+GitHub Actions 环境会强制开启 Docker 集成测试，避免出现“本地跳过 Testcontainers，CI 也不知不觉跳过”的假绿。
+
+当前已验证完整 `mvn clean verify` BUILD SUCCESS。
+
+---
+
+# 十二、当前实现边界与后续优化点
+
+这部分区分“已经实现”和“未来扩展”，避免再把计划项写成当前能力。
+
+## 12.1 当前明确未纳入主链的能力
+
+以下不是当前主链实现：
+
+```text
+Elasticsearch 行为全文检索
+向量数据库 / RAG
+多 Agent
+AI 自动执行 SQL
+AI 自动激活 Campaign
+AI 自动发送 Campaign
+在线机器学习
+用户转化率预测模型
+推荐算法训练平台
+自动 A/B Test 优化
+实时动态调价
+```
+
+## 12.2 当前 AI 数据边界
+
+- 人群洞察 baseline 仍是 v1 候选池口径，不是真实全站 baseline；
+- 部分聚合维度还未接入；
+- AI Review 的质量依赖后端 summary 数据是否已归集完整；
+- EMAIL 当前为 MVP 模拟通道，真实 SMTP 的端到端幂等仍需供应商能力配合。
+
+## 12.3 当前代码值得后续继续核对的可靠性点
+
+### A. Kafka ACK 配置一致性
+
+当前配置为：
+
+```text
+spring.kafka.listener.ack-mode = manual
+```
+
+而业务 listener 主要通过“正常返回 / 抛异常”表达成功或失败。
+
+后续应继续核对 Spring Kafka 实际容器确认语义，确保代码注释中的 ACK 契约与运行配置完全一致；如果坚持 manual ack，建议让 listener 显式持有并调用 `Acknowledgment`，或者统一调整为与当前异常传播方式匹配的 ack mode。
+
+### B. Campaign 定时实例创建事务边界
+
+当前 `CampaignSelectionJob` 已具备：
+
+```text
+version 乐观锁
+campaign_execution UK
+PENDING → RUNNING CAS
+卡死恢复
+```
+
+但“推进 `next_trigger_at`”与“插入 `campaign_execution`”之间仍值得进一步做显式事务边界核对，防止极端情况下第一步成功、第二步异常导致某个 schedule slot 丢失。
+
+这两项属于后续可靠性加固，不影响当前文档对主业务能力的描述，但不应该在设计文档中假装它们已经被完全解决。
+
+---
+
+# 十三、当前项目技术栈
+
+```text
+Java 17
+Spring Boot 3.2.5
+MyBatis-Plus 3.5.6
+Kafka
+Redis / Redisson 3.29.0
+MySQL
+XXL-JOB 2.4.1
+Sa-Token 1.38.0
+Flyway
+Hutool 5.8.27
+MapStruct 1.5.5.Final
+Lombok 1.18.32
+Testcontainers
+GitHub Actions
+```
+
+AI 层：
+
+```text
+OpenAI-compatible Provider abstraction
+Structured JSON output
+Prompt versioning
+AI audit records
+Token / latency metrics
+Guardrail validators
+Mock Provider
+```
+
+---
+
+# 十四、简历表述建议
+
+## 项目名称
+
+**PulseFlow — 实时用户行为决策引擎 / AI Campaign Copilot**
+
+## 项目描述
+
+基于 Spring Boot、Kafka、Redis、MySQL 与 XXL-JOB 构建事件驱动用户运营决策引擎，完成用户行为接入、三级画像计算、Campaign 规则决策、实时/延迟/定时三种触发、触达频控与幂等、点击后 Last-Touch 转化归因；在原确定性业务引擎上增加 AI Campaign Copilot，实现自然语言生成 Campaign DSL、人群洞察、营销文案和基于真实效果指标的 Campaign 复盘。
+
+## 项目亮点
+
+- 设计 **MySQL 事实事务 + Redis Lua 实时状态 + MySQL EVENT_REPLAY 补偿** 的分层事件处理链，重复事件从 MySQL 读取 canonical event 继续下游处理，结合 Redis processed flag 和业务唯一键实现多层幂等保护。
+- 构建 **实时状态、窗口指标、长期标签三级用户画像**，通过 Kafka 事件实时更新 Redis，通过小时/日时间桶和 XXL-JOB 聚合窗口指标，并使用可扩展标签策略支持 Campaign 规则判断。
+- 实现 **EVENT / DELAYED / SCHEDULED 三种 Campaign 触发模式**：Redis ZSET + Lua 管理延迟任务，统一 CampaignSelectionJob + `campaign_execution` 管理定时圈选，并通过 dedup key、乐观锁和 CAS 降低重复执行风险。
+- 建立完整 **触达可靠性链路**：delivery_task 轻量 Outbox、Kafka 分发、Lua 原子频控、任务级频控 reservation、渠道 business key 幂等、WAIT_RETRY/PROCESSING 超时恢复和 DispatchRetryJob 补偿。
+- 实现 **CLICK_LAST_TOUCH 转化归因**，通过归因等待任务和 Redis 宽限窗口处理迟到点击事件，并使用目标事件唯一约束防止一次转化重复归因。
+- 新增 **AI Campaign Copilot**，采用“LLM 生成候选结构 + Java Guardrail 最终裁决”模式，支持自然语言→Campaign DSL、人群聚合洞察、受真实 PromotionFact 约束的营销文案和 Campaign 效果复盘；AI 只读取聚合数据，不直接执行 SQL、不绕过 Campaign、频控和触达主链。
+- 为 AI Review 设计 **PENDING → PROCESSING → SUCCESS / RETRYABLE_FAILED / DATA_NOT_READY / SKIPPED / PERMANENT_FAILED** 状态机，使用条件 UPDATE 作为并发锁、指数退避控制重试，并通过 Evidence Validator 防止模型编造业务指标。
+- 通过 GitHub Actions + Testcontainers 完成全量自动化回归，当前 **109 tests、0 failures**，CI 中真实执行 MySQL V1～V5 Flyway 迁移、事件幂等消费与 AI 双模式启动测试。
+
+---
+
+# 十五、面试时的推荐讲法
+
+不要把 PulseFlow 讲成“我做了一个 AI 营销系统”。
+
+更好的顺序是：
+
+```text
+1. 先讲为什么需要事件驱动
+2. 再讲事件如何可靠进入 MySQL / Redis
+3. 再讲三级用户画像
+4. 再讲 Campaign 三种触发模式
+5. 再讲触达幂等、频控和补偿
+6. 再讲转化归因闭环
+7. 最后才讲 AI Campaign Copilot
+```
+
+AI 的定位应该是：
+
+```text
+原系统已经可以稳定、确定性地执行 Campaign，
+AI 只是把“运营人员怎么配置和理解 Campaign”这部分做得更智能。
+```
+
+这会比“接了一个大模型 API”更能体现后端系统设计能力。
+
+---
+
+# 十六、版本说明
+
+本 v3.0 文档用于替换旧版 `pulseflow-design.md`。
+
+相较旧版，主要变化：
+
+1. 从“旧版 7 模块”更新为当前 **8 模块**，加入 `pulseflow-ai`；
+2. 从旧版数据库概览更新为当前 **V1～V5、21 张物理表**；
+3. XXL-JOB 从旧版 9 个更新为当前 **10 个 handler**，加入 `CampaignReviewJob`；
+4. 保留并重新明确原系统 **5 条确定性业务链路**；
+5. 新增完整 **4 条 AI Campaign Copilot 链路**；
+6. 补齐此前漏掉的 **AI 链路 4：Campaign 效果摘要与 AI 活动复盘**；
+7. 将 Elasticsearch 从“当前架构”移到未来 Stage 2 扩展，避免把规划写成已实现；
+8. 增加 AI Guardrail、AI Review 状态机、AI 审计和资源 ownership；
+9. 同步当前 GitHub Actions / Testcontainers **109 tests、0 failures** 的验收状态；
+10. 单独列出当前仍值得继续加固的 Kafka ACK 与 Campaign 定时事务边界，避免设计文档与真实代码脱节。
+
+---
+
+> **维护原则**：从 v3.0 开始，本文件以 GitHub `main` 的真实代码为准。任何新能力只有在代码、迁移和测试已经落地后，才进入“当前架构”章节；未来规划统一放入“实现边界与后续优化”章节。

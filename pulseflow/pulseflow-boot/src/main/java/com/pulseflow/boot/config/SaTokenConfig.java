@@ -17,6 +17,8 @@ public class SaTokenConfig implements WebMvcConfigurer {
                     SaRouter.match("/api/events", r -> {});
                 }))
                 .addPathPatterns("/**")
-                .excludePathPatterns("/api/events");
+                // /api/events : public event ingestion endpoint
+                // /api/auth/dev-login : opt-in demo login (DevLoginController, off by default)
+                .excludePathPatterns("/api/events", "/api/auth/dev-login");
     }
 }
