@@ -7,8 +7,10 @@ import com.pulseflow.ai.support.AiConflictException;
 import com.pulseflow.ai.support.AiDisabledException;
 import com.pulseflow.ai.support.AiForbiddenException;
 import com.pulseflow.ai.support.AiOutputInvalidException;
+import com.pulseflow.ai.support.AiPiiGuardrailUnavailableException;
 import com.pulseflow.ai.support.AiProviderException;
 import com.pulseflow.ai.support.AiResourceNotFoundException;
+import com.pulseflow.ai.support.AiSensitiveDataDetectedException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -38,6 +40,23 @@ public class GlobalExceptionHandler {
     public ApiResponse<Void> handleAiProvider(AiProviderException e) {
         log.error("AI provider failure: code={}, message={}", e.getErrorCode(), e.getMessage());
         return ApiResponse.fail(503, "AI provider error: " + e.getMessage());
+    }
+
+    @ExceptionHandler(AiSensitiveDataDetectedException.class)
+    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+    public ApiResponse<Void> handleAiSensitiveData(AiSensitiveDataDetectedException e) {
+        // Categories are safe diagnostics; the exception never carries the
+        // original entity text in its message or response.
+        log.warn("AI input blocked by guardrail: code={}, categories={}",
+                e.getErrorCode(), e.getCategories());
+        return ApiResponse.fail(422, e.getErrorCode() + ": " + e.getMessage());
+    }
+
+    @ExceptionHandler(AiPiiGuardrailUnavailableException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public ApiResponse<Void> handleAiPiiGuardrailUnavailable(AiPiiGuardrailUnavailableException e) {
+        log.warn("AI PII guardrail unavailable: code={}", e.getErrorCode());
+        return ApiResponse.fail(503, e.getErrorCode() + ": PII guardrail temporarily unavailable");
     }
 
     @ExceptionHandler(AiOutputInvalidException.class)

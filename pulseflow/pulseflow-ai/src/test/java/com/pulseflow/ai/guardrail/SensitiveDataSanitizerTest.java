@@ -1,6 +1,10 @@
 package com.pulseflow.ai.guardrail;
 
-import com.pulseflow.common.exception.PulseFlowException;
+import com.pulseflow.ai.infrastructure.observability.AiMetrics;
+import com.pulseflow.ai.support.AiErrorCode;
+import com.pulseflow.ai.support.AiPiiGuardrailUnavailableException;
+import com.pulseflow.ai.support.AiSensitiveDataDetectedException;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -9,83 +13,103 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Pure unit tests for {@link SensitiveDataSanitizer}.
- *
- * <p>Covers the PII-blocking guardrail: phone numbers, ID cards, emails, and
- * forbidden keys. This is the last line of defence before input is sent to
- * the LLM, so it must block aggressively.</p>
- */
+/** Unit tests for the local business guardrail + provider-neutral PII layer. */
 class SensitiveDataSanitizerTest {
 
-    private final SensitiveDataSanitizer sanitizer = new SensitiveDataSanitizer();
+    private SensitiveDataSanitizer sanitizer(PiiDetectionClient client) {
+        return new SensitiveDataSanitizer(client, new AiMetrics(new SimpleMeterRegistry()));
+    }
 
     @Test
-    @DisplayName("clean text passes through")
+    @DisplayName("normal Chinese campaign text passes the clean PII result")
     void cleanTextPasses() {
-        String clean = "筛选最近7天活跃5天以上的用户";
-        assertThat(sanitizer.inspectText(clean)).isEqualTo(clean);
+        String clean = "筛选最近7天活跃不少于5天、最近30天消费超过500元的用户，今晚8点发送满300减30优惠";
+        assertThat(sanitizer(new FakePiiDetectionClient()).inspectText(clean)).isEqualTo(clean);
     }
 
     @Test
-    @DisplayName("null text returns null")
-    void nullText() {
+    @DisplayName("null and blank text do not call the provider path")
+    void nullAndBlankText() {
+        SensitiveDataSanitizer sanitizer = sanitizer(new FakePiiDetectionClient(
+                FakePiiDetectionClient.Behavior.PROVIDER_FAILURE));
         assertThat(sanitizer.inspectText(null)).isNull();
+        assertThat(sanitizer.inspectText("  ")).isEqualTo("  ");
     }
 
     @Test
-    @DisplayName("CN mobile number is blocked")
-    void blocksMobile() {
-        assertThatThrownBy(() -> sanitizer.inspectText("联系用户13812345678"))
-                .isInstanceOf(PulseFlowException.class)
-                .hasMessageContaining("Sensitive");
+    @DisplayName("Azure/Fake PhoneNumber category blocks without exposing the original value")
+    void blocksPhoneNumberFromPiiClient() {
+        String phone = "给手机号13800138000的用户发送优惠";
+        assertThatThrownBy(() -> sanitizer(new FakePiiDetectionClient(
+                FakePiiDetectionClient.Behavior.PII_DETECTED, "PhoneNumber")).inspectText(phone))
+                .isInstanceOf(AiSensitiveDataDetectedException.class)
+                .satisfies(error -> {
+                    AiSensitiveDataDetectedException e = (AiSensitiveDataDetectedException) error;
+                    assertThat(e.getErrorCode()).isEqualTo(AiErrorCode.AI_SENSITIVE_DATA_DETECTED);
+                    assertThat(e.getMessage()).contains("PhoneNumber");
+                    assertThat(e.getMessage()).doesNotContain("13800138000");
+                });
     }
 
     @Test
-    @DisplayName("email is blocked")
-    void blocksEmail() {
-        assertThatThrownBy(() -> sanitizer.inspectText("send to user@example.com please"))
-                .isInstanceOf(PulseFlowException.class)
-                .hasMessageContaining("Sensitive");
+    @DisplayName("Person and Address categories are blocked")
+    void blocksPersonAndAddress() {
+        for (String category : new String[]{"Person", "Address"}) {
+            assertThatThrownBy(() -> sanitizer(new FakePiiDetectionClient(
+                    FakePiiDetectionClient.Behavior.PII_DETECTED, category)
+            ).inspectText("中文自然语言输入"))
+                    .isInstanceOf(AiSensitiveDataDetectedException.class)
+                    .hasMessageContaining(category);
+        }
     }
 
     @Test
-    @DisplayName("ID card number is blocked")
-    void blocksIdCard() {
-        assertThatThrownBy(() -> sanitizer.inspectText("id=110101199003071234"))
-                .isInstanceOf(PulseFlowException.class)
-                .hasMessageContaining("Sensitive");
-    }
-
-    @Test
-    @DisplayName("forbidden key in map is blocked")
-    void blocksForbiddenKey() {
+    @DisplayName("business forbidden fields are blocked even when PII provider returns CLEAN")
+    void blocksForbiddenBusinessField() {
         Map<String, Object> input = Map.of("userId", 123L, "metric", "active_7d");
-        assertThatThrownBy(() -> sanitizer.inspect(input))
-                .isInstanceOf(PulseFlowException.class)
-                .hasMessageContaining("Sensitive key 'userId'");
+
+        assertThatThrownBy(() -> sanitizer(new FakePiiDetectionClient()).inspect(input))
+                .isInstanceOf(AiSensitiveDataDetectedException.class)
+                .hasMessageContaining("BUSINESS_FIELD_userId")
+                .hasMessageNotContaining("123");
+
+        assertThatThrownBy(() -> sanitizer(new FakePiiDetectionClient()).inspect(Map.of(
+                "rawEvents", java.util.List.of(Map.of("event", "CLICK")))))
+                .isInstanceOf(AiSensitiveDataDetectedException.class)
+                .hasMessageContaining("BUSINESS_FIELD_rawEvents");
     }
 
     @Test
-    @DisplayName("PII pattern in map value is blocked")
-    void blocksPiiInValue() {
-        Map<String, Object> input = Map.of("note", "contact 13912345678");
-        assertThatThrownBy(() -> sanitizer.inspect(input))
-                .isInstanceOf(PulseFlowException.class)
-                .hasMessageContaining("Sensitive pattern");
+    @DisplayName("PII timeout fails closed")
+    void timeoutFailsClosed() {
+        assertThatThrownBy(() -> sanitizer(new FakePiiDetectionClient(
+                FakePiiDetectionClient.Behavior.TIMEOUT)).inspectText("中文输入"))
+                .isInstanceOf(AiPiiGuardrailUnavailableException.class)
+                .hasMessageContaining("PII guardrail temporarily unavailable");
     }
 
     @Test
-    @DisplayName("clean map passes")
+    @DisplayName("provider failure fails closed")
+    void providerFailureFailsClosed() {
+        assertThatThrownBy(() -> sanitizer(new FakePiiDetectionClient(
+                FakePiiDetectionClient.Behavior.PROVIDER_FAILURE)).inspectText("中文输入"))
+                .isInstanceOf(AiPiiGuardrailUnavailableException.class)
+                .hasMessageContaining("PII guardrail temporarily unavailable");
+    }
+
+    @Test
+    @DisplayName("clean structured input passes")
     void cleanMapPasses() {
-        Map<String, Object> input = Map.of("metric", "active_7d", "value", 5);
-        // Should not throw
-        sanitizer.inspect(input);
+        sanitizer(new FakePiiDetectionClient()).inspect(Map.of(
+                "metric", "active_7d",
+                "value", 5,
+                "nested", Map.of("label", "aggregated")));
     }
 
     @Test
     @DisplayName("null map is a no-op")
     void nullMap() {
-        sanitizer.inspect(null); // should not throw
+        sanitizer(new FakePiiDetectionClient(
+                FakePiiDetectionClient.Behavior.PROVIDER_FAILURE)).inspect(null);
     }
 }

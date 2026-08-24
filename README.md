@@ -174,7 +174,7 @@ pulseflow/
 | 调度 | XXL-JOB | 10 个周期 Job |
 | 鉴权 | Sa-Token | 登录拦截 + `StpUtil.getLoginId()` 服务端权威 operatorId |
 | 迁移 | Flyway | V1~V5 数据库版本管理 |
-| AI | OpenAI Compatible | 可配 `mock-enabled=true` 本地零成本启动 |
+| AI | OpenAI Compatible + Azure AI Language PII | 可配 `mock-enabled=true` 本地零成本启动；PII 为可选外部云服务 |
 | 测试 | JUnit 5 + Testcontainers | 109 测试，CI 真实跑 Docker IT |
 
 ---
@@ -226,6 +226,9 @@ export MYSQL_PASSWORD=root
 export PULSEFLOW_AI_BASE_URL=https://api.example.com/v1   # 可选，mock 模式不需要
 export PULSEFLOW_AI_API_KEY=sk-xxx                         # 可选，mock 模式不需要
 export PULSEFLOW_AI_MODEL=gpt-4o-mini                      # 可选
+export PULSEFLOW_AI_PII_ENABLED=true                       # 生产启用 Azure PII 时设置
+export AZURE_LANGUAGE_ENDPOINT=https://<resource>.cognitiveservices.azure.com/
+export AZURE_LANGUAGE_KEY=<azure-language-key>             # 仅环境变量，不提交 Git
 ```
 
 AI 开关（默认关闭，可彻底关闭 AI 模块双模式启动）：
@@ -235,7 +238,13 @@ pulseflow:
   ai:
     enabled: false          # 总开关
     mock-enabled: true      # 本地/CI 用 FakeAiModelClient，零成本
+    pii:
+      enabled: false        # Azure AI Language PII，默认关闭
+      language: zh-hans     # 简体中文（Azure 也接受 zh）
+      timeout-seconds: 5
 ```
+
+AI 输入采用双层 Guardrail：Java 本地业务字段规则始终保留（例如 `userId`、`rawEvents`、`orderDetails`、`deviceId`），自然语言 PII 在 `pii.enabled=true` 时交给 Azure AI Language Text PII 检测。手机号、中文姓名、地址、Email、银行卡等检测到后直接阻止 AI 请求，不把脱敏文本继续发送给 LLM；Azure 超时、5xx 或 SDK 异常也采用 Fail-Closed。Azure Key 只从 `AZURE_LANGUAGE_KEY` 环境变量读取，不进入日志或 `ai_generation_record`；CI 和 Mock 模式使用 `FakePiiDetectionClient`，不访问真实 Azure。PII/AI 关闭时不影响核心确定性业务链启动。
 
 ### 启动
 

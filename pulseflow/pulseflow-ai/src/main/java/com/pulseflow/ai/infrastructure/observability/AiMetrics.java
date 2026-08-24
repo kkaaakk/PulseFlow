@@ -86,4 +86,42 @@ public class AiMetrics {
             log.debug("AI failure metrics recording failed: {}", e.getMessage());
         }
     }
+
+    /**
+     * Records one PII guardrail attempt. The value of {@code result} is one of
+     * {@code clean}, {@code blocked}, or {@code failure}; no input text is
+     * attached to any meter.
+     */
+    public void recordPiiDetection(String provider, Duration latency, String result) {
+        if (registry == null) return;
+        try {
+            String safeProvider = provider == null || provider.isBlank() ? "unknown" : provider;
+            String safeResult = result == null || result.isBlank() ? "unknown" : result;
+            Timer.builder("pulseflow_pii_detection_latency")
+                    .tag("provider", safeProvider)
+                    .tag("result", safeResult)
+                    .register(registry)
+                    .record(latency == null ? Duration.ZERO : latency);
+
+            Counter.builder("pulseflow_pii_detection_requests")
+                    .tag("provider", safeProvider)
+                    .tag("result", safeResult)
+                    .register(registry)
+                    .increment();
+
+            if ("blocked".equals(safeResult)) {
+                Counter.builder("pulseflow_pii_detection_blocked")
+                        .tag("provider", safeProvider)
+                        .register(registry)
+                        .increment();
+            } else if ("failure".equals(safeResult)) {
+                Counter.builder("pulseflow_pii_detection_failures")
+                        .tag("provider", safeProvider)
+                        .register(registry)
+                        .increment();
+            }
+        } catch (Exception e) {
+            log.debug("PII metrics recording failed: {}", e.getMessage());
+        }
+    }
 }
