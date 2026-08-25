@@ -244,7 +244,7 @@ pulseflow:
       timeout-seconds: 5
 ```
 
-AI 输入采用双层 Guardrail：Java 本地业务字段规则始终保留（例如 `userId`、`rawEvents`、`orderDetails`、`deviceId`），自然语言 PII 在 `pii.enabled=true` 时交给 Azure AI Language Text PII 检测。手机号、中文姓名、地址、Email、银行卡等检测到后直接阻止 AI 请求，不把脱敏文本继续发送给 LLM；Azure 超时、5xx 或 SDK 异常也采用 Fail-Closed。Azure Key 只从 `AZURE_LANGUAGE_KEY` 环境变量读取，不进入日志或 `ai_generation_record`；CI 和 Mock 模式使用 `FakePiiDetectionClient`，不访问真实 Azure。PII/AI 关闭时不影响核心确定性业务链启动。
+AI 输入采用双层 Guardrail：Java 本地业务字段规则始终保留（例如 `userId`、`rawEvents`、`orderDetails`、`deviceId`），并且会阻止自然语言中显式出现这些内部业务字段标识；自然语言 PII 在 `pii.enabled=true` 时交给 Azure AI Language Text PII 检测。手机号、中文姓名、地址、Email、银行卡等检测到后直接阻止 AI 请求，不把脱敏文本继续发送给 LLM；Azure 超时、5xx 或 SDK 异常也采用 Fail-Closed。Azure Key 只从 `AZURE_LANGUAGE_KEY` 环境变量读取，不进入日志或 `ai_generation_record`；CI 和 Mock 模式使用 `FakePiiDetectionClient`，不访问真实 Azure。真实 AI（`mock-enabled=false`）启动时强制要求 PII Guardrail 开启并校验 Azure 配置；PII/AI 关闭时不影响核心确定性业务链启动。
 
 ### 启动
 
