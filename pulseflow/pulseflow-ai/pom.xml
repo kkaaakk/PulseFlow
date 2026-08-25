@@ -41,6 +41,13 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+        <!-- Azure AI Language PII detection. The client is created only when
+             pulseflow.ai.pii.enabled=true and mock mode is disabled. -->
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-ai-textanalytics</artifactId>
+            <version>${azure-ai-textanalytics.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.redisson</groupId>
             <artifactId>redisson-spring-boot-starter</artifactId>

@@ -98,3 +98,10 @@ pulseflow:
     mock-enabled: true
     draft-ttl-hours: 24
     audience-preview-limit: 100000
+    pii:
+      enabled: ${PULSEFLOW_AI_PII_ENABLED:false}
+      endpoint: ${AZURE_LANGUAGE_ENDPOINT:}
+      api-key: ${AZURE_LANGUAGE_KEY:}
+      language: ${AZURE_LANGUAGE_PII_LANGUAGE:zh-hans}
+      timeout-seconds: ${PULSEFLOW_AI_PII_TIMEOUT_SECONDS:5}
+      mock-enabled: ${PULSEFLOW_AI_PII_MOCK_ENABLED:false}

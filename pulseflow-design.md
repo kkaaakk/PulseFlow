@@ -697,6 +697,11 @@ AI 是当前 PulseFlow 的增强层，共四条明确业务链路。
 自然语言
   ↓
 SensitiveDataSanitizer
+  ├─ Java 本地业务字段 Guardrail
+  │    userId / userIds / rawEvents / orderDetails / behaviourLogs
+  │    deviceId / imei 等明确禁止发送给 AI 的字段
+  └─ PiiDetectionClient
+       └─ Azure AI Language Text PII（简体中文 zh-hans）
   ↓
 CampaignIntentPromptBuilder
   ↓
@@ -1315,19 +1320,50 @@ AiModelClient
 └── FakeAiModelClient
 ```
 
-`OpenAiCompatibleClient` 用于真实 OpenAI-compatible Provider；`FakeAiModelClient` 用于本地、测试和 CI。
+`OpenAiCompatibleClient` 用于真实 OpenAI-compatible Provider；`FakeAiModelClient` 用于本地、测试和 CI。自然语言 PII 检测是独立的 `PiiDetectionClient` 抽象，生产实现为外部云服务 Azure AI Language，测试实现为 `FakePiiDetectionClient`。
 
 当前配置原则：
 
 ```text
 pulseflow.ai.enabled = false（默认）
 pulseflow.ai.mock-enabled = true
-API Key 只从环境变量读取
+PULSEFLOW_AI_API_KEY 只从环境变量读取
+AZURE_LANGUAGE_ENDPOINT / AZURE_LANGUAGE_KEY 只从环境变量读取
 ```
 
 因此 AI Provider 不可用时不会阻止 PulseFlow 核心业务启动。
 
-## 9.2 四类结构化 AI Task
+## 9.2 PII 双层 Guardrail 与 Fail-Closed
+
+```text
+AI 输入
+  ↓
+SensitiveDataSanitizer
+  ├─ 本地业务字段规则：不允许发送的数据字段直接 BLOCK
+  └─ PiiDetectionClient：中文自然语言 PII 检测
+       ├─ CLEAN → 允许构造 Prompt
+       ├─ PII_DETECTED → AI_SENSITIVE_DATA_DETECTED
+       └─ timeout / 5xx / SDK exception → AI_PII_GUARDRAIL_UNAVAILABLE
+                                            停止本次 AI 请求
+```
+
+当前 Campaign Intent 与 Content 链路在进入 PromptBuilder / LLM 前执行检查；Insight 与 Review 只向模型发送后端白名单聚合指标和效果摘要，不发送用户行、原始事件或订单明细，因此沿用结构化输入边界与 Evidence Validator，不对每个聚合数字重复调用外部 PII 服务。`redactedText` 只保留在 provider-neutral 结果能力中，Campaign 默认策略仍是 BLOCK，不脱敏后继续生成。
+
+PII 配置示例：
+
+```yaml
+pulseflow:
+  ai:
+    pii:
+      enabled: ${PULSEFLOW_AI_PII_ENABLED:false}
+      endpoint: ${AZURE_LANGUAGE_ENDPOINT:}
+      api-key: ${AZURE_LANGUAGE_KEY:}
+      language: ${AZURE_LANGUAGE_PII_LANGUAGE:zh-hans}
+```
+
+AI 关闭时不会装配 PII Client；AI Mock/CI 使用 `FakePiiDetectionClient`，不访问 Azure。PII 正式启用且 Mock 关闭时，Endpoint、Key、语言和超时配置会在启动阶段校验。日志、异常、审计记录只保留 request/provider/category/耗时/errorCode 等安全信息，不保存完整输入、entity 原文或 Azure Key。
+
+## 9.3 四类结构化 AI Task
 
 ```text
 PARSE_DSL
@@ -1338,13 +1374,16 @@ REVIEW
 
 所有核心 AI 输出都要求 JSON 结构化解析，不让业务代码依赖自由文本正则抽取。
 
-## 9.3 Guardrail 组件
+## 9.4 Guardrail 组件
 
 ```text
 AiFieldRegistry
 CampaignDslValidator
 AiOutputParser
 SensitiveDataSanitizer
+PiiDetectionClient
+AzurePiiDetectionClient
+FakePiiDetectionClient
 InsightEvidenceValidator
 ContentFactValidator
 ReviewEvidenceValidator

@@ -2,6 +2,9 @@ package com.pulseflow.boot;
 
 import com.pulseflow.ai.application.CampaignReviewService;
 import com.pulseflow.ai.guardrail.AiFieldRegistry;
+import com.pulseflow.ai.guardrail.DisabledPiiDetectionClient;
+import com.pulseflow.ai.guardrail.FakePiiDetectionClient;
+import com.pulseflow.ai.guardrail.PiiDetectionClient;
 import com.pulseflow.ai.infrastructure.config.AiAutoConfiguration;
 import com.pulseflow.ai.infrastructure.config.AiFeatureProperties;
 import com.pulseflow.ai.infrastructure.observability.AiAuditService;
@@ -113,6 +116,7 @@ class AiModeBootstrapIT {
                         assertThat(context).doesNotHaveBean(CampaignReviewService.class);
                         assertThat(context).doesNotHaveBean(AiFieldRegistry.class);
                         assertThat(context).doesNotHaveBean(AiModelClient.class);
+                        assertThat(context).doesNotHaveBean(PiiDetectionClient.class);
                     });
         }
     }
@@ -138,10 +142,62 @@ class AiModeBootstrapIT {
                         assertThat(context).hasSingleBean(AiFeatureProperties.class);
                         assertThat(context).hasSingleBean(AiFieldRegistry.class);
                         assertThat(context).hasSingleBean(AiModelClient.class);
+                        assertThat(context).hasSingleBean(PiiDetectionClient.class);
                         assertThat(context).hasSingleBean(CampaignReviewService.class);
                         assertThat(context).hasSingleBean(AiAuditService.class);
                         assertThat(context).hasSingleBean(AiMetrics.class);
                         assertThat(context).hasSingleBean(PerformanceSummaryCalculator.class);
+                    });
+        }
+
+        @Test
+        @DisplayName("PII disabled keeps local guardrail and does not require Azure credentials")
+        void piiDisabledUsesNoopClient() {
+            runner
+                    .withPropertyValues(
+                            "pulseflow.ai.enabled=true",
+                            "pulseflow.ai.mock-enabled=true",
+                            "pulseflow.ai.pii.enabled=false")
+                    .run(context -> {
+                        assertThat(context).hasNotFailed();
+                        assertThat(context.getBean(PiiDetectionClient.class))
+                                .isInstanceOf(DisabledPiiDetectionClient.class);
+                    });
+        }
+
+        @Test
+        @DisplayName("PII enabled in mock mode uses FakePiiDetectionClient without Azure credentials")
+        void piiEnabledMockDoesNotCallAzure() {
+            runner
+                    .withPropertyValues(
+                            "pulseflow.ai.enabled=true",
+                            "pulseflow.ai.mock-enabled=true",
+                            "pulseflow.ai.pii.enabled=true")
+                    .run(context -> {
+                        assertThat(context).hasNotFailed();
+                        assertThat(context.getBean(PiiDetectionClient.class))
+                                .isInstanceOf(FakePiiDetectionClient.class);
+                    });
+        }
+
+        @Test
+        @DisplayName("real PII mode fails startup early when Azure credentials are missing")
+        void piiEnabledRealModeValidatesCredentials() {
+            runner
+                    .withPropertyValues(
+                            "pulseflow.ai.enabled=true",
+                            "pulseflow.ai.mock-enabled=false",
+                            "pulseflow.ai.base-url=http://localhost:9999",
+                            "pulseflow.ai.api-key=test-key",
+                            "pulseflow.ai.model=test-model",
+                            "pulseflow.ai.pii.enabled=true",
+                            "pulseflow.ai.pii.mock-enabled=false",
+                            "pulseflow.ai.pii.endpoint=",
+                            "pulseflow.ai.pii.api-key=")
+                    .run(context -> {
+                        assertThat(context).hasFailed();
+                        assertThat(context.getStartupFailure())
+                                .hasRootCauseMessage("pulseflow.ai.pii.enabled=true requires AZURE_LANGUAGE_ENDPOINT and AZURE_LANGUAGE_KEY when mock mode is disabled");
                     });
         }
 

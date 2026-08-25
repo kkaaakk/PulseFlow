@@ -73,19 +73,15 @@ public class CampaignContentService {
                     "Draft " + draftId + " has no promotionFacts; cannot generate content");
         }
 
-        // 2. Sanitise free-text inputs
-        sanitizer.inspectText(tone);
-        if (audienceSummary != null) sanitizer.inspectText(audienceSummary);
-        if (forbiddenWords != null) {
-            for (String w : forbiddenWords) sanitizer.inspectText(w);
-        }
-
-        // 3. Build input
+        // 2. Build the exact constrained input that will become the prompt,
+        //    then run both business-field and natural-language PII checks over
+        //    that input before the prompt builder or model is reached.
         Map<String, Object> input = buildInput(dsl, tone, titleMaxLength, bodyMaxLength,
                 variantCount, forbiddenWords, audienceSummary);
+        sanitizer.inspect(input);
         String inputJson = JsonUtil.toJson(input);
 
-        // 4. Prompt + call
+        // 3. Prompt + call
         CampaignContentPromptBuilder.BuiltPrompt prompt = promptBuilder.build(input);
         String requestId = "ai_req_" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
 

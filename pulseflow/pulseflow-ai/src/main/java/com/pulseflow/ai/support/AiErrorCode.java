@@ -11,6 +11,8 @@ package com.pulseflow.ai.support;
  *   <li>{@code AI_UNKNOWN_FIELD} / {@code AI_INVALID_OPERATOR} / {@code AI_INVALID_VALUE} / {@code AI_MISSING_REQUIRED_FACT} / {@code AI_CONTENT_FACT_CONFLICT} — business guardrail.</li>
  *   <li>{@code AI_AUDIENCE_PREVIEW_FAILED} — downstream audience preview failure.</li>
  *   <li>{@code AI_REVIEW_DATA_NOT_READY} — performance summary not computed yet.</li>
+ *   <li>{@code AI_SENSITIVE_DATA_DETECTED} — local business or PII guardrail blocked input.</li>
+ *   <li>{@code AI_PII_GUARDRAIL_UNAVAILABLE} — PII provider failed; request is fail-closed.</li>
  *   <li>{@code AI_INTERNAL_ERROR} — fallback for unexpected failures.</li>
  * </ul>
  */
@@ -32,6 +34,8 @@ public final class AiErrorCode {
     public static final String AI_AUDIENCE_PREVIEW_FAILED   = "AI_AUDIENCE_PREVIEW_FAILED";
     public static final String AI_REVIEW_DATA_NOT_READY     = "AI_REVIEW_DATA_NOT_READY";
     public static final String AI_EVIDENCE_INVALID          = "AI_EVIDENCE_INVALID";
+    public static final String AI_SENSITIVE_DATA_DETECTED   = "AI_SENSITIVE_DATA_DETECTED";
+    public static final String AI_PII_GUARDRAIL_UNAVAILABLE = "AI_PII_GUARDRAIL_UNAVAILABLE";
     public static final String AI_INTERNAL_ERROR            = "AI_INTERNAL_ERROR";
 
     private AiErrorCode() {

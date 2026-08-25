@@ -1,26 +1,30 @@
 package com.pulseflow.ai.guardrail;
 
-import com.pulseflow.common.exception.PulseFlowException;
-import com.pulseflow.ai.support.AiErrorCode;
+import com.pulseflow.ai.infrastructure.observability.AiMetrics;
+import com.pulseflow.ai.support.AiPiiGuardrailUnavailableException;
+import com.pulseflow.ai.support.AiSensitiveDataDetectedException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 /**
- * Guards what may be sent to the LLM.
+ * Two-layer guardrail for data sent to an LLM.
  *
- * <p>Per design §3.4:</p>
- * <ul>
- *   <li>Allowed: aggregated counts, rates, averages, tag ratios, historical means.</li>
- *   <li>Forbidden: userId, mobile, email, address, ID numbers, raw behaviour logs,
- *       order details, device ids, unmasked operational data.</li>
- * </ul>
+ * <p>Layer one is PulseFlow's local business policy. It blocks fields such as
+ * {@code userId}, {@code rawEvents}, and {@code orderDetails} even when those
+ * values would not be classified as personal data by an external provider.
+ * Layer two delegates free-form natural-language detection to the configured
+ * {@link PiiDetectionClient}. Detected PII is blocked, never redacted and sent
+ * onward.</p>
  *
- * <p>This validator runs on every prompt input. It blocks the call BEFORE the
- * HTTP request is dispatched, so we never leak PII even on misconfiguration.</p>
+ * <p>Provider failures are fail-closed: an unavailable PII service stops the
+ * AI request instead of allowing unchecked input to reach the LLM.</p>
  */
 @Component
 public class SensitiveDataSanitizer {
@@ -32,50 +36,106 @@ public class SensitiveDataSanitizer {
             "orderDetails", "behaviourLogs", "fullName", "realName"
     );
 
-    /** Patterns that, if matched in free text, block the call. */
-    private static final List<Pattern> FORBIDDEN_PATTERNS = List.of(
-            Pattern.compile("1[3-9]\\d{9}"),                       // CN mobile
-            Pattern.compile("\\b\\d{15,18}[0-9Xx]\\b"),            // ID card
-            Pattern.compile("[\\w.+-]+@[\\w-]+\\.[\\w.-]+")        // email
-    );
+    private final PiiDetectionClient piiDetectionClient;
+    private final AiMetrics metrics;
+
+    /** Spring uses this constructor so metrics remain best-effort. */
+    @Autowired
+    public SensitiveDataSanitizer(PiiDetectionClient piiDetectionClient, AiMetrics metrics) {
+        this.piiDetectionClient = piiDetectionClient;
+        this.metrics = metrics;
+    }
+
+    /** Convenient constructor for pure unit tests without a Spring context. */
+    public SensitiveDataSanitizer(PiiDetectionClient piiDetectionClient) {
+        this(piiDetectionClient, null);
+    }
 
     /**
-     * Inspect a structured input map. Throws {@link PulseFlowException} on
-     * any forbidden key or pattern match.
+     * Inspect a structured input map. Business field checks run before any
+     * provider call; textual leaves are then checked by the configured PII
+     * client.
      */
     public void inspect(Map<String, Object> input) {
         if (input == null) return;
-        for (String key : input.keySet()) {
-            if (FORBIDDEN_KEYS.contains(key)) {
-                throw new PulseFlowException(AiErrorCode.AI_INTERNAL_ERROR,
-                        "Sensitive key '" + key + "' is not allowed in AI input");
-            }
-        }
-        for (Object value : input.values()) {
-            if (value instanceof CharSequence cs) {
-                String text = cs.toString();
-                for (Pattern p : FORBIDDEN_PATTERNS) {
-                    if (p.matcher(text).find()) {
-                        throw new PulseFlowException(AiErrorCode.AI_INTERNAL_ERROR,
-                                "Sensitive pattern matched in AI input value");
-                    }
-                }
-            }
+        List<String> textValues = new ArrayList<>();
+        collectValues(input, textValues);
+        for (String text : textValues) {
+            inspectText(text);
         }
     }
 
     /**
-     * Inspect free-form text (e.g. the natural-language intent input from
-     * /parse). Returns the text if clean; throws otherwise.
+     * Inspect free-form text. The original text is returned only when the
+     * guardrail is clean; no redacted text is sent to the LLM in this phase.
      */
     public String inspectText(String text) {
-        if (text == null) return null;
-        for (Pattern p : FORBIDDEN_PATTERNS) {
-            if (p.matcher(text).find()) {
-                throw new PulseFlowException(AiErrorCode.AI_INTERNAL_ERROR,
-                        "Sensitive pattern matched in AI input text");
+        if (text == null || text.isBlank()) return text;
+
+        long started = System.nanoTime();
+        PiiDetectionResult result;
+        try {
+            result = piiDetectionClient.detect(text);
+            if (result == null) {
+                throw new AiPiiGuardrailUnavailableException("PII provider returned no result");
             }
+        } catch (AiPiiGuardrailUnavailableException e) {
+            recordPiiDetection("unknown", started, "failure");
+            throw e;
+        } catch (RuntimeException e) {
+            // Any unexpected provider/SDK failure is treated as unavailable.
+            // Do not include provider exception text because it can contain
+            // request details or sensitive content.
+            recordPiiDetection(piiDetectionClient.providerName(), started, "failure");
+            throw new AiPiiGuardrailUnavailableException(
+                    "PII provider failed", e);
+        }
+
+        String provider = result.provider();
+        recordPiiDetection(provider, started, result.hasPii() ? "blocked" : "clean");
+        if (result.hasPii()) {
+            // Only provider-supplied categories leave this boundary. Entity
+            // text is deliberately never copied into the exception message.
+            throw new AiSensitiveDataDetectedException(result.categories());
         }
         return text;
+    }
+
+    private void collectValues(Object value, Collection<String> textValues) {
+        if (value instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                String key = entry.getKey() == null ? "" : String.valueOf(entry.getKey());
+                if (FORBIDDEN_KEYS.contains(key)) {
+                    throw new AiSensitiveDataDetectedException(Set.of("BUSINESS_FIELD:" + key));
+                }
+                collectValues(entry.getValue(), textValues);
+            }
+            return;
+        }
+        if (value instanceof CharSequence sequence) {
+            textValues.add(sequence.toString());
+            return;
+        }
+        if (value instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                collectValues(item, textValues);
+            }
+            return;
+        }
+        if (value != null && value.getClass().isArray()) {
+            int length = java.lang.reflect.Array.getLength(value);
+            for (int i = 0; i < length; i++) {
+                collectValues(java.lang.reflect.Array.get(value, i), textValues);
+            }
+        }
+    }
+
+    private void recordPiiDetection(String provider, long startedNanos, String result) {
+        if (metrics == null) return;
+        String safeProvider = provider == null || provider.isBlank() ? "unknown" : provider;
+        metrics.recordPiiDetection(
+                safeProvider,
+                Duration.ofNanos(Math.max(0, System.nanoTime() - startedNanos)),
+                result);
     }
 }

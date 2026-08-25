@@ -43,6 +43,7 @@
         <hutool.version>5.8.27</hutool.version>
         <mapstruct.version>1.5.5.Final</mapstruct.version>
         <lombok.version>1.18.32</lombok.version>
+        <azure-ai-textanalytics.version>5.5.12</azure-ai-textanalytics.version>
     </properties>
 
     <dependencyManagement>
