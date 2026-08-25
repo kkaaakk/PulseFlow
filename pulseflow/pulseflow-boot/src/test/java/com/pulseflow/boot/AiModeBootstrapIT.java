@@ -11,6 +11,7 @@ import com.pulseflow.ai.infrastructure.observability.AiAuditService;
 import com.pulseflow.ai.infrastructure.observability.AiMetrics;
 import com.pulseflow.ai.infrastructure.persistence.PerformanceSummaryCalculator;
 import com.pulseflow.ai.provider.AiModelClient;
+import com.pulseflow.ai.provider.AzurePiiDetectionClient;
 import com.pulseflow.ai.provider.FakeAiModelClient;
 import com.pulseflow.mapper.AttributionRecordMapper;
 import com.pulseflow.mapper.CampaignMapper;
@@ -151,6 +152,25 @@ class AiModeBootstrapIT {
         }
 
         @Test
+        @DisplayName("真实 AI + PII disabled 在启动阶段失败")
+        void realAiRequiresPiiGuardrail() {
+            runner
+                    .withPropertyValues(
+                            "pulseflow.ai.enabled=true",
+                            "pulseflow.ai.mock-enabled=false",
+                            "pulseflow.ai.provider=openai-compatible",
+                            "pulseflow.ai.base-url=http://localhost:9999",
+                            "pulseflow.ai.api-key=test-key",
+                            "pulseflow.ai.model=test-model",
+                            "pulseflow.ai.pii.enabled=false")
+                    .run(context -> {
+                        assertThat(context).hasFailed();
+                        assertThat(context.getStartupFailure())
+                                .hasRootCauseMessage("Real AI provider requires PII guardrail to be enabled");
+                    });
+        }
+
+        @Test
         @DisplayName("PII disabled keeps local guardrail and does not require Azure credentials")
         void piiDisabledUsesNoopClient() {
             runner
@@ -251,10 +271,18 @@ class AiModeBootstrapIT {
                             "pulseflow.ai.provider=openai-compatible",
                             "pulseflow.ai.base-url=http://localhost:9999",
                             "pulseflow.ai.api-key=test-key",
-                            "pulseflow.ai.model=test-model")
+                            "pulseflow.ai.model=test-model",
+                            "pulseflow.ai.pii.enabled=true",
+                            "pulseflow.ai.pii.endpoint=https://language.example.test",
+                            "pulseflow.ai.pii.api-key=test-language-key",
+                            "pulseflow.ai.pii.language=zh-hans",
+                            "pulseflow.ai.pii.timeout-seconds=5")
                     .run(context -> {
+                        assertThat(context).hasNotFailed();
                         AiModelClient client = context.getBean(AiModelClient.class);
                         assertThat(client).isNotInstanceOf(FakeAiModelClient.class);
+                        assertThat(context.getBean(PiiDetectionClient.class))
+                                .isInstanceOf(AzurePiiDetectionClient.class);
                     });
         }
     }

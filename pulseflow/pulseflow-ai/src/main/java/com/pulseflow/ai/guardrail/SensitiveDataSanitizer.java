@@ -9,7 +9,9 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -35,6 +37,11 @@ public class SensitiveDataSanitizer {
             "idCard", "idNumber", "deviceId", "imei", "rawEvents",
             "orderDetails", "behaviourLogs", "fullName", "realName"
     );
+
+    /** Longest first so userIds wins over the shorter userId token. */
+    private static final List<String> FORBIDDEN_IDENTIFIER_ORDER = FORBIDDEN_KEYS.stream()
+            .sorted(Comparator.comparingInt(String::length).reversed())
+            .toList();
 
     private final PiiDetectionClient piiDetectionClient;
     private final AiMetrics metrics;
@@ -72,6 +79,12 @@ public class SensitiveDataSanitizer {
     public String inspectText(String text) {
         if (text == null || text.isBlank()) return text;
 
+        String forbiddenIdentifier = findForbiddenBusinessIdentifier(text);
+        if (forbiddenIdentifier != null) {
+            throw new AiSensitiveDataDetectedException(
+                    Set.of("BUSINESS_FIELD:" + forbiddenIdentifier));
+        }
+
         long started = System.nanoTime();
         PiiDetectionResult result;
         try {
@@ -105,8 +118,9 @@ public class SensitiveDataSanitizer {
         if (value instanceof Map<?, ?> map) {
             for (Map.Entry<?, ?> entry : map.entrySet()) {
                 String key = entry.getKey() == null ? "" : String.valueOf(entry.getKey());
-                if (FORBIDDEN_KEYS.contains(key)) {
-                    throw new AiSensitiveDataDetectedException(Set.of("BUSINESS_FIELD:" + key));
+                String forbiddenKey = findForbiddenBusinessKey(key);
+                if (forbiddenKey != null) {
+                    throw new AiSensitiveDataDetectedException(Set.of("BUSINESS_FIELD:" + forbiddenKey));
                 }
                 collectValues(entry.getValue(), textValues);
             }
@@ -128,6 +142,48 @@ public class SensitiveDataSanitizer {
                 collectValues(java.lang.reflect.Array.get(value, i), textValues);
             }
         }
+    }
+
+    /**
+     * Finds an explicitly named PulseFlow business field without inspecting or
+     * logging the value that follows it. ASCII identifier boundaries prevent
+     * accidental matches such as {@code customerUserIdAlias}, while Chinese
+     * text can appear directly next to a business identifier.
+     */
+    private String findForbiddenBusinessIdentifier(String text) {
+        String normalizedText = text.toLowerCase(Locale.ROOT);
+        for (String key : FORBIDDEN_IDENTIFIER_ORDER) {
+            String normalizedKey = key.toLowerCase(Locale.ROOT);
+            int fromIndex = 0;
+            while (fromIndex < normalizedText.length()) {
+                int index = normalizedText.indexOf(normalizedKey, fromIndex);
+                if (index < 0) break;
+                if (hasIdentifierBoundaries(normalizedText, index, normalizedKey.length())) {
+                    return key;
+                }
+                fromIndex = index + normalizedKey.length();
+            }
+        }
+        return null;
+    }
+
+    private String findForbiddenBusinessKey(String key) {
+        for (String forbiddenKey : FORBIDDEN_KEYS) {
+            if (forbiddenKey.equalsIgnoreCase(key)) return forbiddenKey;
+        }
+        return null;
+    }
+
+    private boolean hasIdentifierBoundaries(String text, int start, int length) {
+        int end = start + length;
+        return (start == 0 || !isAsciiIdentifierChar(text.charAt(start - 1)))
+                && (end == text.length() || !isAsciiIdentifierChar(text.charAt(end)));
+    }
+
+    private boolean isAsciiIdentifierChar(char value) {
+        return value >= 'a' && value <= 'z'
+                || value >= '0' && value <= '9'
+                || value == '_';
     }
 
     private void recordPiiDetection(String provider, long startedNanos, String result) {

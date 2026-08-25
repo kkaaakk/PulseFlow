@@ -7,6 +7,7 @@ import com.pulseflow.ai.provider.AiModelClient;
 import com.pulseflow.ai.provider.AzurePiiDetectionClient;
 import com.pulseflow.ai.provider.FakeAiModelClient;
 import com.pulseflow.ai.provider.OpenAiCompatibleClient;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -28,6 +29,25 @@ import org.springframework.context.annotation.Configuration;
 @ConditionalOnProperty(prefix = "pulseflow.ai", name = "enabled", havingValue = "true")
 @ComponentScan(basePackages = "com.pulseflow.ai")
 public class AiAutoConfiguration {
+
+    private final AiFeatureProperties properties;
+
+    public AiAutoConfiguration(AiFeatureProperties properties) {
+        this.properties = properties;
+    }
+
+    /**
+     * A real LLM must never start with the PII guardrail disabled. This check
+     * is deliberately independent of the conditional PII client bean so a
+     * custom PiiDetectionClient cannot accidentally bypass the startup policy.
+     */
+    @PostConstruct
+    void validateRealAiRequiresPiiGuardrail() {
+        AiFeatureProperties.Pii pii = properties.getPii();
+        if (!properties.isMockEnabled() && (pii == null || !pii.isEnabled())) {
+            throw new IllegalStateException("Real AI provider requires PII guardrail to be enabled");
+        }
+    }
 
     @Bean
     @ConditionalOnMissingBean(AiModelClient.class)
@@ -52,7 +72,7 @@ public class AiAutoConfiguration {
 
         // The existing global mock switch is the CI/local contract. The nested
         // switch is useful when only the PII provider should be stubbed.
-        if (properties.isMockEnabled() || pii.isMockEnabled()) {
+        if (properties.isMockEnabled()) {
             log.info("AI PII guardrail using FakePiiDetectionClient (mock mode)");
             return new FakePiiDetectionClient();
         }
@@ -70,9 +90,9 @@ public class AiAutoConfiguration {
                     "pulseflow.ai.pii.enabled=true requires AZURE_LANGUAGE_ENDPOINT and AZURE_LANGUAGE_KEY"
                             + " when mock mode is disabled");
         }
-        if (isBlank(pii.getLanguage())) {
+        if (isBlank(pii.getLanguage()) || !pii.getLanguage().matches("[A-Za-z]{2,3}(?:-[A-Za-z]{2,4})?")) {
             throw new IllegalStateException(
-                    "pulseflow.ai.pii.language must be configured when Azure PII is enabled");
+                    "pulseflow.ai.pii.language must be a valid language code when Azure PII is enabled");
         }
         if (pii.getTimeoutSeconds() <= 0) {
             throw new IllegalStateException(

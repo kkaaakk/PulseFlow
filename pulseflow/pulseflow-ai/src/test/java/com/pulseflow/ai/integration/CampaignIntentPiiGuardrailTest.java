@@ -7,6 +7,7 @@ import com.pulseflow.ai.domain.campaign.CampaignDsl;
 import com.pulseflow.ai.domain.campaign.DslValidationResult;
 import com.pulseflow.ai.guardrail.AiOutputParser;
 import com.pulseflow.ai.guardrail.FakePiiDetectionClient;
+import com.pulseflow.ai.guardrail.PiiDetectionClient;
 import com.pulseflow.ai.guardrail.SensitiveDataSanitizer;
 import com.pulseflow.ai.infrastructure.observability.AiAuditService;
 import com.pulseflow.ai.infrastructure.observability.AiMetrics;
@@ -54,6 +55,33 @@ class CampaignIntentPiiGuardrailTest {
                 .isInstanceOf(AiSensitiveDataDetectedException.class);
 
         verify(promptBuilder, never()).build(anyString(), anyString());
+        verify(aiModelClient, never()).generateStructured(any());
+    }
+
+    @Test
+    @DisplayName("natural-language userId is blocked before PII provider and model")
+    void blocksBusinessIdentifierBeforeModelCall() {
+        AiModelClient aiModelClient = mock(AiModelClient.class);
+        CampaignIntentPromptBuilder promptBuilder = mock(CampaignIntentPromptBuilder.class);
+        PiiDetectionClient piiClient = mock(PiiDetectionClient.class);
+
+        CampaignIntentService service = new CampaignIntentService(
+                aiModelClient,
+                promptBuilder,
+                mock(AiOutputParser.class),
+                mock(com.pulseflow.ai.guardrail.CampaignDslValidator.class),
+                new SensitiveDataSanitizer(piiClient, new AiMetrics(new SimpleMeterRegistry())),
+                mock(AudiencePreviewService.class),
+                mock(CampaignAiDraftService.class),
+                mock(AiAuditService.class),
+                new AiMetrics(new SimpleMeterRegistry()));
+
+        assertThatThrownBy(() -> service.parse(7L,
+                "给 userId 123456 的用户发送优惠券", "Asia/Shanghai"))
+                .isInstanceOf(AiSensitiveDataDetectedException.class)
+                .hasMessageNotContaining("123456");
+
+        verify(piiClient, never()).detect(anyString());
         verify(aiModelClient, never()).generateStructured(any());
     }
 

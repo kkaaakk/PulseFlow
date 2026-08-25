@@ -1361,7 +1361,7 @@ pulseflow:
       language: ${AZURE_LANGUAGE_PII_LANGUAGE:zh-hans}
 ```
 
-AI 关闭时不会装配 PII Client；AI Mock/CI 使用 `FakePiiDetectionClient`，不访问 Azure。PII 正式启用且 Mock 关闭时，Endpoint、Key、语言和超时配置会在启动阶段校验。日志、异常、审计记录只保留 request/provider/category/耗时/errorCode 等安全信息，不保存完整输入、entity 原文或 Azure Key。
+AI 关闭时不会装配 PII Client；AI Mock/CI 使用 `FakePiiDetectionClient`，不访问 Azure。PII 正式启用且 Mock 关闭时，Endpoint、Key、语言和超时配置会在启动阶段校验；当真实 AI Provider（`pulseflow.ai.mock-enabled=false`）启动时，`pulseflow.ai.pii.enabled` 也必须为 `true`，否则启动直接失败。PulseFlow Business Guardrail 不仅检查结构化 Map Key，也会阻止自然语言中显式引用 `userId`、`rawEvents`、`orderDetails`、`deviceId`、`imei` 等内部业务数据标识。日志、异常、审计记录只保留 request/provider/category/耗时/errorCode 等安全信息，不保存完整输入、entity 原文或 Azure Key。
 
 ## 9.3 四类结构化 AI Task
 

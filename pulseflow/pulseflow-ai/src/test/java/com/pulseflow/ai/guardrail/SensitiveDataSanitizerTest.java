@@ -9,9 +9,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /** Unit tests for the local business guardrail + provider-neutral PII layer. */
 class SensitiveDataSanitizerTest {
@@ -25,6 +31,54 @@ class SensitiveDataSanitizerTest {
     void cleanTextPasses() {
         String clean = "筛选最近7天活跃不少于5天、最近30天消费超过500元的用户，今晚8点发送满300减30优惠";
         assertThat(sanitizer(new FakePiiDetectionClient()).inspectText(clean)).isEqualTo(clean);
+    }
+
+    @Test
+    @DisplayName("clean Chinese intent invokes the PII provider after business-field check")
+    void cleanChineseTextInvokesPiiProvider() {
+        String clean = "筛选最近7天活跃不少于5天、最近30天消费超过500元的用户";
+        PiiDetectionClient client = mock(PiiDetectionClient.class);
+        when(client.detect(clean)).thenReturn(PiiDetectionResult.clean("fake-pii"));
+
+        assertThat(sanitizer(client).inspectText(clean)).isEqualTo(clean);
+        verify(client).detect(clean);
+    }
+
+    @Test
+    @DisplayName("natural-language business identifiers block before the PII provider")
+    void blocksNaturalLanguageBusinessIdentifiersBeforePiiProvider() {
+        List<String> inputs = List.of(
+                "给 userId 123456 的用户发送优惠券",
+                "把 rawEvents 里的用户筛出来",
+                "根据 orderDetails 给这些用户推送优惠",
+                "筛选 deviceId 对应的用户",
+                "分析 behaviourLogs 后给用户发消息");
+
+        for (String input : inputs) {
+            PiiDetectionClient client = mock(PiiDetectionClient.class);
+            assertThatThrownBy(() -> sanitizer(client).inspectText(input))
+                    .isInstanceOf(AiSensitiveDataDetectedException.class)
+                    .hasMessageNotContaining("123456");
+            verify(client, never()).detect(anyString());
+        }
+    }
+
+    @Test
+    @DisplayName("business identifier matching is case-insensitive and boundary-aware")
+    void businessIdentifierMatchingIsCaseInsensitiveAndBoundaryAware() {
+        for (String input : List.of("userid 123", "USERID 123", "customerUserIdAlias")) {
+            PiiDetectionClient client = mock(PiiDetectionClient.class);
+            if (input.startsWith("customer")) {
+                when(client.detect(input)).thenReturn(PiiDetectionResult.clean("fake-pii"));
+                sanitizer(client).inspectText(input);
+                verify(client).detect(input);
+            } else {
+                assertThatThrownBy(() -> sanitizer(client).inspectText(input))
+                        .isInstanceOf(AiSensitiveDataDetectedException.class)
+                        .hasMessageContaining("BUSINESS_FIELD_userId");
+                verify(client, never()).detect(anyString());
+            }
+        }
     }
 
     @Test
