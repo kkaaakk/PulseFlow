@@ -1,0 +1,72 @@
+{
+  "datasetId": "smoke-events-v1",
+  "version": 1,
+  "seed": 0,
+  "scenario": "fixture",
+  "scale": "FIXTURE",
+  "dataFile": "smoke-events-v1.jsonl",
+  "sha256": "be2f45cebf8e5ef56741553d48b53ce0b3e3721abb1092b23138edc83a6b75b8",
+  "reproducible": true,
+  "sourceContract": {
+    "endpoint": "POST /api/events",
+    "topic": "pulseflow.raw.events",
+    "eventTypes": ["LOGIN", "CONTENT_VIEW", "SEARCH", "LIKE", "FAVORITE", "ADD_CART", "REMOVE_CART", "ORDER_CREATE", "ORDER_PAID", "SHARE", "CLICK"],
+    "maxClockSkewMinutes": 5
+  },
+  "events": 10,
+  "users": 2,
+  "uniqueEventIds": 10,
+  "duplicateInputEvents": 0,
+  "eventTypeCounts": {
+    "ADD_CART": 1,
+    "CLICK": 1,
+    "CONTENT_VIEW": 1,
+    "FAVORITE": 1,
+    "LIKE": 1,
+    "LOGIN": 1,
+    "ORDER_CREATE": 1,
+    "ORDER_PAID": 1,
+    "REMOVE_CART": 1,
+    "SEARCH": 1
+  },
+  "userIdRange": {"min": 9000001, "max": 9000002},
+  "sampleEventIds": [
+    "pf-fixture-smoke-v1-0001",
+    "pf-fixture-smoke-v1-0002",
+    "pf-fixture-smoke-v1-0003",
+    "pf-fixture-smoke-v1-0004",
+    "pf-fixture-smoke-v1-0005"
+  ],
+  "sampleUserIds": [9000001, 9000002],
+  "metricTotalsByEventType": {
+    "ADD_CART": {"eventCount": 1, "durationSum": 0, "amountSum": "29.90"},
+    "CLICK": {"eventCount": 1, "durationSum": 0, "amountSum": "0.00"},
+    "CONTENT_VIEW": {"eventCount": 1, "durationSum": 1000, "amountSum": "0.00"},
+    "FAVORITE": {"eventCount": 1, "durationSum": 600, "amountSum": "0.00"},
+    "LIKE": {"eventCount": 1, "durationSum": 500, "amountSum": "0.00"},
+    "LOGIN": {"eventCount": 1, "durationSum": 0, "amountSum": "0.00"},
+    "ORDER_CREATE": {"eventCount": 1, "durationSum": 0, "amountSum": "99.50"},
+    "ORDER_PAID": {"eventCount": 1, "durationSum": 0, "amountSum": "328.00"},
+    "REMOVE_CART": {"eventCount": 1, "durationSum": 0, "amountSum": "0.00"},
+    "SEARCH": {"eventCount": 1, "durationSum": 2000, "amountSum": "0.00"}
+  },
+  "expected": {
+    "mysql": {
+      "uniqueUserEventCount": 10,
+      "duplicateRows": 0,
+      "metricTotalsByEventType": {
+        "ADD_CART": {"eventCount": 1, "durationSum": 0, "amountSum": "29.90"},
+        "CLICK": {"eventCount": 1, "durationSum": 0, "amountSum": "0.00"},
+        "CONTENT_VIEW": {"eventCount": 1, "durationSum": 1000, "amountSum": "0.00"},
+        "FAVORITE": {"eventCount": 1, "durationSum": 600, "amountSum": "0.00"},
+        "LIKE": {"eventCount": 1, "durationSum": 500, "amountSum": "0.00"},
+        "LOGIN": {"eventCount": 1, "durationSum": 0, "amountSum": "0.00"},
+        "ORDER_CREATE": {"eventCount": 1, "durationSum": 0, "amountSum": "99.50"},
+        "ORDER_PAID": {"eventCount": 1, "durationSum": 0, "amountSum": "328.00"},
+        "REMOVE_CART": {"eventCount": 1, "durationSum": 0, "amountSum": "0.00"},
+        "SEARCH": {"eventCount": 1, "durationSum": 2000, "amountSum": "0.00"}
+      }
+    },
+    "redis": {"processedFlagTtlSecondsAtLeast": 1, "sampleProcessedFlagCount": 5}
+  }
+}

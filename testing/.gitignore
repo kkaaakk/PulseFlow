@@ -1,0 +1,8 @@
+# Generated datasets and validation output are runtime artifacts.
+datasets/generated/*
+!datasets/generated/.gitkeep
+reports/*
+!reports/.gitkeep
+!reports/README.md
+__pycache__/
+*.py[cod]

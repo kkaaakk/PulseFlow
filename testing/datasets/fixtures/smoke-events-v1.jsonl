@@ -1,0 +1,10 @@
+{"eventId":"pf-fixture-smoke-v1-0001","eventType":"LOGIN","eventTime":"2026-08-27T11:55:00","properties":{},"targetId":null,"userId":9000001}
+{"eventId":"pf-fixture-smoke-v1-0002","eventType":"CONTENT_VIEW","eventTime":"2026-08-27T11:56:00","properties":{"category":"books","duration":1000},"targetId":5001,"userId":9000001}
+{"eventId":"pf-fixture-smoke-v1-0003","eventType":"SEARCH","eventTime":"2026-08-27T11:57:00","properties":{"category":"books","duration":2000,"query":"distributed systems"},"targetId":null,"userId":9000001}
+{"eventId":"pf-fixture-smoke-v1-0004","eventType":"ADD_CART","eventTime":"2026-08-27T11:58:00","properties":{"cartItemId":"SKU-0001","price":29.9},"targetId":5001,"userId":9000001}
+{"eventId":"pf-fixture-smoke-v1-0005","eventType":"REMOVE_CART","eventTime":"2026-08-27T11:59:00","properties":{"cartItemId":"SKU-0001"},"targetId":5001,"userId":9000001}
+{"eventId":"pf-fixture-smoke-v1-0006","eventType":"ORDER_CREATE","eventTime":"2026-08-27T12:00:00","properties":{"cartItemId":"SKU-0002","currency":"CNY","orderId":"fixture-order-1","price":99.5},"targetId":5002,"userId":9000002}
+{"eventId":"pf-fixture-smoke-v1-0007","eventType":"ORDER_PAID","eventTime":"2026-08-27T12:01:00","properties":{"cartItemId":"SKU-0002","currency":"CNY","orderId":"fixture-order-1","price":328.0},"targetId":5002,"userId":9000002}
+{"eventId":"pf-fixture-smoke-v1-0008","eventType":"LIKE","eventTime":"2026-08-27T12:02:00","properties":{"category":"books","duration":500},"targetId":5001,"userId":9000002}
+{"eventId":"pf-fixture-smoke-v1-0009","eventType":"FAVORITE","eventTime":"2026-08-27T12:03:00","properties":{"category":"books","duration":600},"targetId":5001,"userId":9000002}
+{"eventId":"pf-fixture-smoke-v1-0010","eventType":"CLICK","eventTime":"2026-08-27T12:04:00","properties":{"campaignId":9203,"taskId":9203},"targetId":9203,"userId":9000002}

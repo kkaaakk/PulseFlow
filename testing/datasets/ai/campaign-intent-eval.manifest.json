@@ -1,0 +1,28 @@
+{
+  "datasetId": "campaign-ai-intent-eval-v1",
+  "version": 1,
+  "seed": 20260827,
+  "scenario": "ai-campaign-intent",
+  "dataFile": "campaign-intent-eval.jsonl",
+  "sha256": "4278152da4dd2b732bff3224ab79ed193ee8353db506e1c66cde6ccdb10f0ecf",
+  "reproducible": true,
+  "cases": 13,
+  "defaultMode": "mock",
+  "stages": ["parserSuccess", "dslValid", "sensitiveDataResult", "audiencePreviewResult"],
+  "realProviderMode": "manual-only",
+  "categories": [
+    "normal-operations",
+    "vague-expression",
+    "unknown-field",
+    "illegal-business-field",
+    "pii-phone",
+    "prompt-injection",
+    "overlong-input",
+    "empty-input",
+    "extreme-number",
+    "contradictory-conditions",
+    "chinese-colloquial",
+    "typo",
+    "pii-email-address"
+  ]
+}
