@@ -31,6 +31,7 @@ logs/
 # ---- Secrets / env (never commit) ----
 .env
 .env.*
+!testing/.env.test.example
 *.pem
 *.key
 *.p12
@@ -39,3 +40,8 @@ logs/
 # ---- Local-only runtime data ----
 data/
 runtime/
+
+# The testing data directory is intentionally versioned; only its generated
+# runtime output remains ignored by testing/.gitignore.
+!testing/data/
+!testing/data/**

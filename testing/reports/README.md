@@ -1,11 +1,11 @@
-# 验收报告
+# 测试报告
 
-## 中文说明
+运行时报告写入 `testing/reports/<run-id>/`，并由 `testing/.gitignore` 忽略。
 
-运行报告保存在 `testing/reports/<run-id>/`。每份报告应包含数据集和 checksum、
-Replay 结果、MySQL/Redis 校验、k6 结果（或明确的 `NOT_RUN`）以及失败证据。
-报告目录是运行时产物，不提交到 Git。
+- Functional：`functional-report.json`、`functional-report.md`，以及每个场景的 Replay、
+  MySQL、Redis、Profile、Campaign、Attribution、Compensation 结果；
+- Performance：`performance-report.json` 和 `k6-summary.json`；
+- `run-all.ps1`（如果使用）另外生成 `run-all-report.json`，分别记录功能、性能和总状态。
 
-运行时报告写入 `testing/reports/<run-id>/`，并被 Git 忽略。每份报告必须保留数据集、
-Manifest checksum、Replay 结果、MySQL/Redis 检查、k6 summary（或明确的 `NOT_RUN`）
-以及失败证据。
+状态只有 `PASS`、`FAIL`、`NOT_RUN`。缺少依赖、调度任务未触发或当前源码不支持某段链路
+都必须保留为 `NOT_RUN`。

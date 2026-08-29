@@ -1,6 +1,6 @@
 # Generated datasets and validation output are runtime artifacts.
-datasets/generated/*
-!datasets/generated/.gitkeep
+data/generated/*
+!data/generated/.gitkeep
 reports/*
 !reports/.gitkeep
 !reports/README.md

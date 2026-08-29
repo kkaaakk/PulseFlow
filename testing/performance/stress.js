@@ -1,7 +1,7 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Rate } from 'k6/metrics';
-import { makeEvent } from './scenarios/event.js';
+import { isAccepted, makeEvent } from './event.js';
 
 if ((__ENV.ALLOW_STRESS || '').toLowerCase() !== 'true') {
   throw new Error('stress.js is manual only. Re-run with -e ALLOW_STRESS=true after confirming the target is disposable.');
@@ -31,14 +31,7 @@ export default function () {
     JSON.stringify(makeEvent(__ITER)),
     { headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, tags: { scenario: 'stress' } },
   );
-  let body = null;
-  try {
-    body = JSON.parse(response.body);
-  } catch (error) {
-    // The semantic check below will mark this request as failed.
-  }
-  const accepted = response.status === 200 && body !== null && body.code === 200
-    && body.data !== null && body.data.accepted === true;
+  const accepted = isAccepted(response);
   apiFailures.add(!accepted);
   check(response, { 'stress event accepted': () => accepted });
   sleep(Number(__ENV.PACE_SECONDS || 0.02));

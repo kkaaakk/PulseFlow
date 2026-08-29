@@ -55,6 +55,7 @@ def build_checks(root: Path) -> list[dict[str, Any]]:
         root,
         "pulseflow/pulseflow-campaign/src/main/java/com/pulseflow/campaign/attribution/AttributionService.java",
     )
+    k6_events = read(root, "testing/performance/event.js")
     migration = read(root, "pulseflow/pulseflow-boot/src/main/resources/db/migration/V1__init.sql")
     v2 = read(root, "pulseflow/pulseflow-boot/src/main/resources/db/migration/V2__channel_tables.sql")
     v3 = read(root, "pulseflow/pulseflow-boot/src/main/resources/db/migration/V3__ai_campaign_tables.sql")
@@ -91,9 +92,23 @@ def build_checks(root: Path) -> list[dict[str, Any]]:
     add("event-types", "EventType enum matches generator contract", actual_types == expected_event_types,
         expected_event_types, actual_types, ["pulseflow/pulseflow-common/src/main/java/com/pulseflow/common/enums/EventType.java"])
 
+    k6_type_match = all((f"'{event_type}'" in k6_events or f'\"{event_type}\"' in k6_events)
+                        for event_type in expected_event_types)
+    add("k6-event-types", "k6 event generator uses source EventType values", k6_type_match,
+        expected_event_types, "present" if k6_type_match else "one or more values missing",
+        ["testing/performance/event.js", "pulseflow/pulseflow-common/src/main/java/com/pulseflow/common/enums/EventType.java"])
+
     passed, missing = check_contains(event_controller, ['@RequestMapping("/api/events")', "@PostMapping", "@Valid"])
     add("event-ingress", "HTTP event endpoint and validation annotations exist", passed,
         ["/api/events", "POST", "@Valid"], missing or "present", ["pulseflow/pulseflow-event/src/main/java/com/pulseflow/event/controller/EventController.java"])
+
+    event_request = read(root, "pulseflow/pulseflow-common/src/main/java/com/pulseflow/common/dto/EventRequest.java")
+    passed, missing = check_contains(event_request, ["private String eventId", "private Long userId",
+                                                     "private String eventType", "private LocalDateTime eventTime",
+                                                     "private Map<String, Object> properties"])
+    add("event-request", "Replay and k6 payload fields match EventRequest", passed,
+        ["eventId", "userId", "eventType", "eventTime", "properties"], missing or "present",
+        ["pulseflow/pulseflow-common/src/main/java/com/pulseflow/common/dto/EventRequest.java"])
 
     passed, missing = check_contains(event_service, ['TOPIC = "pulseflow.raw.events"', "MAX_TIME_SKEW_MINUTES = 5", "skew.toMinutes() > MAX_TIME_SKEW_MINUTES"])
     add("event-service", "Kafka topic and clock-skew behavior match source", passed,

@@ -1,7 +1,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$script:TestingRoot = Split-Path -Parent $PSScriptRoot
+$script:TestingRoot = $PSScriptRoot
 $script:RepoRoot = Split-Path -Parent $script:TestingRoot
 
 function Resolve-PythonCommand {
@@ -47,6 +47,22 @@ function Assert-TcpEndpoint {
     }
 }
 
+function Set-TestcontainersDockerHost {
+    if ($env:OS -ne 'Windows_NT' -or $env:DOCKER_HOST) {
+        return
+    }
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+        return
+    }
+    $dockerContext = (& docker context show 2>$null).Trim()
+    if ($dockerContext -eq 'desktop-linux') {
+        # Testcontainers/docker-java does not consistently consume the Docker
+        # CLI context on Windows. Pass Docker Desktop's Linux-engine named pipe
+        # explicitly to the Maven process.
+        $env:DOCKER_HOST = 'npipe:////./pipe/dockerDesktopLinuxEngine'
+    }
+}
+
 function New-TestRunId {
     return ((Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ') + '-' + ([Guid]::NewGuid().ToString('N').Substring(0, 8)))
 }
@@ -67,5 +83,15 @@ function Assert-TestDatabase {
     }
     if ($Database -notmatch '(?i)test') {
         throw "Refusing non-test database name: $Database"
+    }
+}
+
+function Assert-TestStoreHost {
+    param([Parameter(Mandatory = $true)][string]$HostName)
+    if ($HostName -in @('localhost', '127.0.0.1', '::1')) { return }
+    $explicitlyAllowed = $env:PULSEFLOW_TEST_ENV -eq 'test' -and
+        $env:PULSEFLOW_TEST_ALLOW_NONLOCAL -eq 'true'
+    if (-not $explicitlyAllowed) {
+        throw "Refusing non-loopback test store target: $HostName"
     }
 }

@@ -31,7 +31,7 @@ REQUIRED_CATEGORIES = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", type=Path, default=ROOT / "testing/datasets/ai/campaign-intent-eval.jsonl")
+    parser.add_argument("--dataset", type=Path, default=ROOT / "testing/data/ai/campaign-intent-eval.jsonl")
     parser.add_argument("--output", type=Path, default=ROOT / "testing/reports/ai-dataset-check.json")
     return parser.parse_args()
 

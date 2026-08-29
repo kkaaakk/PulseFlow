@@ -14,6 +14,7 @@ export const EVENT_TYPES = [
 ];
 
 const EVENT_WEIGHTS = [2, 36, 12, 12, 8, 10, 4, 5, 5, 4, 2];
+const runId = (__ENV.RUN_ID || 'adhoc').replace(/[^a-zA-Z0-9_-]/g, '-');
 
 function weightedEventType() {
   const total = EVENT_WEIGHTS.reduce((sum, weight) => sum + weight, 0);
@@ -54,12 +55,25 @@ function randomProperties(eventType, sequence) {
   return properties;
 }
 
+export function isAccepted(response) {
+  let body = null;
+  try {
+    body = JSON.parse(response.body);
+  } catch (error) {
+    return false;
+  }
+  return response.status === 200
+    && body.code === 200
+    && body.data !== null
+    && body.data.accepted === true;
+}
+
 export function makeEvent(sequence) {
   const eventType = weightedEventType();
-  const eventId = `k6-${__VU}-${__ITER}-${Date.now()}-${sequence}`;
+  const eventId = `k6-${runId}-${__VU}-${__ITER}-${Date.now()}-${sequence}`;
   return {
     eventId,
-    userId: 8000000 + ((__VU * 100000 + __ITER) % 10000),
+    userId: 8000000 + (((__VU - 1) * 10000 + __ITER) % 1000000),
     eventType,
     targetId: eventType === 'LOGIN' || eventType === 'SEARCH' ? null : 900000 + (sequence % 10000),
     eventTime: eventTimeString(),

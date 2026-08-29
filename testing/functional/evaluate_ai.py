@@ -32,7 +32,7 @@ def safe_url(base_url: str) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", type=Path, default=ROOT / "testing/datasets/ai/campaign-intent-eval.jsonl")
+    parser.add_argument("--dataset", type=Path, default=ROOT / "testing/data/ai/campaign-intent-eval.jsonl")
     parser.add_argument("--base-url", default=os.environ.get("BASE_URL", "http://localhost:8080"))
     parser.add_argument("--token", default=os.environ.get("PULSEFLOW_TOKEN", ""))
     parser.add_argument("--timezone", default="Asia/Shanghai")

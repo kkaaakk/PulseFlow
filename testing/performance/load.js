@@ -1,7 +1,7 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Rate } from 'k6/metrics';
-import { makeEvent } from './scenarios/event.js';
+import { isAccepted, makeEvent } from './event.js';
 
 const apiFailures = new Rate('pulseflow_api_failures');
 const baseUrl = (__ENV.BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
@@ -28,14 +28,7 @@ export default function () {
     JSON.stringify(makeEvent(__ITER)),
     { headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, tags: { scenario: 'load' } },
   );
-  let body = null;
-  try {
-    body = JSON.parse(response.body);
-  } catch (error) {
-    // The semantic check below will mark this request as failed.
-  }
-  const accepted = response.status === 200 && body !== null && body.code === 200
-    && body.data !== null && body.data.accepted === true;
+  const accepted = isAccepted(response);
   apiFailures.add(!accepted);
   check(response, { 'load event accepted': () => accepted });
   if (pacingSeconds > 0) sleep(pacingSeconds);

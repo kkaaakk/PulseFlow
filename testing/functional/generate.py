@@ -20,7 +20,7 @@ from typing import Any, Iterable
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_OUTPUT_DIR = ROOT / "testing" / "datasets" / "generated"
+DEFAULT_OUTPUT_DIR = ROOT / "testing" / "data" / "generated"
 
 SCALES: dict[str, dict[str, int]] = {
     "SMALL": {"users": 1_000, "events": 10_000},
@@ -59,7 +59,7 @@ EVENT_TYPE_WEIGHTS = [
 ]
 
 # Separate user-id namespaces make SQL validation safe when several datasets
-# are replayed into the same test database.  Replaying a dataset remains
+# are replayed into the same test database. Replaying a dataset remains
 # idempotent because its event ids do not change.
 USER_BASES = {
     "normal": 1_000_000,
@@ -69,6 +69,7 @@ USER_BASES = {
     "invalid": 5_000_000,
     "hot-user": 6_000_000,
     "campaign": 7_000_000,
+    "concurrency": 8_500_000,
 }
 
 BASE_TIME = datetime(2026, 8, 27, 12, 0, 0)
@@ -104,6 +105,7 @@ def dataset_id_for(scenario: str, scale: str) -> str:
         "late": "late-events-v1",
         "invalid": "invalid-payload-v1",
         "campaign": "campaign-frequency-attribution-v1",
+        "concurrency": "concurrency-events-v1",
     }[scenario]
 
 
@@ -219,12 +221,19 @@ def duplicate_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         rows.append(json.loads(stable_json(base[index])))
 
     conflicting_ids: list[str] = []
+    conflicting_expected: dict[str, dict[str, Any]] = {}
     for index in range(10, 20):
         conflicting = json.loads(stable_json(base[index]))
         conflicting["properties"]["price"] = amount_for(rng, 3_000, 4_000)
         conflicting["properties"]["duration"] = 999_999
         rows.append(conflicting)
         conflicting_ids.append(base[index]["eventId"])
+        conflicting_expected[base[index]["eventId"]] = {
+            "eventType": base[index]["eventType"],
+            "userId": base[index]["userId"],
+            "targetId": base[index]["targetId"],
+            "properties": base[index]["properties"],
+        }
 
     replay_id = base[20]["eventId"]
     for _ in range(9):
@@ -233,6 +242,7 @@ def duplicate_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     details = {
         "exactDuplicateEventIds": [row["eventId"] for row in base[:10]],
         "conflictingPayloadEventIds": conflicting_ids,
+        "conflictingPayloadExpected": conflicting_expected,
         "replayedTenTimesEventId": replay_id,
         "replayedTenTimesTotalOccurrences": 10,
     }
@@ -491,6 +501,46 @@ def hot_user_events(scale: str, seed: int) -> tuple[list[dict[str, Any]], dict[s
     }
 
 
+def concurrency_events(scale: str, seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Create deterministic input for concurrent correctness, not throughput.
+
+    Every canonical event targets one user and one hourly bucket so an atomic
+    metric upsert is exercised under contention. The first event is repeated
+    enough times to make same-event-id races observable while the Manifest
+    still expects one canonical row and one metric contribution.
+    """
+    unique_count = {"SMALL": 1_000, "MEDIUM": 10_000, "LARGE": 100_000}[scale]
+    duplicate_count = max(20, unique_count // 100)
+    rng = random.Random(seed + 606)
+    user_id = USER_BASES["concurrency"] + 1
+    rows: list[dict[str, Any]] = []
+    for index in range(unique_count):
+        row = generated_event(
+            "concurrency",
+            seed,
+            index,
+            user_id,
+            "CONTENT_VIEW",
+            BASE_TIME,
+            rng,
+        )
+        row["properties"].update({"scenario": "concurrency-v1"})
+        rows.append(row)
+
+    duplicate = json.loads(stable_json(rows[0]))
+    rows.extend(json.loads(stable_json(duplicate)) for _ in range(duplicate_count))
+    same_event_id = duplicate["eventId"]
+    rng.shuffle(rows)
+    return rows, {
+        "concurrencyUserId": user_id,
+        "uniqueEventCount": unique_count,
+        "duplicateInputCount": duplicate_count,
+        "sameEventId": same_event_id,
+        "expectedCanonicalMetricCount": unique_count,
+        "requiresConcurrency": True,
+    }
+
+
 def campaign_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rng = random.Random(seed + 505)
     user_id = USER_BASES["campaign"] + 1
@@ -543,6 +593,9 @@ def campaign_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     return rows, {
         "baseTime": iso_time(BASE_TIME),
         "campaignFixtureName": "PF_TEST_FREQUENCY_V1",
+        "frequencyCampaignId": 9202,
+        "attributionCampaignId": 9203,
+        "campaignUserId": user_id,
         "frequency": {
             "inputEventCount": 4,
             "expectedDeliveryTaskCount": 4,
@@ -555,6 +608,11 @@ def campaign_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
             "expectedCampaignId": 9203,
             "expectedTaskId": 9203,
             "requiresClickEventMaterialization": True,
+        },
+        "downstreamStages": {
+            "campaignExecution": "requires-scheduled-campaign-fixture-and-campaignSelectionJob",
+            "performanceSummary": "requires-campaignReviewJob",
+            "aiReview": "requires-campaignReviewJob-and-AI-enabled",
         },
         "sourceLimitation": (
             "No HTTP endpoint currently writes click_event; the SQL fixture documents the "
@@ -651,10 +709,26 @@ def manifest_for(
                 "uniqueUserEventCount": len(unique_ids),
                 "duplicateRows": 0,
                 "metricTotalsByEventType": canonical_metrics,
+                "canonicalSamples": [
+                    {
+                        "eventId": row.get("eventId"),
+                        "userId": row.get("userId"),
+                        "eventType": row.get("eventType"),
+                        "targetId": row.get("targetId"),
+                        "properties": row.get("properties") or {},
+                    }
+                    for row in canonical[:5]
+                ],
+                "compensationByStatus": {},
             },
             "redis": {
                 "processedFlagTtlSecondsAtLeast": 1,
                 "sampleProcessedFlagCount": min(5, len(unique_ids)),
+            },
+            "scheduledOutputs": {
+                "dailyMetrics": "requires-dailyMetricJob",
+                "windowMetrics": "requires-windowMetricJob",
+                "userTags": "requires-tagRecalcJob",
             },
         },
     }
@@ -667,6 +741,9 @@ def manifest_for(
         manifest["duplicateInputEvents"] = 0
         manifest["userIdRange"] = {"min": None, "max": None}
         manifest["metricTotalsByEventType"] = {}
+        manifest["expected"].pop("scheduledOutputs", None)
+    elif scenario not in {"normal", "hot-user", "concurrency"}:
+        manifest["expected"].pop("scheduledOutputs", None)
     if details:
         manifest["scenarioDetails"] = details
     return manifest
@@ -708,6 +785,8 @@ def generate_one(output_dir: Path, scenario: str, scale: str, seed: int) -> dict
         rows, details = invalid_payload_events(seed)
     elif scenario == "hot-user":
         rows, details = hot_user_events(scale, seed)
+    elif scenario == "concurrency":
+        rows, details = concurrency_events(scale, seed)
     elif scenario == "campaign":
         rows, details = campaign_events(seed)
     else:
@@ -726,7 +805,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scale", choices=sorted(SCALES), default="SMALL")
     parser.add_argument(
         "--scenario",
-        choices=["all", "normal", "duplicate", "out-of-order", "late", "invalid", "hot-user", "campaign"],
+        choices=[
+            "all", "normal", "duplicate", "out-of-order", "late", "invalid",
+            "hot-user", "concurrency", "campaign",
+        ],
         default="all",
     )
     parser.add_argument("--seed", type=int, default=20260827)
@@ -743,6 +825,7 @@ def main() -> int:
         "late",
         "invalid",
         "hot-user",
+        "concurrency",
         "campaign",
     ] if args.scenario == "all" else [args.scenario]
     for scenario in scenarios:
