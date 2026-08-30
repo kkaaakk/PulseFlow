@@ -21,6 +21,7 @@ import com.pulseflow.mapper.CampaignMapper;
 import com.pulseflow.mapper.CampaignRuleMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,6 +54,10 @@ public class CampaignAiDraftService {
     private final CampaignDslValidator validator;
     private final DslToRuleConverter converter;
     private final AiFeatureProperties properties;
+
+    /** Injected separately to preserve the small constructor used by existing unit tests. */
+    @Autowired
+    private AudiencePreviewService audiencePreviewService;
 
     /**
      * Persist a freshly generated DSL as a draft.
@@ -115,6 +120,57 @@ public class CampaignAiDraftService {
         draft.setUpdatedAt(LocalDateTime.now());
         draftMapper.updateById(draft);
 
+        return new DraftUpdateResult(draft, validation);
+    }
+
+    /**
+     * Recalculate the audience snapshot for the current DSL.
+     *
+     * <p>The old controller implementation returned the values already stored
+     * on the draft, which made a button named {@code refresh-preview} a no-op.
+     * This method keeps the validator as the source of truth and persists the
+     * new count/data version returned by the actual preview service.</p>
+     */
+    public DraftUpdateResult refreshPreview(Long draftId, Long operatorId) {
+        CampaignAiDraft draft = loadDraftOrThrow(draftId);
+        requireDraftOwner(draft, operatorId);
+        if (DraftStatus.CONFIRMED.name().equals(draft.getValidationStatus())) {
+            throw new AiConflictException("Cannot refresh a CONFIRMED draft");
+        }
+        if (isExpired(draft)) {
+            markExpired(draft);
+            throw new AiConflictException("Draft " + draftId + " is expired");
+        }
+        if (audiencePreviewService == null) {
+            throw new IllegalStateException("Audience preview service is not available");
+        }
+
+        CampaignDsl dsl = JsonUtil.fromJson(draft.getDslJson(), CampaignDsl.class);
+        DslValidationResult validation = validator.validate(dsl);
+        AudiencePreviewResult preview = null;
+        if (validation.isValid()) {
+            try {
+                preview = audiencePreviewService.preview(dsl);
+            } catch (Exception e) {
+                log.warn("Audience preview refresh failed for draft {}: {}", draftId, e.getMessage());
+                preview = AudiencePreviewResult.builder()
+                        .estimatedCount(0)
+                        .calculationMode("SNAPSHOT")
+                        .warnings(List.of("preview failed: " + e.getMessage()))
+                        .build();
+            }
+        }
+        DraftStatus status = pickStatus(validation);
+
+        draft.setSchemaVersion(dsl.getSchemaVersion() == null ? 1 : dsl.getSchemaVersion());
+        draft.setValidationStatus(status.name());
+        draft.setValidationErrorsJson(validation.getErrors().isEmpty()
+                ? null : JsonUtil.toJson(validation.getErrors()));
+        draft.setWarningsJson(JsonUtil.toJson(combinedWarnings(validation, preview)));
+        draft.setEstimatedAudienceCount(preview == null ? null : preview.getEstimatedCount());
+        draft.setProfileDataVersion(preview == null ? null : preview.getDataVersion());
+        draft.setUpdatedAt(LocalDateTime.now());
+        draftMapper.updateById(draft);
         return new DraftUpdateResult(draft, validation);
     }
 

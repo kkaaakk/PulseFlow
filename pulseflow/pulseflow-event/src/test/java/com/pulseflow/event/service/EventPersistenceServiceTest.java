@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
+import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -90,5 +91,53 @@ class EventPersistenceServiceTest {
         // upsertAccumulate was NOT called (it's after insert in the try block, which threw)
         verify(userMetricHourlyMapper, never())
                 .upsertAccumulate(any(), any(), any(), anyInt(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("支持 LocalDateTime 的分钟格式和小数秒格式")
+    void acceptsIsoMinuteAndFractionalSecondTimestamps() {
+        Map<String, Object> rawEventMap = new HashMap<>();
+        rawEventMap.put("eventId", "evt-time-format-1");
+        rawEventMap.put("userId", 1002L);
+        rawEventMap.put("eventType", "CONTENT_VIEW");
+        rawEventMap.put("targetId", 2001L);
+        // 秒数为 0 时，LocalDateTime.toString() 会生成这种较短格式。
+        rawEventMap.put("eventTime", "2026-08-23T23:00");
+        rawEventMap.put("receivedAt", "2026-08-28T15:45:37.450775");
+        rawEventMap.put("effectiveEventTime", "2026-08-28T15:45:37.450775");
+        rawEventMap.put("clockSkew", true);
+        rawEventMap.put("properties", Map.of("duration", 1000));
+
+        EventPersistenceService.PersistResult result = service.persist(rawEventMap);
+
+        assertThat(result.isOk()).isTrue();
+        assertThat(result.getEvent().getEventTime())
+                .isEqualTo(LocalDateTime.of(2026, 8, 23, 23, 0));
+        assertThat(result.getEvent().getReceivedAt())
+                .isEqualTo(LocalDateTime.of(2026, 8, 28, 15, 45, 37, 450_775_000));
+        verify(userEventMapper).insert(any(UserEvent.class));
+        verify(userMetricHourlyMapper).upsertAccumulate(
+                any(), any(), any(), anyInt(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("缺少 targetId 时保留数据库 NULL 语义")
+    void preservesNullTargetId() {
+        Map<String, Object> rawEventMap = new HashMap<>();
+        rawEventMap.put("eventId", "evt-null-target-1");
+        rawEventMap.put("userId", 1003L);
+        rawEventMap.put("eventType", "LOGIN");
+        rawEventMap.put("targetId", null);
+        rawEventMap.put("eventTime", "2026-08-23T23:00");
+        rawEventMap.put("receivedAt", "2026-08-23T23:00:01");
+        rawEventMap.put("effectiveEventTime", "2026-08-23T23:00");
+        rawEventMap.put("clockSkew", false);
+        rawEventMap.put("properties", Map.of());
+
+        service.persist(rawEventMap);
+
+        ArgumentCaptor<UserEvent> eventCaptor = ArgumentCaptor.forClass(UserEvent.class);
+        verify(userEventMapper).insert(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().getTargetId()).isNull();
     }
 }

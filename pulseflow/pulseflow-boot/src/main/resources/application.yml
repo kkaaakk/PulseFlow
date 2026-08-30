@@ -87,6 +87,17 @@ logging:
 # AI Campaign Copilot — default off, mock-on for local/CI.
 # API key MUST come from env var; never commit a real key.
 pulseflow:
+  # Local web-console credentials. Disable this directory when an external
+  # identity provider is wired in; passwords are environment-backed.
+  auth:
+    local-enabled: ${PULSEFLOW_LOCAL_AUTH_ENABLED:true}
+    session-store: ${PULSEFLOW_AUTH_SESSION_STORE:memory}
+    operator-id: ${PULSEFLOW_OPERATOR_ID:1024}
+    operator-password: ${PULSEFLOW_OPERATOR_PASSWORD:pulseflow-local}
+    operator-name: ${PULSEFLOW_OPERATOR_NAME:Operator}
+    admin-id: ${PULSEFLOW_ADMIN_ID:1}
+    admin-password: ${PULSEFLOW_ADMIN_PASSWORD:pulseflow-admin}
+    admin-name: ${PULSEFLOW_ADMIN_NAME:Administrator}
   ai:
     enabled: false
     provider: openai-compatible

@@ -70,8 +70,8 @@
         {"eventId": "pf-fixture-smoke-v1-0001", "userId": 9000001, "eventType": "LOGIN", "targetId": null, "properties": {}},
         {"eventId": "pf-fixture-smoke-v1-0002", "userId": 9000001, "eventType": "CONTENT_VIEW", "targetId": 5001, "properties": {"category": "books", "duration": 1000}},
         {"eventId": "pf-fixture-smoke-v1-0003", "userId": 9000001, "eventType": "SEARCH", "targetId": null, "properties": {"category": "books", "duration": 2000, "query": "distributed systems"}},
-        {"eventId": "pf-fixture-smoke-v1-0004", "userId": 9000001, "eventType": "ADD_CART", "targetId": 5001, "properties": {"category": "books", "cartItemId": "SKU-0001", "price": 29.9}},
-        {"eventId": "pf-fixture-smoke-v1-0005", "userId": 9000001, "eventType": "REMOVE_CART", "targetId": 5001, "properties": {"category": "books", "cartItemId": "SKU-0001"}}
+        {"eventId": "pf-fixture-smoke-v1-0004", "userId": 9000001, "eventType": "ADD_CART", "targetId": 5001, "properties": {"cartItemId": "SKU-0001", "price": 29.9}},
+        {"eventId": "pf-fixture-smoke-v1-0005", "userId": 9000001, "eventType": "REMOVE_CART", "targetId": 5001, "properties": {"cartItemId": "SKU-0001"}}
       ],
       "compensationByStatus": {}
     },

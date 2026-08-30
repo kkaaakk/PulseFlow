@@ -217,6 +217,19 @@ pulseflow/
 
 > 不想跑全套中间件也能启动：AI 默认 `mock-enabled=true` 零成本；MySQL/Redis/Kafka 缺失时相关链路降级。
 
+### Web 控制台
+
+第一版 Vue 3 控制台位于 [`pulseflow-web`](pulseflow-web/README.md)，默认通过 Vite
+代理访问 `http://localhost:8080` 的 `/api`。启动后端并打开 AI mock 模式即可体验登录、
+Dashboard、AI Campaign Copilot、Campaign、User 360、Events、Deliveries、Attribution
+和 System 页面：
+
+```powershell
+cd pulseflow-web
+npm install
+npm run dev
+```
+
 ### 配置
 
 关键配置在 [`pulseflow-boot/src/main/resources/application.yml`](pulseflow/pulseflow-boot/src/main/resources/application.yml)，敏感项走环境变量：

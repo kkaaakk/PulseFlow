@@ -18,7 +18,8 @@ public class SaTokenConfig implements WebMvcConfigurer {
                 }))
                 .addPathPatterns("/**")
                 // /api/events : public event ingestion endpoint
-                // /api/auth/dev-login : opt-in demo login (DevLoginController, off by default)
-                .excludePathPatterns("/api/events", "/api/auth/dev-login");
+                // /api/auth/login and /api/auth/dev-login are public login entry points.
+                // The latter remains opt-in and is only intended for the existing demo script.
+                .excludePathPatterns("/api/events", "/api/auth/login", "/api/auth/dev-login");
     }
 }

@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RMap;
 import org.redisson.api.RedissonClient;
+import org.redisson.client.codec.StringCodec;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -34,16 +35,17 @@ public class ProfileService {
         Map<String, String> result = new HashMap<>();
 
         // Long-term realtime state
-        RMap<String, String> rtMap = redissonClient.getMap("user:rt:" + userId);
+        RMap<String, String> rtMap = redissonClient.getMap("user:rt:" + userId, StringCodec.INSTANCE);
         result.putAll(rtMap.readAllMap());
 
         // Today's daily counts
         String dateStr = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-        RMap<String, String> dailyMap = redissonClient.getMap("user:daily:" + userId + ":" + dateStr);
+        RMap<String, String> dailyMap = redissonClient.getMap(
+                "user:daily:" + userId + ":" + dateStr, StringCodec.INSTANCE);
         result.putAll(dailyMap.readAllMap());
 
         // Cart items
-        RMap<String, String> cartMap = redissonClient.getMap("user:cart:" + userId);
+        RMap<String, String> cartMap = redissonClient.getMap("user:cart:" + userId, StringCodec.INSTANCE);
         result.put("cart_count", String.valueOf(cartMap.size()));
         result.put("cart_items", cartMap.readAllMap().toString());
 

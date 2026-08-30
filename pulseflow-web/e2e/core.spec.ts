@@ -1,0 +1,43 @@
+import { expect, test } from '@playwright/test'
+
+test('登录 → AI Copilot → Campaign Detail → User 360', async ({ page }) => {
+  await page.goto('/login')
+  await expect(page.getByRole('heading', { name: '登录 PulseFlow' })).toBeVisible()
+  await page.getByLabel('Operator ID').fill('1024')
+  await page.getByLabel('本地访问口令').fill('pulseflow-local')
+  await page.getByRole('button', { name: '进入控制台' }).click()
+  await expect(page).toHaveURL(/dashboard/)
+  await expect(page.getByRole('heading', { name: '运营总览' })).toBeVisible()
+
+  await page.getByRole('link', { name: 'AI Copilot' }).click()
+  await expect(page.getByRole('heading', { name: 'AI Campaign Copilot' })).toBeVisible()
+  await page.getByLabel('Campaign 自然语言描述').fill('针对最近 7 天活跃但 30 天没有购买的用户，明天下午 3 点推送一张 20 元优惠券，每个用户每天最多触达 1 次。')
+  await page.getByRole('button', { name: '生成 Campaign' }).click()
+  await expect(page.getByText('预计人群')).toBeVisible()
+  await expect(page.getByText('128,430')).toBeVisible()
+  await expect(page.getByText('AI 人群洞察')).toBeVisible()
+  await expect(page.locator('input[type="radio"][value="B"]')).toBeChecked({ checked: false })
+  await page.locator('input[type="radio"][value="B"]').check()
+  await page.getByRole('button', { name: '确认创建 Campaign' }).click()
+  await expect(page).toHaveURL(/campaigns\/2001/)
+  await expect(page.getByText('AI Campaign Review')).toBeVisible()
+  await expect(page.getByText('点击率明显提升')).toBeVisible()
+
+  await page.getByRole('link', { name: 'Users' }).click()
+  await expect(page.getByRole('heading', { name: 'Users' })).toBeVisible()
+  await page.getByText('演示用户 A').click()
+  await expect(page).toHaveURL(/users\/1024/)
+  await expect(page.getByText('Event Timeline')).toBeVisible()
+  await expect(page.getByText('CONTENT_VIEW')).toBeVisible()
+})
+
+test('Campaign List → Campaign Detail → AI Review', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByRole('button', { name: '进入控制台' }).click()
+  await page.getByRole('link', { name: 'Campaigns' }).click()
+  await expect(page.getByRole('heading', { name: 'Campaigns' })).toBeVisible()
+  await page.getByText('高活跃未购买用户召回').first().click()
+  await expect(page).toHaveURL(/campaigns\/2001/)
+  await expect(page.getByText('SUCCESS')).not.toBeVisible()
+  await expect(page.getByText('AI Campaign Review')).toBeVisible()
+})
