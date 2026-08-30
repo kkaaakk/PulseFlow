@@ -18,7 +18,7 @@ PulseFlow Fullstack V1: COMPLETE
 - Final local SHA（Fullstack 实现 commit）：`0267691350793f25219b2c2c36b17d56738f0e21`
 - Local commit：`0267691 feat: complete PulseFlow fullstack console v1`
 - 本次已成功创建目标分支并写入本地 Git。
-- 未执行 reset、回退、删除 `.git`、push、PR 或远程 CI 操作。
+- 未执行 reset、回退、删除 `.git`、PR 或远程 CI 操作；本地验收报告生成时尚未进行 GitHub Delivery。
 
 原有 docs、testing、Maven 配置和任务提示文件保持未暂存、未提交；本次只提交了可确认属于 Fullstack V1 的代码、测试、前端、README 和验收报告。
 
@@ -179,10 +179,7 @@ Docker-gated 测试真实执行：
 - Dashboard “需要关注”区域只呈现待处理/告警提醒，没有混入“已通过”。
 - Copilot 保留自然语言 → DSL → Preview → Insight/Content → Confirm 的业务结构。
 
-最终截图（保存在 Codex visualization 目录，不进入仓库）：
-
-- `C:\Users\zpbcool\.codex\visualizations\2026\08\30\01a05072-5a1e-7013-ad1c-853a89775954\pulseflow-real-dashboard-final.png`
-- `C:\Users\zpbcool\.codex\visualizations\2026\08\30\01a05072-5a1e-7013-ad1c-853a89775954\pulseflow-real-copilot-final.png`
+视觉验收截图仅保存在本地临时 visualization 目录，没有进入正式仓库；页面结构、响应式尺寸、overflow 和 console 结果均已通过 Browser 检查复现。
 
 ## 17. Known Limitations / Deferred
 
@@ -196,7 +193,7 @@ Remaining blockers：**none for local Fullstack V1 acceptance**。
 ## 18. Local-only Boundary
 
 ```text
-Remote Push: NOT PERFORMED
+Remote Push (local acceptance phase): NOT PERFORMED
 Pull Request: NOT CREATED
 GitHub Actions: NOT USED
 Cloud Deployment: NOT PERFORMED
