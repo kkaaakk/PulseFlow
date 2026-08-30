@@ -16,6 +16,13 @@ ON DUPLICATE KEY UPDATE
     user_daily_limit = VALUES(user_daily_limit), campaign_weekly_limit = VALUES(campaign_weekly_limit),
     status = VALUES(status), created_by = VALUES(created_by);
 
+UPDATE campaign_rule
+SET rule_type = 'EVENT',
+    rule_config = '{"propertyKey":"scenario","propertyValue":"frequency-v1"}',
+    priority = 0,
+    enabled = 1
+WHERE campaign_id = 9202 AND rule_name = 'phase1-scenario';
+
 INSERT INTO campaign_rule (
     campaign_id, rule_name, rule_type, rule_config, priority, enabled
 )

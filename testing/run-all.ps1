@@ -4,10 +4,11 @@ param(
     [string]$BaseUrl = 'http://localhost:8080',
     [int]$Concurrency = 8,
     [int]$WaitSeconds = 120,
-    [int]$CampaignWaitSeconds = 360,
+    [int]$CampaignWaitSeconds = 600,
     [switch]$PrepareDependencies,
     [switch]$RunMaven,
     [switch]$RebaseEventTime,
+    [switch]$JobsTriggered,
     [ValidateSet('none', 'smoke', 'load', 'stress')][string]$Performance = 'none',
     [switch]$AllowStress
 )
@@ -30,16 +31,16 @@ try {
         -WaitSeconds $WaitSeconds -CampaignWaitSeconds $CampaignWaitSeconds `
         -RunId $runId -ReportDir $functionalDir `
         -PrepareDependencies:$PrepareDependencies -RunMaven:$RunMaven `
-        -RebaseEventTime:$RebaseEventTime
+        -RebaseEventTime:$RebaseEventTime -JobsTriggered:$JobsTriggered
     $functionalExit = $LASTEXITCODE
 
     $performanceStatus = 'NOT_RUN'
     $performanceExit = 2
     if ($Performance -ne 'none') {
         $performanceDir = Join-Path $runRoot 'performance'
-        $performanceArgs = @('-Scenario', $Performance, '-BaseUrl', $BaseUrl, '-ReportDir', $performanceDir)
-        if ($Performance -eq 'stress' -and $AllowStress) { $performanceArgs += '-AllowStress' }
-        & (Join-Path $PSScriptRoot 'performance\run.ps1') @performanceArgs
+        & (Join-Path $PSScriptRoot 'performance\run.ps1') `
+            -Scenario $Performance -BaseUrl $BaseUrl -ReportDir $performanceDir `
+            -AllowStress:$AllowStress
         $performanceExit = $LASTEXITCODE
         $performanceStatus = Stage-Status -ExitCode $performanceExit
     }

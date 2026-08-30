@@ -76,6 +76,10 @@ def parse_args() -> argparse.Namespace:
         "--http-only", action="store_true",
         help="Only aggregate Replay's ingress result; storage checks are not applicable",
     )
+    parser.add_argument(
+        "--jobs-triggered", action="store_true",
+        help="Treat missing scheduled-job output as FAIL instead of NOT_RUN",
+    )
     return parser.parse_args()
 
 
@@ -125,7 +129,8 @@ def run_mysql(args: argparse.Namespace, query: str) -> tuple[list[list[str]] | N
     environment = os.environ.copy()
     environment["MYSQL_PWD"] = args.mysql_password
     try:
-        result = subprocess.run(command, capture_output=True, text=True, env=environment, timeout=30)
+        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8",
+                                errors="replace", env=environment, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as error:
         return None, f"MySQL command failed: {error}"
     if result.returncode != 0:
@@ -152,7 +157,8 @@ def run_redis(args: argparse.Namespace, command_args: list[str]) -> tuple[list[s
     if args.redis_password:
         environment["REDISCLI_AUTH"] = args.redis_password
     try:
-        result = subprocess.run(command, capture_output=True, text=True, env=environment, timeout=30)
+        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8",
+                                errors="replace", env=environment, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as error:
         return None, f"Redis command failed: {error}"
     if result.returncode != 0:
@@ -218,6 +224,12 @@ def parse_json_value(value: Any) -> Any:
         return value
 
 
+def nullable_int(value: Any) -> int | None:
+    if value is None or str(value).strip().upper() in {"", "NULL", "\\N"}:
+        return None
+    return int(value)
+
+
 def validate_canonical_samples(args: argparse.Namespace, manifest: dict[str, Any],
                                checks: list[dict[str, Any]]) -> None:
     expected = manifest.get("expected", {}).get("mysql", {}).get("canonicalSamples", [])
@@ -242,7 +254,7 @@ def validate_canonical_samples(args: argparse.Namespace, manifest: dict[str, Any
             "eventId": row[0],
             "userId": int(row[1]),
             "eventType": row[2],
-            "targetId": int(row[3]) if row[3] else None,
+            "targetId": nullable_int(row[3]),
             "properties": parse_json_value(row[4]) or {},
         })
     expected_sorted = sorted(expected, key=lambda item: str(item.get("eventId")))
@@ -283,7 +295,7 @@ def validate_canonical_samples(args: argparse.Namespace, manifest: dict[str, Any
             "eventId": row[0],
             "userId": int(row[1]),
             "eventType": row[2],
-            "targetId": int(row[3]) if row[3] else None,
+            "targetId": nullable_int(row[3]),
             "properties": parse_json_value(row[4]) or {},
         })
     add_check(
@@ -376,8 +388,12 @@ def validate_daily_metrics(args: argparse.Namespace, user_min: int, user_max: in
     expected = rows_to_map(expected_rows)
     actual = rows_to_map(actual_rows)
     if not actual:
-        status = "NOT_RUN"
-        reason = "user_metric_daily has no rows; dailyMetricJob was not observed"
+        status = "FAIL" if args.jobs_triggered and expected else ("PASS" if args.jobs_triggered else "NOT_RUN")
+        reason = (
+            "user_metric_daily has no rows after an explicit dailyMetricJob trigger"
+            if args.jobs_triggered and expected
+            else "dailyMetricJob is not auto-triggered by Functional Replay"
+        )
     else:
         status = "PASS" if expected == actual else "FAIL"
         reason = None
@@ -456,8 +472,12 @@ def validate_window_metrics(args: argparse.Namespace, user_min: int, user_max: i
         for row in actual_rows or [] if len(row) >= 3
     }
     if not actual:
-        status = "NOT_RUN"
-        reason = "user_behavior_summary has no rows; windowMetricJob was not observed"
+        status = "FAIL" if args.jobs_triggered and expected else ("PASS" if args.jobs_triggered else "NOT_RUN")
+        reason = (
+            "user_behavior_summary has no rows after an explicit windowMetricJob trigger"
+            if args.jobs_triggered and expected
+            else "windowMetricJob is not auto-triggered by Functional Replay"
+        )
     else:
         status = "PASS" if actual == expected else "FAIL"
         reason = None
@@ -533,8 +553,12 @@ def validate_user_tags(args: argparse.Namespace, user_min: int, user_max: int,
         for row in actual_rows or [] if len(row) >= 3
     }
     if not actual:
-        status = "NOT_RUN"
-        reason = "user_tag has no rows; tagRecalcJob was not observed"
+        status = "FAIL" if args.jobs_triggered and expected else ("PASS" if args.jobs_triggered else "NOT_RUN")
+        reason = (
+            "user_tag has no rows after an explicit tagRecalcJob trigger"
+            if args.jobs_triggered and expected
+            else "tagRecalcJob is not auto-triggered by Functional Replay"
+        )
     else:
         status = "PASS" if actual == expected else "FAIL"
         reason = None
@@ -674,9 +698,11 @@ def validate_campaign_frequency_redis(args: argparse.Namespace, campaign_details
                   expected="campaignUserId", actual=None, reason="Manifest has no campaignUserId")
         return
     date_text = datetime.now().strftime("%Y%m%d")
-    expected_count = int(campaign_details.get("frequency", {}).get("expectedAllowedByFrequency", 0))
+    frequency = campaign_details.get("frequency", {})
+    expected_count = int(frequency.get("expectedAllowedByFrequency", 0))
+    expected_user_count = int(frequency.get("expectedUserDailyFrequencyCount", expected_count))
     keys = {
-        f"freq:user:{int(user_id)}:{date_text}": expected_count,
+        f"freq:user:{int(user_id)}:{date_text}": expected_user_count,
         f"freq:campaign:{int(campaign_id)}:{int(user_id)}": expected_count,
     }
     actual: dict[str, Any] = {}
@@ -723,6 +749,13 @@ def redis_hash(args: argparse.Namespace, key: str) -> tuple[dict[str, str] | Non
         return None, error
     values = output or []
     return {values[index]: values[index + 1] for index in range(0, len(values) - 1, 2)}, None
+
+
+def redis_zset_contains(args: argparse.Namespace, key: str, member: str) -> tuple[bool | None, str | None]:
+    output, error = run_redis(args, ["ZRANGE", key, "0", "-1"])
+    if error:
+        return None, error
+    return any(member in str(item) for item in (output or [])), None
 
 
 def wait_for_expected_events(args: argparse.Namespace, query: str, expected: int) -> tuple[int | None, list[dict[str, Any]], str | None]:
@@ -938,40 +971,131 @@ def validate_mysql(args: argparse.Namespace, manifest: dict[str, Any], checks: l
                       expected={"taskId": attribution.get("expectedTaskId"), "minCount": 1},
                       actual={"count": actual_clicks}, query=click_query, reason=click_error)
 
-            attribution_query = (
-                "SELECT target_event_id, campaign_id, task_id, attribution_model "
-                "FROM attribution_record WHERE target_event_id = " + sql_literal(target_event_id)
-            )
-            attribution_rows, error = run_mysql(args, attribution_query)
             expected_attr = {
                 "targetEventId": target_event_id,
                 "campaignId": attribution.get("expectedCampaignId"),
                 "taskId": attribution.get("expectedTaskId"),
                 "attributionModel": attribution.get("expectedModel", "CLICK_LAST_TOUCH"),
             }
-            actual_attr = None
-            if attribution_rows:
-                row = attribution_rows[0]
-                actual_attr = {"targetEventId": row[0], "campaignId": int(row[1]) if row[1] else None,
-                               "taskId": int(row[2]) if row[2] else None, "attributionModel": row[3]}
-            add_check(checks, "attribution-last-touch", "Attribution", "Last-touch attribution matches fixture",
-                      "PASS" if actual_attr == expected_attr else ("NOT_RUN" if error else "FAIL"),
-                      expected=expected_attr, actual=actual_attr, query=attribution_query, reason=error)
-
             task_status_query = (
-                "SELECT status, matched_task_id FROM attribution_task "
+                "SELECT status, matched_task_id, grace_until FROM attribution_task "
                 "WHERE target_event_id = " + sql_literal(target_event_id)
             )
-            task_status_rows, task_status_error = run_mysql(args, task_status_query)
+            attribution_query = (
+                "SELECT target_event_id, campaign_id, task_id, attribution_model "
+                "FROM attribution_record WHERE target_event_id = " + sql_literal(target_event_id)
+            )
+            deadline = time.monotonic() + max(0, args.wait_seconds)
+            attempts: list[dict[str, Any]] = []
+            actual_attr = None
             actual_task_status = None
-            if task_status_rows:
-                row = task_status_rows[0]
-                actual_task_status = {"status": row[0], "matchedTaskId": int(row[1]) if row[1] else None}
+            task_status_error = None
+            attribution_error = None
+            post_grace_deadline: float | None = None
+            while True:
+                attribution_rows, attribution_error = run_mysql(args, attribution_query)
+                task_status_rows, task_status_error = run_mysql(args, task_status_query)
+                if attribution_error or task_status_error:
+                    break
+                if attribution_rows:
+                    row = attribution_rows[0]
+                    actual_attr = {
+                        "targetEventId": row[0], "campaignId": nullable_int(row[1]),
+                        "taskId": nullable_int(row[2]), "attributionModel": row[3],
+                    }
+                grace_until = None
+                if task_status_rows:
+                    row = task_status_rows[0]
+                    actual_task_status = {
+                        "status": row[0], "matchedTaskId": nullable_int(row[1]),
+                    }
+                    if len(row) > 2 and row[2] and str(row[2]).upper() not in {"NULL", "\\N"}:
+                        try:
+                            grace_until = datetime.fromisoformat(str(row[2]).replace(" ", "T"))
+                        except ValueError:
+                            grace_until = None
+                attempts.append({
+                    "at": datetime.now(timezone.utc).isoformat(),
+                    "record": actual_attr is not None,
+                    "task": actual_task_status,
+                })
+                if actual_attr == expected_attr or (actual_task_status and actual_task_status["status"] != "PENDING"):
+                    break
+                if grace_until and datetime.now() >= grace_until and post_grace_deadline is None:
+                    # Give the fixed-delay consumer one polling interval plus a
+                    # small cushion after the grace boundary before classifying
+                    # an unprocessed task.
+                    post_grace_deadline = time.monotonic() + 45.0
+                if post_grace_deadline is not None and time.monotonic() >= post_grace_deadline:
+                    break
+                if time.monotonic() >= deadline:
+                    break
+                sleep_seconds = max(0.1, args.poll_seconds)
+                if grace_until and datetime.now() < grace_until:
+                    remaining_until_grace = (grace_until - datetime.now()).total_seconds()
+                    if remaining_until_grace > 0:
+                        sleep_seconds = min(max(0.1, remaining_until_grace), max(2.0, args.poll_seconds))
+                time.sleep(sleep_seconds)
+
+            attribution_status = "PASS" if actual_attr == expected_attr else None
+            attribution_reason = None
+            if attribution_status != "PASS":
+                if attribution_error or task_status_error:
+                    attribution_status = "NOT_RUN"
+                    attribution_reason = attribution_error or task_status_error
+                elif not actual_task_status:
+                    attribution_status = "FAIL"
+                    attribution_reason = "Attribution task was not created for the target event"
+                elif actual_task_status["status"] == "PENDING":
+                    grace_until_text = None
+                    if task_status_rows and len(task_status_rows[0]) > 2:
+                        grace_until_text = task_status_rows[0][2]
+                    grace_until = None
+                    if grace_until_text and str(grace_until_text).upper() not in {"NULL", "\\N"}:
+                        try:
+                            grace_until = datetime.fromisoformat(str(grace_until_text).replace(" ", "T"))
+                        except ValueError:
+                            pass
+                    if grace_until and datetime.now() < grace_until:
+                        attribution_status = "NOT_RUN"
+                        attribution_reason = "Attribution grace window has not elapsed before timeout"
+                    else:
+                        pending_member, pending_error = redis_zset_contains(
+                            args, "delay:attribution", str(target_event_id)
+                        )
+                        processing_member, processing_error = redis_zset_contains(
+                            args, "delay:attribution:processing", str(target_event_id)
+                        )
+                        if pending_error or processing_error:
+                            attribution_status = "NOT_RUN"
+                            attribution_reason = pending_error or processing_error
+                        elif pending_member:
+                            attribution_status = "NOT_RUN"
+                            attribution_reason = "AttributionTaskConsumer has not claimed the expired task"
+                        elif processing_member:
+                            attribution_status = "NOT_RUN"
+                            attribution_reason = "Attribution task is still being processed"
+                        else:
+                            attribution_status = "FAIL"
+                            attribution_reason = (
+                                "Grace window elapsed; attribution task remains PENDING and is absent from "
+                                "both pending and processing queues"
+                            )
+                elif actual_task_status["status"] == "EXPIRED":
+                    attribution_status = "FAIL"
+                    attribution_reason = "Attribution task expired without the expected click match"
+                else:
+                    attribution_status = "FAIL"
+                    attribution_reason = "Attribution task state and record disagree"
+
+            add_check(checks, "attribution-last-touch", "Attribution", "Last-touch attribution matches fixture",
+                      attribution_status, expected=expected_attr, actual=actual_attr,
+                      query=attribution_query, reason=attribution_reason)
+            task_expected = {"status": "MATCHED", "matchedTaskId": attribution.get("expectedTaskId")}
             add_check(checks, "attribution-task-state", "Attribution", "Attribution task reaches the expected terminal state",
-                      "PASS" if actual_task_status == {"status": "MATCHED", "matchedTaskId": attribution.get("expectedTaskId")}
-                      else ("NOT_RUN" if task_status_error else "FAIL"),
-                      expected={"status": "MATCHED", "matchedTaskId": attribution.get("expectedTaskId")},
-                      actual=actual_task_status, query=task_status_query, reason=task_status_error)
+                      attribution_status, expected=task_expected,
+                      actual={"state": actual_task_status, "pollAttempts": attempts},
+                      query=task_status_query, reason=attribution_reason)
             if attribution.get("expectedCampaignId"):
                 campaign_ids.append(int(attribution["expectedCampaignId"]))
         validate_campaign_derived_outputs(args, campaign_details, campaign_ids, checks)
@@ -1125,7 +1249,9 @@ def validate_redis(args: argparse.Namespace, manifest: dict[str, Any], checks: l
 def read_replay_failures(run_dir: Path | None) -> list[dict[str, Any]]:
     if not run_dir:
         return []
-    path = run_dir / "failures.json"
+    path = run_dir / "replay-failures.json"
+    if not path.exists():
+        path = run_dir / "failures.json"
     if not path.exists():
         return []
     try:

@@ -79,6 +79,12 @@ MySQL/Redis/Profile/Campaign/Attribution/Compensation 校验。
 在报告中明确显示 `NOT_RUN`，不会伪装为 PASS。Campaign Attribution 的 raw `CLICK`
 仍需要测试 Fixture，因为当前 raw-event consumer 不会自动写入 `click_event`。
 
+如果已通过 XXL-JOB Admin 手动触发 daily/window/tag 等任务，再追加 `-JobsTriggered`；
+此时缺少理论上应生成的结果会判为 `FAIL`，而不是 `NOT_RUN`。
+
+Campaign Attribution 默认等待 600 秒：Fixture 的目标事件相对基准时间为 +3 分钟，
+再加上 5 分钟 attribution grace window。
+
 可选地在 Functional 主线前执行 Maven：
 
 ```powershell

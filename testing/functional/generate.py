@@ -601,6 +601,7 @@ def campaign_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
             "expectedDeliveryTaskCount": 4,
             "expectedAllowedByFrequency": 2,
             "expectedCancelledByFrequency": 2,
+            "expectedUserDailyFrequencyCount": 3,
         },
         "attribution": {
             "targetEventId": conversion["eventId"],

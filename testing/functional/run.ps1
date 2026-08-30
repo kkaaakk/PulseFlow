@@ -5,12 +5,13 @@ param(
     [ValidateSet('all', 'fixture', 'normal', 'edge', 'hot-user', 'concurrency', 'campaign')][string]$Scenario = 'all',
     [int]$Concurrency = 8,
     [int]$WaitSeconds = 120,
-    [int]$CampaignWaitSeconds = 360,
+    [int]$CampaignWaitSeconds = 600,
     [switch]$PrepareDependencies,
     [switch]$RunMaven,
     [switch]$SkipMySql,
     [switch]$SkipRedis,
     [switch]$RebaseEventTime,
+    [switch]$JobsTriggered,
     [switch]$DryRun,
     [string]$RunId = '',
     [string]$ReportDir = ''
@@ -83,15 +84,77 @@ function Prepare-CampaignFixture {
         throw "MySQL client was not found: $mysqlBin"
     }
     $sqlPath = Join-Path $PSScriptRoot 'campaign-fixture.sql'
+    $sqlPathForMysql = (Resolve-Path -LiteralPath $sqlPath).Path.Replace('\', '/')
     $previousPassword = $env:MYSQL_PWD
     try {
         $env:MYSQL_PWD = $mysqlPassword
-        $sql = Get-Content -Raw -LiteralPath $sqlPath
-        & $mysqlBin '--batch' '--raw' '--protocol=tcp' '-h' $mysqlHost '-P' $mysqlPort.ToString() '-u' $mysqlUser $MysqlDatabase '--execute' $sql
+        & $mysqlBin '--batch' '--raw' '--protocol=tcp' '-h' $mysqlHost '-P' $mysqlPort.ToString() '-u' $mysqlUser $MysqlDatabase '--execute' "source $sqlPathForMysql"
         if ($LASTEXITCODE -ne 0) { throw 'Campaign fixture preparation failed.' }
+
+        $verificationSql = @"
+SELECT campaign_id, rule_name, rule_type, rule_config
+FROM campaign_rule
+WHERE campaign_id = 9202 AND rule_name = 'phase1-scenario';
+SELECT JSON_VALID(rule_config)
+FROM campaign_rule
+WHERE campaign_id = 9202 AND rule_name = 'phase1-scenario';
+"@
+        $verificationOutput = @(& $mysqlBin '--batch' '--raw' '--skip-column-names' '--protocol=tcp' '-h' $mysqlHost '-P' $mysqlPort.ToString() '-u' $mysqlUser $MysqlDatabase '--execute' $verificationSql)
+        if ($LASTEXITCODE -ne 0) { throw 'Campaign fixture verification query failed.' }
+        $jsonValidRows = @($verificationOutput | Where-Object { ([string]$_).Trim() -eq '1' })
+        if ($jsonValidRows.Count -ne 1) {
+            throw 'Campaign fixture verification failed: campaign_rule.rule_config is not valid JSON.'
+        }
+        Write-Host 'Campaign fixture prepared and campaign_rule.rule_config JSON_VALID=1.'
     } finally {
         $env:MYSQL_PWD = $previousPassword
     }
+}
+
+function Reset-CampaignAttributionState {
+    param(
+        [Parameter(Mandatory = $true)][string]$TargetEventId,
+        [Parameter(Mandatory = $true)][string]$MysqlDatabase
+    )
+    $mysqlBin = if ($env:PULSEFLOW_TEST_MYSQL_BIN) { $env:PULSEFLOW_TEST_MYSQL_BIN } else { 'mysql' }
+    $mysqlHost = if ($env:PULSEFLOW_TEST_MYSQL_HOST) { $env:PULSEFLOW_TEST_MYSQL_HOST } else { '127.0.0.1' }
+    $mysqlPort = if ($env:PULSEFLOW_TEST_MYSQL_PORT) { [int]$env:PULSEFLOW_TEST_MYSQL_PORT } else { 13306 }
+    $mysqlUser = if ($env:PULSEFLOW_TEST_MYSQL_USER) { $env:PULSEFLOW_TEST_MYSQL_USER } else { 'test' }
+    $mysqlPassword = if ($env:PULSEFLOW_TEST_MYSQL_PASSWORD) { $env:PULSEFLOW_TEST_MYSQL_PASSWORD } else { 'test' }
+    Assert-TestStoreHost -HostName $mysqlHost
+    $redisBin = if ($env:PULSEFLOW_TEST_REDIS_BIN) { $env:PULSEFLOW_TEST_REDIS_BIN } else { 'redis-cli' }
+    $redisHost = if ($env:PULSEFLOW_TEST_REDIS_HOST) { $env:PULSEFLOW_TEST_REDIS_HOST } else { '127.0.0.1' }
+    $redisPort = if ($env:PULSEFLOW_TEST_REDIS_PORT) { [int]$env:PULSEFLOW_TEST_REDIS_PORT } else { 16379 }
+    $redisPassword = if ($env:PULSEFLOW_TEST_REDIS_PASSWORD) { $env:PULSEFLOW_TEST_REDIS_PASSWORD } else { '' }
+    Assert-TestStoreHost -HostName $redisHost
+    if (-not (Get-Command $redisBin -ErrorAction SilentlyContinue) -and -not (Test-Path -LiteralPath $redisBin)) {
+        throw "Redis CLI was not found: $redisBin"
+    }
+
+    $previousPassword = $env:MYSQL_PWD
+    try {
+        $env:MYSQL_PWD = $mysqlPassword
+        $targetLiteral = $TargetEventId.Replace("'", "''")
+        $cleanupSql = "DELETE FROM attribution_record WHERE target_event_id = '$targetLiteral'; DELETE FROM attribution_task WHERE target_event_id = '$targetLiteral'; DELETE FROM user_metric_hourly WHERE user_id = 7000001 AND event_type = 'ORDER_PAID'; DELETE FROM user_event WHERE event_id = '$targetLiteral';"
+        & $mysqlBin '--batch' '--raw' '--protocol=tcp' '-h' $mysqlHost '-P' $mysqlPort.ToString() '-u' $mysqlUser $MysqlDatabase '--execute' $cleanupSql
+        if ($LASTEXITCODE -ne 0) { throw 'Campaign attribution DB state cleanup failed.' }
+    } finally {
+        $env:MYSQL_PWD = $previousPassword
+    }
+
+    $previousRedisAuth = $env:REDISCLI_AUTH
+    try {
+        if ($redisPassword) { $env:REDISCLI_AUTH = $redisPassword }
+        & $redisBin '-h' $redisHost '-p' $redisPort.ToString() 'ZREM' 'delay:attribution' $TargetEventId
+        if ($LASTEXITCODE -ne 0) { throw 'Campaign attribution pending ZSET cleanup failed.' }
+        & $redisBin '-h' $redisHost '-p' $redisPort.ToString() 'ZREM' 'delay:attribution:processing' $TargetEventId
+        if ($LASTEXITCODE -ne 0) { throw 'Campaign attribution processing ZSET cleanup failed.' }
+        & $redisBin '-h' $redisHost '-p' $redisPort.ToString() 'DEL' "event:processed:$TargetEventId"
+        if ($LASTEXITCODE -ne 0) { throw 'Campaign processed flag cleanup failed.' }
+    } finally {
+        $env:REDISCLI_AUTH = $previousRedisAuth
+    }
+    Write-Host "Reset Campaign attribution runtime state for targetEventId=$TargetEventId."
 }
 
 try {
@@ -184,11 +247,18 @@ try {
             $limitations += [string]$sourceLimitationProperty.Value
         }
 
+        $fixtureStatus = $null
+        $fixtureChecks = @()
         if ($case.name -eq 'campaign' -and -not $DryRun) {
             if ($Seed -ne 20260827) {
                 throw 'The Campaign fixture is keyed to seed 20260827; update campaign-fixture.sql before using another seed.'
             }
             Prepare-CampaignFixture -MysqlDatabase $env:PULSEFLOW_TEST_MYSQL_DATABASE
+            $targetEventId = $scenarioDetailsProperty.Value.attribution.targetEventId
+            if (-not $targetEventId) { throw 'Campaign Manifest has no attribution targetEventId.' }
+            Reset-CampaignAttributionState -TargetEventId ([string]$targetEventId) -MysqlDatabase $env:PULSEFLOW_TEST_MYSQL_DATABASE
+            $fixtureStatus = 'PASS'
+            $fixtureChecks += 'campaign_rule.rule_config JSON_VALID=1'
         }
 
         $replayArgs = @(
@@ -213,6 +283,7 @@ try {
             '--wait-seconds', $caseWaitSeconds.ToString()
         )
         if ($DryRun -or $case.name -eq 'invalid') { $validateArgs += '--http-only' }
+        if ($JobsTriggered -and $case.name -ne 'invalid') { $validateArgs += '--jobs-triggered' }
         if ($SkipMySql) { $validateArgs += '--skip-mysql' }
         if ($SkipRedis) { $validateArgs += '--skip-redis' }
         & (Resolve-PythonCommand) (Join-Path $PSScriptRoot 'validate.py') @validateArgs
@@ -220,6 +291,22 @@ try {
 
         $replayStatus = Get-StatusFromExitCode -ExitCode $replayExit
         $validateStatus = Get-StatusFromExitCode -ExitCode $validateExit
+        $notRunChecks = @()
+        $validationSummaryPath = Join-Path $caseDir 'summary.json'
+        if (Test-Path -LiteralPath $validationSummaryPath) {
+            $validationSummary = Get-Content -Raw -LiteralPath $validationSummaryPath | ConvertFrom-Json
+            foreach ($check in @($validationSummary.checks)) {
+                if ($check.status -eq 'NOT_RUN') {
+                    $notRunChecks += [ordered]@{
+                        checkId = $check.checkId
+                        module = $check.module
+                        description = $check.description
+                        reason = $check.reason
+                    }
+                    Write-Warning "NOT_RUN [$($case.name)] $($check.checkId) module=$($check.module) reason=$($check.reason)"
+                }
+            }
+        }
         $caseStatus = if ($replayStatus -eq 'FAIL' -or $validateStatus -eq 'FAIL') {
             'FAIL'
         } elseif ($replayStatus -eq 'NOT_RUN' -or $validateStatus -eq 'NOT_RUN') {
@@ -235,6 +322,9 @@ try {
             validationStatus = $validateStatus
             concurrency = if ($case.name -in @('hot-user', 'concurrency')) { $Concurrency } else { 1 }
             limitations = $limitations
+            fixtureStatus = $fixtureStatus
+            fixtureChecks = $fixtureChecks
+            notRunChecks = $notRunChecks
             reportDir = $caseDir
         }
     }

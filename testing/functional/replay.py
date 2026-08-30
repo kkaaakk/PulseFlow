@@ -414,6 +414,7 @@ def main() -> int:
         "manifest": manifest,
     }
     (report_dir / "replay-summary.json").write_text(stable_json(summary) + "\n", encoding="utf-8")
+    (report_dir / "replay-failures.json").write_text(stable_json(failures) + "\n", encoding="utf-8")
     (report_dir / "failures.json").write_text(stable_json(failures) + "\n", encoding="utf-8")
     print(
         f"replay {summary['status']}: dataset={dataset_id} events={processed} "
