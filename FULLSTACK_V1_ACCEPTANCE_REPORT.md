@@ -15,8 +15,8 @@ PulseFlow Fullstack V1: COMPLETE
 
 - Base SHA：`fa5d0dc9b7426b15e0a93e9c3860183504e7cc9d`
 - Local branch：`codex/fullstack-local-v1`
-- Final local SHA：`d84b8a5741e0df047ec3915bef8692e169317d2b`
-- Local commit：`d84b8a5 feat: complete PulseFlow fullstack console v1`
+- Final local SHA（Fullstack 实现 commit）：`0267691350793f25219b2c2c36b17d56738f0e21`
+- Local commit：`0267691 feat: complete PulseFlow fullstack console v1`
 - 本次已成功创建目标分支并写入本地 Git。
 - 未执行 reset、回退、删除 `.git`、push、PR 或远程 CI 操作。
 
@@ -186,7 +186,7 @@ Docker-gated 测试真实执行：
 
 ## 17. Known Limitations / Deferred
 
-- 当前工作区仍有原有的 docs、testing、Maven 配置和任务提示文件未提交；Fullstack V1 已安全固化在本地分支及 commit `d84b8a5741e0df047ec3915bef8692e169317d2b`。
+- 当前工作区仍有原有的 docs、testing、Maven 配置和任务提示文件未提交；Fullstack V1 已安全固化在本地分支及实现 commit `0267691350793f25219b2c2c36b17d56738f0e21`。
 - 本轮只执行 k6 smoke，没有执行长时 load/stress。
 - ECharts/Element Plus 生产 bundle 有大 chunk warning，未影响 build 或运行；后续可做独立性能优化。
 - 本地测试数据库/Redis 中保留了本轮验收数据，属于 test compose volume 数据。
