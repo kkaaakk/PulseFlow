@@ -1,6 +1,8 @@
 package com.pulseflow.ai.integration;
 
 import com.pulseflow.ai.application.CampaignAiDraftService;
+import com.pulseflow.ai.application.AudiencePreviewResult;
+import com.pulseflow.ai.application.AudiencePreviewService;
 import com.pulseflow.ai.domain.campaign.AudienceCondition;
 import com.pulseflow.ai.domain.campaign.AudienceGroup;
 import com.pulseflow.ai.domain.campaign.CampaignDsl;
@@ -25,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -66,6 +69,7 @@ class CampaignCreationFlowTest {
     private CampaignMapper campaignMapper;
     private CampaignRuleMapper ruleMapper;
     private AiFeatureProperties properties;
+    private AudiencePreviewService previewService;
     private CampaignAiDraftService draftService;
 
     /** In-memory draft store keyed by id. */
@@ -88,10 +92,12 @@ class CampaignCreationFlowTest {
         ruleMapper = mock(CampaignRuleMapper.class);
         properties = new AiFeatureProperties();
         properties.setDraftTtlHours(24);
+        previewService = mock(AudiencePreviewService.class);
 
         draftService = new CampaignAiDraftService(
                 draftMapper, campaignMapper, ruleMapper,
                 validator, converter, properties);
+        ReflectionTestUtils.setField(draftService, "audiencePreviewService", previewService);
 
         draftStore = new ConcurrentHashMap<>();
         draftIdSeq = new AtomicLong(100);
@@ -121,6 +127,26 @@ class CampaignCreationFlowTest {
             return 1;
         });
         when(ruleMapper.insert(any())).thenReturn(1);
+    }
+
+    @Test
+    @DisplayName("refresh preview 重新计算并持久化人群快照")
+    void refreshPreviewRecomputesAudienceSnapshot() {
+        CampaignDsl dsl = validDsl();
+        CampaignAiDraft draft = draftService.saveGeneratedDraft(
+                "req-refresh", 1024L, "refresh audience", dsl,
+                validator.validate(dsl), AudiencePreviewResult.builder()
+                        .estimatedCount(2).dataVersion("old-version").calculationMode("SNAPSHOT").build());
+        when(previewService.preview(any(CampaignDsl.class))).thenReturn(
+                AudiencePreviewResult.builder().estimatedCount(9)
+                        .dataVersion("new-version").calculationMode("SNAPSHOT").build());
+
+        CampaignAiDraftService.DraftUpdateResult refreshed =
+                draftService.refreshPreview(draft.getId(), 1024L);
+
+        assertThat(refreshed.draft().getEstimatedAudienceCount()).isEqualTo(9L);
+        assertThat(refreshed.draft().getProfileDataVersion()).isEqualTo("new-version");
+        verify(previewService).preview(any(CampaignDsl.class));
     }
 
     private CampaignDsl validDsl() {

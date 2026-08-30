@@ -129,7 +129,7 @@ public class EventPersistenceService {
                 .eventId((String) eventMap.get("eventId"))
                 .userId(toLong(eventMap.get("userId")))
                 .eventType((String) eventMap.get("eventType"))
-                .targetId(toLong(eventMap.get("targetId")))
+                .targetId(toNullableLong(eventMap.get("targetId")))
                 .eventTime(parseDateTime((String) eventMap.get("eventTime")))
                 .receivedAt(parseDateTime((String) eventMap.get("receivedAt")))
                 .effectiveEventTime(parseDateTime((String) eventMap.get("effectiveEventTime")))
@@ -170,15 +170,24 @@ public class EventPersistenceService {
 
     private LocalDateTime parseDateTime(String dt) {
         if (dt == null) return LocalDateTime.now();
-        String normalized = dt.contains("T") ? dt.replace("T", " ") : dt;
-        if (normalized.length() > 19) normalized = normalized.substring(0, 19);
-        return LocalDateTime.parse(normalized, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        // LocalDateTime.toString() 在秒数为 0 时会省略秒（例如
+        // "2026-08-23T23:00"），有小数秒时则会保留。ISO_LOCAL_DATE_TIME
+        // 能同时解析这两种格式；这里也兼容历史补偿消息使用的空格分隔符。
+        String normalized = dt.trim().replace(' ', 'T');
+        return LocalDateTime.parse(normalized, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
     }
 
     private Long toLong(Object val) {
         if (val == null) return 0L;
         if (val instanceof Number) return ((Number) val).longValue();
         return Long.parseLong(String.valueOf(val));
+    }
+
+    private Long toNullableLong(Object val) {
+        if (val == null) return null;
+        if (val instanceof Number) return ((Number) val).longValue();
+        String text = String.valueOf(val).trim();
+        return text.isEmpty() ? null : Long.parseLong(text);
     }
 
     /**

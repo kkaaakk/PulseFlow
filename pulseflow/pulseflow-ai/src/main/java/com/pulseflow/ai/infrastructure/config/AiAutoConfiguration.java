@@ -9,6 +9,7 @@ import com.pulseflow.ai.provider.FakeAiModelClient;
 import com.pulseflow.ai.provider.OpenAiCompatibleClient;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -28,6 +29,7 @@ import org.springframework.context.annotation.Configuration;
 @EnableConfigurationProperties(AiFeatureProperties.class)
 @ConditionalOnProperty(prefix = "pulseflow.ai", name = "enabled", havingValue = "true")
 @ComponentScan(basePackages = "com.pulseflow.ai")
+@MapperScan("com.pulseflow.ai.infrastructure.persistence.mapper")
 public class AiAutoConfiguration {
 
     private final AiFeatureProperties properties;

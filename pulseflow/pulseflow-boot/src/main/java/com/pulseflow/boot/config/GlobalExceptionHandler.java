@@ -1,5 +1,6 @@
 package com.pulseflow.boot.config;
 
+import cn.dev33.satoken.exception.NotLoginException;
 import com.pulseflow.common.exception.DuplicateEventException;
 import com.pulseflow.common.exception.PulseFlowException;
 import com.pulseflow.common.model.ApiResponse;
@@ -21,6 +22,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(NotLoginException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public ApiResponse<Void> handleNotLogin(NotLoginException e) {
+        return ApiResponse.fail(401, "Unauthorized");
+    }
 
     @ExceptionHandler(PulseFlowException.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)

@@ -22,7 +22,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -96,25 +95,24 @@ public class AiCampaignController {
                 .status(draft.getValidationStatus())
                 .dsl(newDsl)
                 .errors(validation.getErrors())
-                .warnings(validation.getWarnings())
+                .warnings(draftWarnings(draft))
                 .estimatedAudience(buildEstimate(draft))
                 .build());
     }
 
     @PostMapping("/drafts/{draftId}/refresh-preview")
     public ApiResponse<AiCampaignDtos.DraftResponse> refreshPreview(@PathVariable Long draftId) {
-        // Re-run audience preview against current DSL (without changing DSL).
-        CampaignAiDraft draft = draftService.loadDraft(draftId);
+        CampaignAiDraftService.DraftUpdateResult updated =
+                draftService.refreshPreview(draftId, currentOperatorId());
+        CampaignAiDraft draft = updated.draft();
+        DslValidationResult validation = updated.validation();
         CampaignDsl dsl = JsonUtil.fromJson(draft.getDslJson(), CampaignDsl.class);
-        // We delegate to the intent pipeline's preview service via the draft service.
-        // For v1: simply return the stored draft; a re-preview hook can be added later.
-        List<String> warnings = draft.getWarningsJson() == null
-                ? new ArrayList<>() : JsonUtil.fromJson(draft.getWarningsJson(), List.class);
         return ApiResponse.success(AiCampaignDtos.DraftResponse.builder()
                 .draftId(draft.getId())
                 .status(draft.getValidationStatus())
                 .dsl(dsl)
-                .warnings(warnings)
+                .errors(validation.getErrors())
+                .warnings(draftWarnings(draft))
                 .estimatedAudience(buildEstimate(draft))
                 .build());
     }
@@ -178,7 +176,16 @@ public class AiCampaignController {
                 .count(draft.getEstimatedAudienceCount())
                 .dataVersion(draft.getProfileDataVersion())
                 .calculationMode("SNAPSHOT")
+                .warnings(draftWarnings(draft))
                 .build();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> draftWarnings(CampaignAiDraft draft) {
+        if (draft.getWarningsJson() == null || draft.getWarningsJson().isBlank()) {
+            return List.of();
+        }
+        return JsonUtil.fromJson(draft.getWarningsJson(), List.class);
     }
 
     /**

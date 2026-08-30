@@ -97,8 +97,7 @@ public class RealtimeProfileUpdateService {
             String eventType = (String) ctx.get("eventType");
             Long userId = toLong(ctx.get("userId"));
             String effectiveTime = normalizeTime((String) ctx.get("effectiveEventTime"));
-            String dateStr = LocalDateTime.parse(effectiveTime,
-                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+            String dateStr = parseEventTime(effectiveTime)
                     .format(DateTimeFormatter.ofPattern("yyyyMMdd"));
 
             Map<String, Object> props = getProperties(ctx);
@@ -139,6 +138,16 @@ public class RealtimeProfileUpdateService {
             return LocalDateTime.now().toString().replace("T", " ");
         }
         return time.contains("T") ? time.replace("T", " ") : time;
+    }
+
+    /**
+     * Parses the canonical event time used by Kafka replay and EventPersistence.
+     * ISO_LOCAL_DATE_TIME accepts both second precision and fractional seconds;
+     * the latter is emitted by LocalDateTime.toString() for live events.
+     */
+    static LocalDateTime parseEventTime(String normalizedTime) {
+        return LocalDateTime.parse(normalizedTime.trim().replace(' ', 'T'),
+                DateTimeFormatter.ISO_LOCAL_DATE_TIME);
     }
 
     private Long toLong(Object val) {
