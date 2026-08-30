@@ -71,9 +71,10 @@ Replay 默认串行以保留到达顺序；`concurrency` 和 `hot-user` 使用�
 没有运行中的应用时可以用 `-DryRun` 只检查数据生成、场景编排和报告结构；它的结果是
 `NOT_RUN`，不代表业务链路通过。
 
-报告位于 `testing/reports/<run-id>/`，功能主报告是 `functional-report.json` 和
-`functional-report.md`；每个场景目录还保存 Replay 结果、失败证据以及适用的
-MySQL/Redis/Profile/Campaign/Attribution/Compensation 校验。
+报告位于 `testing/reports/<run-id>/`。同时运行两条主线时，优先阅读
+`run-all-report.md`；功能详情看 `functional/functional-report.md`，性能详情看
+`performance/performance-report.md`。JSON 文件和每个场景目录仍保留 Replay 结果、失败证据以及
+MySQL/Redis/Profile/Campaign/Attribution/Compensation 的机器可读校验数据。
 
 当前没有公开 HTTP 入口触发 XXL-JOB 的 daily/window/tag/campaign-selection/compensation 任务；这些阶段会
 在报告中明确显示 `NOT_RUN`，不会伪装为 PASS。Campaign Attribution 的 raw `CLICK`
@@ -102,7 +103,7 @@ Functional JSONL，也不调用 Functional Validator。
 .\testing\performance\run.ps1 -Scenario stress -BaseUrl http://localhost:18080 -AllowStress
 ```
 
-Smoke/Load/Stress 报告保存 `k6-summary.json` 和 `performance-report.json`。k6 的最小
+Smoke/Load/Stress 报告保存 `performance-report.md`、`k6-summary.json` 和 `performance-report.json`。k6 的最小
 接入断言是 HTTP 200、`ApiResponse.code=200` 和 `data.accepted=true`；最终落库正确性
 不属于 k6 的通过标准。
 
@@ -131,3 +132,7 @@ Real Provider/API 评估必须显式提供认证和运行中的测试应用，�
 
 `run-all.ps1` 会分别生成 Functional 和 Performance 报告，再汇总
 `functionalStatus`、`performanceStatus` 和 `overallStatus`。
+
+人工阅读时优先打开 `testing/reports/<run-id>/run-all-report.md`；如果功能验收有问题，
+再看 `functional/functional-report.md` 和对应场景的 `summary.md`。需要深入 Debug 时，
+再查看 `summary.json`、`failures.json` 和 `k6-summary.json`。

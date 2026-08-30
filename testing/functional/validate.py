@@ -43,6 +43,66 @@ REQUIRED_TABLES = {
     "campaign_ai_review",
 }
 
+STATUS_LABELS = {
+    "PASS": "✅ PASS（通过）",
+    "FAIL": "❌ FAIL（失败）",
+    "NOT_RUN": "⚠️ NOT_RUN（未执行）",
+}
+
+MODULE_NAMES = {
+    "MySQL": "MySQL（数据库）",
+    "Redis": "Redis（缓存）",
+    "Profile": "Profile（用户画像）",
+    "Campaign": "Campaign（营销活动）",
+    "Attribution": "Attribution（归因）",
+    "Compensation": "Compensation（补偿）",
+    "Replay": "Replay（业务重放）",
+    "AI": "AI（智能审核）",
+}
+
+CHECK_NAMES = {
+    "mysql-not-applicable": "MySQL 校验适用性",
+    "mysql-connection": "MySQL 测试库连接",
+    "mysql-unique-events": "事件落库数量",
+    "mysql-duplicate-rows": "eventId 唯一性",
+    "mysql-conflicting-canonical": "冲突重复事件保留首条规范记录",
+    "mysql-event-type-counts": "事件类型计数",
+    "mysql-hourly-metrics": "小时指标聚合",
+    "mysql-daily-metrics": "日指标聚合",
+    "mysql-canonical-samples": "规范事件样本",
+    "mysql-schema": "数据库表结构",
+    "mysql-compensation": "数据补偿任务",
+    "mysql-explicit-skip": "MySQL 校验主动跳过",
+    "scheduled-outputs": "定时任务输出范围",
+    "profile-window-metrics": "用户窗口指标",
+    "profile-user-tags": "用户标签计算",
+    "redis-not-applicable": "Redis 校验适用性",
+    "redis-connection": "Redis 测试库连接",
+    "redis-processed-flags": "Redis 幂等处理标记",
+    "redis-processed-ttl": "Redis 幂等标记 TTL",
+    "redis-realtime-profile": "Redis 实时画像键",
+    "redis-business-values": "Redis 业务画像值",
+    "redis-realtime-values": "Redis 实时画像值",
+    "redis-daily-values": "Redis 日实时指标",
+    "redis-cart-values": "Redis 购物车状态",
+    "redis-explicit-skip": "Redis 校验主动跳过",
+    "campaign-fixture": "Campaign 测试预置数据",
+    "campaign-execution": "营销活动执行记录",
+    "campaign-delivery-tasks": "营销投放任务",
+    "campaign-delivery-records": "营销投放记录",
+    "campaign-channel-records": "渠道发送记录",
+    "campaign-frequency-redis": "营销频控计数",
+    "campaign-frequency-reservations": "营销频控配额预留",
+    "campaign-performance-summary": "营销活动效果汇总",
+    "campaign-ai-review": "营销活动 AI 审核",
+    "attribution-click-event": "归因点击事件",
+    "attribution-last-touch": "末次点击归因",
+    "attribution-task-state": "归因任务状态",
+    "replay-request": "业务重放请求",
+}
+
+STATUS_SORT_ORDER = {"FAIL": 0, "NOT_RUN": 1, "PASS": 2}
+
 
 def stable_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -50,6 +110,36 @@ def stable_json(value: Any) -> str:
 
 def pretty_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
+
+
+def status_label(status: Any) -> str:
+    value = str(status)
+    return STATUS_LABELS.get(value, value)
+
+
+def module_label(module: Any) -> str:
+    value = str(module or "未知模块")
+    return MODULE_NAMES.get(value, value)
+
+
+def check_label(check: dict[str, Any]) -> str:
+    check_id = str(check.get("checkId") or "")
+    return CHECK_NAMES.get(check_id, str(check.get("description") or check_id or "未命名校验"))
+
+
+def markdown_value(value: Any, limit: int = 180) -> str:
+    if value is None or value == "":
+        return "—"
+    if isinstance(value, (dict, list, tuple, set)):
+        return "详见 `summary.json`"
+    text = str(value).replace("\r", " ").replace("\n", " ").replace("|", "\\|")
+    if len(text) > limit:
+        return text[: max(1, limit - 1)] + "…"
+    return text
+
+
+def markdown_reason(value: Any) -> str:
+    return markdown_value(value, limit=240)
 
 
 def parse_args() -> argparse.Namespace:
@@ -1296,13 +1386,14 @@ def write_summary(report_dir: Path, manifest: dict[str, Any], checks: list[dict[
         status = "NOT_RUN"
     else:
         status = "PASS"
+    checked_at = datetime.now(timezone.utc).isoformat()
     summary = {
         "status": status,
         "type": "functional",
         "datasetId": manifest.get("datasetId"),
         "seed": manifest.get("seed"),
         "scale": manifest.get("scale"),
-        "checkedAt": datetime.now(timezone.utc).isoformat(),
+        "checkedAt": checked_at,
         "checkCounts": {key: sum(1 for check in checks if check["status"] == key)
                         for key in ("PASS", "FAIL", "NOT_RUN")},
         "replayFailureCount": len(replay_failures),
@@ -1311,24 +1402,112 @@ def write_summary(report_dir: Path, manifest: dict[str, Any], checks: list[dict[
     }
     (report_dir / "summary.json").write_text(pretty_json(summary) + "\n", encoding="utf-8")
     (report_dir / "failures.json").write_text(pretty_json(failures) + "\n", encoding="utf-8")
+
+    check_counts = summary["checkCounts"]
+    dataset_id = manifest.get("datasetId") or "未知数据集"
+    scale = manifest.get("scale") or "—"
+    seed = manifest.get("seed")
     lines = [
-        f"# PulseFlow validation report — {manifest.get('datasetId')}",
+        "# PulseFlow 功能验收报告",
         "",
-        "Type: **Functional Replay**",
-        f"Status: **{status}**",
-        f"Seed: `{manifest.get('seed')}`  Scale: `{manifest.get('scale')}`",
+        "## 验收结论",
         "",
-        "| Check | Module | Status |",
-        "|---|---|---|",
+        f"总体结果：{status_label(status)}",
+        "",
+        f"数据集：`{dataset_id}`",
+        f"数据规模：`{scale}`",
+        f"随机种子：`{seed if seed is not None else '—'}`",
+        f"校验时间：`{checked_at}`",
+        "",
+        "### 结果统计",
+        "",
+        f"- ✅ 通过：{check_counts['PASS']}",
+        f"- ❌ 失败：{check_counts['FAIL']}",
+        f"- ⚠️ 未执行：{check_counts['NOT_RUN']}",
+        f"- 校验总数：{len(checks)}",
+        "",
+        "## ❌ 失败项",
+        "",
     ]
-    for check in checks:
-        lines.append(f"| `{check['checkId']}` | {check['module']} | **{check['status']}** |")
-    lines.extend(["", "## Failures", ""])
     if failures:
+        lines.extend([
+            "| 校验内容 | 模块 | 预期 | 实际 | 原因 | 技术标识 |",
+            "|---|---|---|---|---|---|",
+        ])
         for failure in failures:
-            lines.append(f"- `{failure.get('module')}` `{failure.get('checkId', '')}`: {failure.get('exceptionOrLog') or 'assertion mismatch'}")
+            check_id = str(failure.get("checkId") or "replay-request")
+            check = {"checkId": check_id, "description": failure.get("exceptionOrLog")}
+            lines.append(
+                f"| {check_label(check)} | {module_label(failure.get('module'))} "
+                f"| {markdown_value(failure.get('expected'))} "
+                f"| {markdown_value(failure.get('actual'))} "
+                f"| {markdown_reason(failure.get('exceptionOrLog') or '断言不匹配')} "
+                f"| `{check_id}` |"
+            )
     else:
-        lines.append("None.")
+        lines.append("无。")
+
+    not_run_checks = [check for check in checks if check["status"] == "NOT_RUN"]
+    lines.extend(["", "## ⚠️ 未执行项", ""])
+    if not_run_checks:
+        lines.extend([
+            "| 校验内容 | 模块 | 原因 | 技术标识 |",
+            "|---|---|---|---|",
+        ])
+        for check in not_run_checks:
+            lines.append(
+                f"| {check_label(check)} | {module_label(check.get('module'))} "
+                f"| {markdown_reason(check.get('reason') or '未满足执行条件')} "
+                f"| `{check.get('checkId')}` |"
+            )
+    else:
+        lines.append("无。")
+
+    module_counts: dict[str, dict[str, int]] = {}
+    module_order: list[str] = []
+    for check in checks:
+        module = str(check.get("module") or "未知模块")
+        if module not in module_counts:
+            module_counts[module] = {"PASS": 0, "FAIL": 0, "NOT_RUN": 0}
+            module_order.append(module)
+        module_counts[module][check["status"]] = module_counts[module].get(check["status"], 0) + 1
+    lines.extend([
+        "",
+        "## 核心校验结果",
+        "",
+        "| 模块 | 通过 | 失败 | 未执行 |",
+        "|---|---:|---:|---:|",
+    ])
+    for module in module_order:
+        counts = module_counts[module]
+        lines.append(
+            f"| {module_label(module)} | {counts['PASS']} | {counts['FAIL']} | {counts['NOT_RUN']} |"
+        )
+
+    ordered_checks = sorted(
+        enumerate(checks),
+        key=lambda item: (STATUS_SORT_ORDER.get(item[1].get("status"), 99), item[0]),
+    )
+    lines = [
+        *lines,
+        "",
+        "## 完整校验结果",
+        "",
+        "| 校验内容 | 模块 | 结果 | 技术标识 |",
+        "|---|---|---|---|",
+    ]
+    for _, check in ordered_checks:
+        lines.append(
+            f"| {check_label(check)} | {module_label(check.get('module'))} "
+            f"| {status_label(check.get('status'))} | `{check.get('checkId')}` |"
+        )
+    lines.extend([
+        "",
+        "## 原始数据",
+        "",
+        "主报告只展示摘要；Expected、Actual、SQL 和完整调试信息见 `summary.json`。",
+        "Replay 请求错误见 `replay-failures.json`，校验失败汇总见 `failures.json`。",
+    ])
     (report_dir / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"validation {status}: checks={len(checks)} failures={len(failures)} report={report_dir}")
     return 0 if status == "PASS" else (2 if status == "NOT_RUN" else 1)

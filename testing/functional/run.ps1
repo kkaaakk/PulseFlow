@@ -72,6 +72,246 @@ function Get-StatusFromExitCode {
     return 'NOT_RUN'
 }
 
+$script:ReportStatusLabels = @{
+    PASS = '✅ PASS（通过）'
+    FAIL = '❌ FAIL（失败）'
+    NOT_RUN = '⚠️ NOT_RUN（未执行）'
+}
+
+$script:ReportModuleLabels = @{
+    MySQL = 'MySQL（数据库）'
+    Redis = 'Redis（缓存）'
+    Profile = 'Profile（用户画像）'
+    Campaign = 'Campaign（营销活动）'
+    Attribution = 'Attribution（归因）'
+    Compensation = 'Compensation（补偿）'
+    Replay = 'Replay（业务重放）'
+    AI = 'AI（智能审核）'
+}
+
+$script:ReportCheckLabels = @{
+    'mysql-not-applicable' = 'MySQL 校验适用性'
+    'mysql-connection' = 'MySQL 测试库连接'
+    'mysql-unique-events' = '事件落库数量'
+    'mysql-duplicate-rows' = 'eventId 唯一性'
+    'mysql-conflicting-canonical' = '冲突重复事件保留首条规范记录'
+    'mysql-event-type-counts' = '事件类型计数'
+    'mysql-hourly-metrics' = '小时指标聚合'
+    'mysql-daily-metrics' = '日指标聚合'
+    'mysql-canonical-samples' = '规范事件样本'
+    'mysql-schema' = '数据库表结构'
+    'mysql-compensation' = '数据补偿任务'
+    'mysql-explicit-skip' = 'MySQL 校验主动跳过'
+    'scheduled-outputs' = '定时任务输出范围'
+    'profile-window-metrics' = '用户窗口指标'
+    'profile-user-tags' = '用户标签计算'
+    'redis-not-applicable' = 'Redis 校验适用性'
+    'redis-connection' = 'Redis 测试库连接'
+    'redis-processed-flags' = 'Redis 幂等处理标记'
+    'redis-processed-ttl' = 'Redis 幂等标记 TTL'
+    'redis-realtime-profile' = 'Redis 实时画像键'
+    'redis-business-values' = 'Redis 实时画像值'
+    'redis-realtime-values' = 'Redis 实时画像值'
+    'redis-daily-values' = 'Redis 日实时指标'
+    'redis-cart-values' = 'Redis 购物车状态'
+    'redis-explicit-skip' = 'Redis 校验主动跳过'
+    'campaign-fixture' = 'Campaign 测试预置数据'
+    'campaign-execution' = '营销活动执行记录'
+    'campaign-delivery-tasks' = '营销投放任务'
+    'campaign-delivery-records' = '营销投放记录'
+    'campaign-channel-records' = '渠道发送记录'
+    'campaign-frequency-redis' = '营销频控计数'
+    'campaign-frequency-reservations' = '营销频控配额预留'
+    'campaign-performance-summary' = '营销活动效果汇总'
+    'campaign-ai-review' = '营销活动 AI 审核'
+    'attribution-click-event' = '归因点击事件'
+    'attribution-last-touch' = '末次点击归因'
+    'attribution-task-state' = '归因任务状态'
+    'replay-request' = '业务重放请求'
+}
+
+$script:ReportScenarioLabels = @{
+    fixture = '测试预置数据'
+    normal = '正常业务事件'
+    duplicate = '重复事件 / 幂等'
+    'out-of-order' = '乱序事件'
+    late = '迟到事件'
+    invalid = '非法请求'
+    'hot-user' = '热点用户并发'
+    concurrency = '并发正确性'
+    campaign = 'Campaign 营销 / 频控 / 归因'
+}
+
+function Get-ReportStatusLabel {
+    param([string]$Status, [switch]$Partial)
+    if ($Partial -and $Status -eq 'NOT_RUN') { return '⚠️ NOT_RUN（部分未执行）' }
+    if ($script:ReportStatusLabels.ContainsKey($Status)) { return $script:ReportStatusLabels[$Status] }
+    return $Status
+}
+
+function Get-ReportModuleLabel {
+    param([string]$Module)
+    if ($script:ReportModuleLabels.ContainsKey($Module)) { return $script:ReportModuleLabels[$Module] }
+    if ($Module) { return $Module }
+    return '未知模块'
+}
+
+function Get-ReportCheckLabel {
+    param([string]$CheckId, [string]$Description = '')
+    if ($script:ReportCheckLabels.ContainsKey($CheckId)) { return $script:ReportCheckLabels[$CheckId] }
+    if ($Description) { return $Description }
+    if ($CheckId) { return $CheckId }
+    return '未命名校验'
+}
+
+function Get-ReportScenarioLabel {
+    param([string]$Scenario)
+    if ($script:ReportScenarioLabels.ContainsKey($Scenario)) { return $script:ReportScenarioLabels[$Scenario] }
+    if ($Scenario) { return $Scenario }
+    return '未知场景'
+}
+
+function Get-ReportShortValue {
+    param([object]$Value)
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) { return '—' }
+    if ($Value -is [System.Collections.IDictionary] -or
+        ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string])) {
+        return '详见 summary.json'
+    }
+    $text = ([string]$Value).Replace("`r", ' ').Replace("`n", ' ').Replace('|', '\|')
+    if ($text.Length -gt 180) { return $text.Substring(0, 179) + '…' }
+    return $text
+}
+
+function Get-ReportCheckCountText {
+    param([object]$Summary)
+    if ($null -eq $Summary -or $null -eq $Summary.checkCounts) { return '—' }
+    $total = [int]$Summary.checkCounts.PASS + [int]$Summary.checkCounts.FAIL + [int]$Summary.checkCounts.NOT_RUN
+    if ($total -eq 0) { return '适用校验 0' }
+    return "通过 $($Summary.checkCounts.PASS) / 失败 $($Summary.checkCounts.FAIL) / 未执行 $($Summary.checkCounts.NOT_RUN)"
+}
+
+function Write-FunctionalMarkdown {
+    param(
+        [Parameter(Mandatory = $true)][string]$ReportRoot,
+        [Parameter(Mandatory = $true)][object[]]$CaseResults,
+        [Parameter(Mandatory = $true)][string]$RunId,
+        [Parameter(Mandatory = $true)][string]$Scale,
+        [Parameter(Mandatory = $true)][int]$Seed,
+        [Parameter(Mandatory = $true)][string]$OverallStatus
+    )
+    try {
+        $passScenarios = @($CaseResults | Where-Object { $_.status -eq 'PASS' }).Count
+        $failScenarios = @($CaseResults | Where-Object { $_.status -eq 'FAIL' }).Count
+        $notRunScenarios = @($CaseResults | Where-Object { $_.status -eq 'NOT_RUN' }).Count
+        $failureRows = @()
+        $notRunRows = @()
+        $scenarioRows = @()
+
+        foreach ($result in $CaseResults) {
+            $summary = $null
+            $summaryPath = Join-Path ([string]$result.reportDir) 'summary.json'
+            if (Test-Path -LiteralPath $summaryPath) {
+                try { $summary = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json } catch { $summary = $null }
+            }
+            if ($summary) {
+                foreach ($check in @($summary.checks)) {
+                    if ($check.status -eq 'FAIL') {
+                        $failureRows += [pscustomobject]@{
+                            Scenario = $result.scenario
+                            Name = Get-ReportCheckLabel -CheckId $check.checkId -Description $check.description
+                            Module = Get-ReportModuleLabel -Module $check.module
+                            Reason = Get-ReportShortValue -Value $check.reason
+                            CheckId = $check.checkId
+                        }
+                    } elseif ($check.status -eq 'NOT_RUN') {
+                        $notRunRows += [pscustomobject]@{
+                            Scenario = $result.scenario
+                            Name = Get-ReportCheckLabel -CheckId $check.checkId -Description $check.description
+                            Module = Get-ReportModuleLabel -Module $check.module
+                            Reason = Get-ReportShortValue -Value $check.reason
+                            CheckId = $check.checkId
+                        }
+                    }
+                }
+            }
+            $replayFailuresPath = Join-Path ([string]$result.reportDir) 'replay-failures.json'
+            if (Test-Path -LiteralPath $replayFailuresPath) {
+                try {
+                    $replayFailures = Get-Content -Raw -LiteralPath $replayFailuresPath | ConvertFrom-Json
+                    foreach ($failure in @($replayFailures)) {
+                        $failureRows += [pscustomobject]@{
+                            Scenario = $result.scenario
+                            Name = Get-ReportCheckLabel -CheckId 'replay-request'
+                            Module = 'Replay（业务重放）'
+                            Reason = Get-ReportShortValue -Value ($failure.exceptionOrLog)
+                            CheckId = if ($failure.checkId) { $failure.checkId } else { 'replay-request' }
+                        }
+                    }
+                } catch { }
+            }
+            $scenarioRows += [pscustomobject]@{
+                Scenario = $result.scenario
+                Label = Get-ReportScenarioLabel -Scenario $result.scenario
+                Status = Get-ReportStatusLabel -Status $result.status -Partial
+                Replay = Get-ReportStatusLabel -Status $result.replayStatus
+                Validator = Get-ReportStatusLabel -Status $result.validationStatus
+                Checks = Get-ReportCheckCountText -Summary $summary
+                Concurrency = $result.concurrency
+            }
+        }
+
+        $lines = @(
+            '# PulseFlow 功能验收总报告',
+            '',
+            '## 总体结论',
+            '',
+            "总体结果：$(Get-ReportStatusLabel -Status $OverallStatus)",
+            "运行 ID：$([char]96)$RunId$([char]96)",
+            "数据规模：$([char]96)$Scale$([char]96)",
+            "随机种子：$([char]96)$Seed$([char]96)",
+            '',
+            '### 场景结果统计',
+            '',
+            "- ✅ 通过场景：$passScenarios",
+            "- ❌ 失败场景：$failScenarios",
+            "- ⚠️ 部分未执行场景：$notRunScenarios",
+            '',
+            '## ❌ 当前失败项',
+            ''
+        )
+        if ($failureRows.Count -gt 0) {
+            $lines += '| 场景 | 校验内容 | 模块 | 原因 | 技术标识 |'
+            $lines += '|---|---|---|---|---|'
+            foreach ($row in $failureRows) {
+                $lines += "| $(Get-ReportScenarioLabel -Scenario $row.Scenario) | $($row.Name) | $($row.Module) | $($row.Reason) | ``$($row.CheckId)`` |"
+            }
+        } else {
+            $lines += '无。'
+        }
+
+        $lines += @('', '## ⚠️ 当前未执行项', '')
+        if ($notRunRows.Count -gt 0) {
+            $lines += '| 场景 | 校验内容 | 模块 | 原因 | 技术标识 |'
+            $lines += '|---|---|---|---|---|'
+            foreach ($row in $notRunRows) {
+                $lines += "| $(Get-ReportScenarioLabel -Scenario $row.Scenario) | $($row.Name) | $($row.Module) | $($row.Reason) | ``$($row.CheckId)`` |"
+            }
+        } else {
+            $lines += '无。'
+        }
+
+        $lines += @('', '## 场景结果', '', '| 场景 | 中文说明 | 结果 | Replay | Validator | 校验统计 | 并发 |', '|---|---|---|---|---|---|---:|')
+        foreach ($row in $scenarioRows) {
+            $lines += "| [$($row.Scenario)]($($row.Scenario)/summary.md) | $($row.Label) | $($row.Status) | $($row.Replay) | $($row.Validator) | $($row.Checks) | $($row.Concurrency) |"
+        }
+        $lines += @('', '## 详细报告', '', '每个场景的完整 Expected、Actual、SQL 和调试数据仍保存在对应目录的 `summary.json`；', '本页只保留面向阅读的摘要。')
+        $lines | Set-Content -LiteralPath (Join-Path $ReportRoot 'functional-report.md') -Encoding UTF8
+    } catch {
+        Write-Warning "Functional Markdown report generation failed; JSON reports are preserved: $($_.Exception.Message)"
+    }
+}
+
 function Prepare-CampaignFixture {
     param([string]$MysqlDatabase)
     $mysqlBin = if ($env:PULSEFLOW_TEST_MYSQL_BIN) { $env:PULSEFLOW_TEST_MYSQL_BIN } else { 'mysql' }
@@ -181,7 +421,7 @@ try {
             reason = "application endpoint is not reachable: $($_.Exception.Message)"
         }
         $notRun | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $runRoot 'functional-report.json') -Encoding UTF8
-        @('# PulseFlow Functional Validation', '', 'Status: **NOT_RUN**', '', $notRun.reason) |
+        @('# PulseFlow 功能验收总报告', '', '## 验收结论', '', '总体结果：⚠️ NOT_RUN（未执行）', '', "原因：$($notRun.reason)") |
             Set-Content -LiteralPath (Join-Path $runRoot 'functional-report.md') -Encoding UTF8
         Write-Warning 'application endpoint is not reachable; functional validation is NOT_RUN.'
         exit 2
@@ -346,19 +586,8 @@ try {
         details = $caseResults
     }
     $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $runRoot 'functional-report.json') -Encoding UTF8
-    $markdown = @(
-        '# PulseFlow Functional Validation',
-        '',
-        "Status: **$overallStatus**",
-        "Run: $runId  Scale: $Scale  Seed: $Seed",
-        '',
-        '| Scenario | Status | Replay | Validator | Concurrency |',
-        '|---|---|---|---|---:|'
-    )
-    foreach ($result in $caseResults) {
-        $markdown += "| $($result.scenario) | **$($result.status)** | $($result.replayStatus) | $($result.validationStatus) | $($result.concurrency) |"
-    }
-    $markdown | Set-Content -LiteralPath (Join-Path $runRoot 'functional-report.md') -Encoding UTF8
+    Write-FunctionalMarkdown -ReportRoot $runRoot -CaseResults $caseResults `
+        -RunId $RunId -Scale $Scale -Seed $Seed -OverallStatus $overallStatus
     Write-Host "functional validation ${overallStatus}: scenarios=$($caseResults.Count) report=$runRoot"
     if ($overallStatus -eq 'PASS') { exit 0 }
     if ($overallStatus -eq 'NOT_RUN') { exit 2 }
