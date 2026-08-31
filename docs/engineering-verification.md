@@ -103,6 +103,7 @@
 - `GITHUB_ACTIONS=true` 时 enforcer 强制 `PULSEFLOW_TEST_DOCKER=true`，否则 **构建失败**——Docker 集成测试不允许被静默跳过
 - 用 `GITHUB_ACTIONS` 而非 `CI` 变量（本地 IDE 会设 `CI=true` 误触发）
 - GitHub Runner 上真实拉 `mysql:8.0` 镜像，11 个 IT 零跳过零失败
+- 同一 workflow 静态运行 `python testing/functional/validate_ai_dataset.py`，校验 JSONL、manifest/SHA-256、case 数量、ID、类别和必需字段；不启动 PulseFlow 或外部 AI Provider
 
 CI 首次真实跑通时修复了 4 个仅 CI 环境暴露的潜伏 bug：
 
@@ -117,4 +118,9 @@ CI 首次真实跑通时修复了 4 个仅 CI 环境暴露的潜伏 bug：
 - baseline 使用候选池（`LIMIT 50000`）而非全站数据
 - `unsubscribeCount` v1 固定为 0，schema 未追踪退订
 - `variantMetrics` v1 固定为空数组，不支持 A/B 变体分析
-- Testcontainers + Docker Desktop 29.x 有兼容问题，本地 IT 默认跳过，仅在 CI 强制执行
+- Testcontainers 已固定为 1.21.4，兼容 Docker Desktop 29.x 的最低 API 1.44 要求；
+  本地 IT 仍默认跳过，设置 `PULSEFLOW_TEST_DOCKER=true` 后可完整执行
+
+## 7. 手工专项测试边界
+
+`testing/` 保留确定性数据生成、HTTP Functional Replay、最终状态 Validator、受控并发、Campaign/Attribution 验证、真实 AI/API Evaluation 和 k6 Smoke/Load/Stress。它们需要本地运行中的应用或隔离中间件，属于开发者主动执行的专项验收，不重复普通 push/PR CI。

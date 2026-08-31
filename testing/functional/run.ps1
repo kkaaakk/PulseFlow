@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet('small', 'medium', 'large')][string]$Scale = 'small',
     [int]$Seed = 20260827,
     [string]$BaseUrl = 'http://localhost:8080',
@@ -7,7 +7,6 @@ param(
     [int]$WaitSeconds = 120,
     [int]$CampaignWaitSeconds = 600,
     [switch]$PrepareDependencies,
-    [switch]$RunMaven,
     [switch]$SkipMySql,
     [switch]$SkipRedis,
     [switch]$RebaseEventTime,
@@ -436,21 +435,6 @@ try {
         $compose = Join-Path $TestingRoot 'docker-compose.test.yml'
         & docker compose '-f' $compose '-p' 'pulseflow-test' 'up' '-d'
         if ($LASTEXITCODE -ne 0) { throw 'Test dependency compose startup failed.' }
-    }
-
-    $contract = Join-Path $runRoot 'contract-check.json'
-    Invoke-PythonScript -ScriptPath (Join-Path $PSScriptRoot 'verify_contract.py') -Arguments @('--output', $contract)
-
-    if ($RunMaven) {
-        $env:PULSEFLOW_TEST_DOCKER = 'true'
-        Set-TestcontainersDockerHost
-        Push-Location (Join-Path $RepoRoot 'pulseflow')
-        try {
-            & mvn '-q' 'clean' 'verify'
-            if ($LASTEXITCODE -ne 0) { throw 'Maven baseline/integration tests failed.' }
-        } finally {
-            Pop-Location
-        }
     }
 
     $generator = Join-Path $PSScriptRoot 'generate.py'

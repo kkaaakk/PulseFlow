@@ -3,6 +3,5 @@ data/generated/*
 !data/generated/.gitkeep
 reports/*
 !reports/.gitkeep
-!reports/README.md
 __pycache__/
 *.py[cod]

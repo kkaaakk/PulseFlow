@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run semantic AI dataset checks against the local mock or an explicit provider."""
+"""Evaluate the running PulseFlow AI Campaign API with the evaluation dataset."""
 
 from __future__ import annotations
 
@@ -38,7 +38,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timezone", default="Asia/Shanghai")
     parser.add_argument("--report-dir", type=Path)
     parser.add_argument("--pii-enabled", action="store_true")
-    parser.add_argument("--offline", action="store_true", help="Only check coverage; do not call the API")
     parser.add_argument("--timeout", type=float, default=15.0)
     return parser.parse_args()
 
@@ -57,8 +56,6 @@ def expected_statuses(record: dict, pii_enabled: bool) -> set[int]:
         return {422}
     if category in {"pii-phone", "pii-email-address"} and pii_enabled:
         return {422}
-    # Mock mode is intentionally a provider fixture: it verifies parser/DSL
-    # plumbing, while input-understanding expectations remain for real mode.
     return {200}
 
 
@@ -101,25 +98,18 @@ def main() -> int:
     for record in records:
         text = materialize(record)
         expected = expected_statuses(record, args.pii_enabled)
-        if args.offline:
-            actual_status = None
-            body = {"offline": True}
-            error = None
-            duration_ms = 0
-            passed = True
-        else:
-            if not args.token:
-                print("PULSEFLOW_TOKEN is required for API evaluation; use --offline for coverage only", file=sys.stderr)
-                return 2
-            actual_status, body, error, duration_ms = call_parse(
-                args.base_url, args.token, text, args.timezone, args.timeout
-            )
-            passed = actual_status in expected and isinstance(body, dict)
-            if passed and actual_status == 200:
-                data = body.get("data") or {}
-                passed = body.get("code") == 200 and data.get("dsl") is not None and data.get("status") in {
-                    "VALIDATED", "NEEDS_CONFIRMATION", "INVALID"
-                }
+        if not args.token:
+            print("PULSEFLOW_TOKEN is required for API evaluation", file=sys.stderr)
+            return 2
+        actual_status, body, error, duration_ms = call_parse(
+            args.base_url, args.token, text, args.timezone, args.timeout
+        )
+        passed = actual_status in expected and isinstance(body, dict)
+        if passed and actual_status == 200:
+            data = body.get("data") or {}
+            passed = body.get("code") == 200 and data.get("dsl") is not None and data.get("status") in {
+                "VALIDATED", "NEEDS_CONFIRMATION", "INVALID"
+            }
         result = {
             "id": record.get("id"),
             "category": record.get("category"),
@@ -145,8 +135,8 @@ def main() -> int:
             })
     status = "PASS" if not failures else "FAIL"
     report = {
-        "status": "NOT_RUN" if args.offline else status,
-        "mode": "offline" if args.offline else "api",
+        "status": status,
+        "mode": "api",
         "checkedAt": datetime.now(timezone.utc).isoformat(),
         "cases": len(records),
         "failures": len(failures),
@@ -155,7 +145,7 @@ def main() -> int:
     (report_dir / "ai-validation.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (report_dir / "failures.json").write_text(json.dumps(failures, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"AI evaluation {report['status']}: cases={len(records)} failures={len(failures)} report={report_dir}")
-    return 0 if args.offline or not failures else 1
+    return 0 if not failures else 1
 
 
 if __name__ == "__main__":

@@ -12,11 +12,19 @@ jobs:
     env:
       # Signals to Maven enforcer that Docker integration tests MUST run.
       # The ci-enforce-docker-tests profile in pulseflow/pom.xml will fail
-      # the build if PULSEFLOW_TEST_DOCKER is not "true" when CI=true.
+      # the build if PULSEFLOW_TEST_DOCKER is not "true" in GitHub Actions.
       CI: "true"
       PULSEFLOW_TEST_DOCKER: "true"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Validate AI evaluation dataset
+        run: python testing/functional/validate_ai_dataset.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
