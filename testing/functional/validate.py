@@ -315,9 +315,13 @@ def parse_json_value(value: Any) -> Any:
 
 
 def nullable_int(value: Any) -> int | None:
-    if value is None or str(value).strip().upper() in {"", "NULL", "\\N"}:
+    """Parse a nullable integer without conflating SQL NULL with numeric zero."""
+    if value is None:
         return None
-    return int(value)
+    text = str(value).strip()
+    if text.upper() in {"", "NULL", "\\N"}:
+        return None
+    return int(text)
 
 
 def validate_canonical_samples(args: argparse.Namespace, manifest: dict[str, Any],
@@ -330,7 +334,7 @@ def validate_canonical_samples(args: argparse.Namespace, manifest: dict[str, Any
         return
     id_sql = ", ".join(sql_literal(event_id) for event_id in ids)
     query = (
-        "SELECT event_id, user_id, event_type, COALESCE(target_id, ''), properties "
+        "SELECT event_id, user_id, event_type, target_id, properties "
         f"FROM user_event WHERE event_id IN ({id_sql}) ORDER BY event_id"
     )
     rows, error = run_mysql(args, query)
@@ -365,7 +369,7 @@ def validate_canonical_samples(args: argparse.Namespace, manifest: dict[str, Any
     conflict_ids = sorted(str(event_id) for event_id in conflict_expected)
     conflict_sql = ", ".join(sql_literal(event_id) for event_id in conflict_ids)
     conflict_query = (
-        "SELECT event_id, user_id, event_type, COALESCE(target_id, ''), properties "
+        "SELECT event_id, user_id, event_type, target_id, properties "
         f"FROM user_event WHERE event_id IN ({conflict_sql}) ORDER BY event_id"
     )
     conflict_rows, conflict_error = run_mysql(args, conflict_query)
