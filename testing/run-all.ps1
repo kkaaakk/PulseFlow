@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet('small', 'medium', 'large')][string]$Scale = 'small',
     [int]$Seed = 20260827,
     [string]$BaseUrl = 'http://localhost:8080',
