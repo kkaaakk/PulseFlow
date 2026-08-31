@@ -151,7 +151,9 @@ Docker-gated 测试真实执行：
 
 ## 14. Replay 与 k6
 
-- `python testing/functional/verify_contract.py`：PASS，14/14。
+> 历史验收记录（2026-08-30）：下列 Contract Check 命令属于当时的验收步骤；当前版本已移除源码字符串扫描，AI dataset 静态检查改由 CI 执行。
+
+- 历史源码契约扫描（本次重构前，脚本已移除）：PASS，14/14。
 - fixture replay smoke：PASS，10/10 HTTP requests，0 failures。
 - fixture validator：PASS，13/13 checks，MySQL canonical samples、hourly metrics、Redis processed TTL、realtime profile 和 daily values 均通过。
 - k6 smoke：PASS，1 VU / 5s，48 requests，API failures `0/48`，HTTP failures `0/48`，p95 `5.91ms`。

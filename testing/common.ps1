@@ -47,22 +47,6 @@ function Assert-TcpEndpoint {
     }
 }
 
-function Set-TestcontainersDockerHost {
-    if ($env:OS -ne 'Windows_NT' -or $env:DOCKER_HOST) {
-        return
-    }
-    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-        return
-    }
-    $dockerContext = (& docker context show 2>$null).Trim()
-    if ($dockerContext -eq 'desktop-linux') {
-        # Testcontainers/docker-java does not consistently consume the Docker
-        # CLI context on Windows. Pass Docker Desktop's Linux-engine named pipe
-        # explicitly to the Maven process.
-        $env:DOCKER_HOST = 'npipe:////./pipe/dockerDesktopLinuxEngine'
-    }
-}
-
 function New-TestRunId {
     return ((Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ') + '-' + ([Guid]::NewGuid().ToString('N').Substring(0, 8)))
 }

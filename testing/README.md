@@ -1,32 +1,53 @@
 # PulseFlow Testing
 
-`testing/` 只提供两条主线：
+`testing/` 是开发者主动执行的专项验收工具集，不重复 GitHub Actions 的快速回归。它保留完整业务 Replay、最终状态 Validator、受控并发、Campaign/Attribution 验证和 k6 性能测试。
 
-- Functional：固定数据集 Replay 完整业务链路，并由 Validator 比较 Expected/Actual；支持确定性大数据和受控并发。
-- Performance：k6 产生并发流量，只判断请求错误率、吞吐和延迟，不判断 MySQL、Redis 或 Campaign 最终业务结果。
+## 职责边界
+
+### GitHub CI 自动负责
+
+- Backend：在 `pulseflow/` 执行 `mvn clean verify`，覆盖 Unit、Integration、Testcontainers 和 Flyway Migration。
+- Frontend：在 `pulseflow-web/` 执行 `npm ci`、`npm run typecheck`、`npm run lint`、`npm run test` 和 `npm run build`。
+- AI Dataset：在仓库根目录执行 `python testing/functional/validate_ai_dataset.py`，检查 JSONL、manifest/SHA-256、数量、ID、类别和字段完整性。
+
+这些 CI 检查不启动 PulseFlow，也不需要 Kafka、MySQL、Redis、Azure、AI Provider 或 Secret。
+
+### `testing/` 手工专项负责
+
+- Functional Replay 与最终业务状态 Validator；
+- Deterministic Dataset Generator、重放证据和受控并发正确性；
+- Campaign、Frequency Control、Delivery、Attribution、Compensation 验证；
+- 真实运行中的 PulseFlow AI Campaign API Evaluation；
+- k6 Smoke、Load、Stress 性能测试。
+
+Maven/JUnit 测试继续留在 `pulseflow/**/src/test`。本地需要 Maven 验证时直接执行：
+
+```powershell
+cd pulseflow
+mvn clean verify
+```
 
 ## 目录
 
 ```text
 testing/
 ├── README.md
-├── ADR-004-functional-replay-and-performance-boundaries.md
+├── .env.test.example
+├── .gitignore
 ├── common.ps1
 ├── docker-compose.test.yml
+├── run-all.ps1
 ├── functional/
 │   ├── generate.py
 │   ├── replay.py
 │   ├── validate.py
-│   ├── verify_contract.py
-│   ├── evaluate_ai.py
 │   ├── validate_ai_dataset.py
+│   ├── evaluate_ai.py
 │   ├── campaign-fixture.sql
 │   └── run.ps1
 ├── performance/
 │   ├── event.js
-│   ├── smoke.js
-│   ├── load.js
-│   ├── stress.js
+│   ├── performance.js
 │   └── run.ps1
 ├── data/
 │   ├── ai/
@@ -35,104 +56,104 @@ testing/
 └── reports/                # 运行时报告，已忽略
 ```
 
-Maven/JUnit 测试继续留在 `pulseflow/**/src/test`，不复制到这里。
+架构边界决策见 [`docs/adr/ADR-004-functional-replay-and-performance-boundaries.md`](../docs/adr/ADR-004-functional-replay-and-performance-boundaries.md)。
 
 ## 前置条件
 
-Functional 需要运行中的 PulseFlow、Kafka、MySQL 和 Redis。默认只允许 loopback URL、
-测试环境和测试数据库。可以先启动隔离依赖：
+Functional 需要运行中的 PulseFlow、Kafka、MySQL 和 Redis。可以先启动隔离依赖：
 
 ```powershell
 docker compose -f .\testing\docker-compose.test.yml -p pulseflow-test up -d
 ```
 
-应用需要连接 `pulseflow_test`、MySQL `13306`、Redis `16379` 和 Kafka `19092`；完整
-环境变量示例见 [`.env.test.example`](.env.test.example)。
+应用默认连接测试数据库 `pulseflow_test`、MySQL `13306`、Redis `16379` 和 Kafka `19092`；完整环境变量见 [`.env.test.example`](.env.test.example)。脚本默认只允许 loopback URL 和测试数据库。
 
 ## Functional Replay
 
 ```powershell
-.\testing\functional\run.ps1 -Scale small -BaseUrl http://localhost:18080 -RebaseEventTime
+.\testing\functional\run.ps1 `
+  -Scale small `
+  -BaseUrl http://localhost:18080 `
+  -RebaseEventTime
 ```
 
-默认顺序覆盖：fixture、normal、duplicate、out-of-order、late、invalid、hot-user、concurrency
-和 campaign。只跑一个范围时使用 `-Scenario normal`、`-Scenario edge`、
-`-Scenario concurrency` 或 `-Scenario campaign`。
+默认覆盖 fixture、normal、duplicate、out-of-order、late、invalid、hot-user、concurrency 和 campaign。单独运行时可使用 `-Scenario normal`、`-Scenario edge`、`-Scenario concurrency` 或 `-Scenario campaign`。
 
-Replay 默认串行以保留到达顺序；`concurrency` 和 `hot-user` 使用受控 Worker，并通过
-`-Concurrency 8`（或更大值）验证并发下的幂等、原子指标更新和实时画像。并发不是性能
-门槛，最终仍以业务结果校验为准。
+`generate.py` 使用 fixed seed 生成 normal、duplicate、out-of-order、late、invalid、hot-user、concurrency 和 campaign 数据；`replay.py` 负责 HTTP Replay、到达顺序、受控并发、事件时间 rebase、dry run、失败记录和 replay evidence；`validate.py` 负责 MySQL、Redis、Realtime Profile、Window Metrics、User Tags、Campaign、Frequency Control、Delivery、Attribution 和 Compensation 的最终状态校验。
+
+Replay 默认串行以保留到达顺序；`concurrency` 和 `hot-user` 通过 `-Concurrency 8`（或更大值）验证幂等、原子指标更新和实时画像。并发参数是功能正确性工具，不是吞吐量门槛。
+
+没有运行中的应用时可以使用 dry run：
 
 ```powershell
-.\testing\functional\run.ps1 -Scenario concurrency -Scale small `
-  -BaseUrl http://localhost:18080 -Concurrency 8 -RebaseEventTime
+.\testing\functional\run.ps1 `
+  -Scenario normal `
+  -Scale small `
+  -BaseUrl http://localhost:18080 `
+  -DryRun
 ```
 
-没有运行中的应用时可以用 `-DryRun` 只检查数据生成、场景编排和报告结构；它的结果是
-`NOT_RUN`，不代表业务链路通过。
-
-报告位于 `testing/reports/<run-id>/`。同时运行两条主线时，优先阅读
-`run-all-report.md`；功能详情看 `functional/functional-report.md`，性能详情看
-`performance/performance-report.md`。JSON 文件和每个场景目录仍保留 Replay 结果、失败证据以及
-MySQL/Redis/Profile/Campaign/Attribution/Compensation 的机器可读校验数据。
-
-当前没有公开 HTTP 入口触发 XXL-JOB 的 daily/window/tag/campaign-selection/compensation 任务；这些阶段会
-在报告中明确显示 `NOT_RUN`，不会伪装为 PASS。Campaign Attribution 的 raw `CLICK`
-仍需要测试 Fixture，因为当前 raw-event consumer 不会自动写入 `click_event`。
-
-如果已通过 XXL-JOB Admin 手动触发 daily/window/tag 等任务，再追加 `-JobsTriggered`；
-此时缺少理论上应生成的结果会判为 `FAIL`，而不是 `NOT_RUN`。
-
-Campaign Attribution 默认等待 600 秒：Fixture 的目标事件相对基准时间为 +3 分钟，
-再加上 5 分钟 attribution grace window。
-
-可选地在 Functional 主线前执行 Maven：
-
-```powershell
-.\testing\functional\run.ps1 -RunMaven -PrepareDependencies -Scale small -BaseUrl http://localhost:18080
-```
+Dry run 的结果是 `NOT_RUN`，只代表已检查数据生成、场景编排和报告结构，不代表业务链路通过。Campaign 场景继续使用 [`campaign-fixture.sql`](functional/campaign-fixture.sql)；没有公开 HTTP 触发方式的 XXL-JOB 产物会在报告中显示 `NOT_RUN`，不会伪装成 PASS。
 
 ## Performance k6
 
-k6 使用项目的 `EventRequest` 字段和真实 `EventType`，但事件在运行时随机生成，不读取
-Functional JSONL，也不调用 Functional Validator。
+三个场景由同一个 `performance.js` 实现，通过 `SCENARIO=smoke|load|stress` 选择配置；`event.js` 保留事件 payload 生成逻辑。接口保持不变：
 
 ```powershell
-.\testing\performance\run.ps1 -Scenario smoke -BaseUrl http://localhost:18080
-.\testing\performance\run.ps1 -Scenario load -BaseUrl http://localhost:18080
-.\testing\performance\run.ps1 -Scenario stress -BaseUrl http://localhost:18080 -AllowStress
+.\testing\performance\run.ps1 `
+  -Scenario smoke `
+  -BaseUrl http://localhost:18080
+
+.\testing\performance\run.ps1 `
+  -Scenario load `
+  -BaseUrl http://localhost:18080
+
+.\testing\performance\run.ps1 `
+  -Scenario stress `
+  -BaseUrl http://localhost:18080 `
+  -AllowStress
 ```
 
-Smoke/Load/Stress 报告保存 `performance-report.md`、`k6-summary.json` 和 `performance-report.json`。k6 的最小
-接入断言是 HTTP 200、`ApiResponse.code=200` 和 `data.accepted=true`；最终落库正确性
-不属于 k6 的通过标准。
+Smoke 使用少量 VU 和短时长，阈值为错误率 `<5%`、P95 `<1000 ms`、P99 `<2000 ms`；Load 保留 `10 → 50 → 100 → 200 → 0`；Stress 保留 `50 → 100 → 250 → 500 → 0`，阈值为错误率 `<20%`、P95 `<3000 ms`、P99 `<5000 ms`。Stress 没有 `-AllowStress` 时会拒绝执行并返回 `NOT_RUN`，防止误压目标环境。
 
-## AI 数据集
+k6 只判断 HTTP/API 接入、错误率、吞吐和延迟，不调用 Functional Validator，也不判断 MySQL、Redis 或 Campaign 最终业务状态。报告包含 `performance-report.md`、`performance-report.json` 和 `k6-summary.json`。
 
-AI 数据集位于 `data/ai/`，默认只做离线覆盖检查：
+## AI Dataset 与 API Evaluation
+
+AI 数据集静态完整性检查由 CI 自动执行；本地也可以从仓库根目录运行：
 
 ```powershell
 python testing/functional/validate_ai_dataset.py
-python testing/functional/evaluate_ai.py --offline
 ```
 
-Real Provider/API 评估必须显式提供认证和运行中的测试应用，不会自动混入 Event Replay。
+该检查验证 JSONL 格式、manifest 与 SHA-256、case 数量、case ID 唯一、required categories、required fields 以及 overlong case 合法性，不启动应用或调用 Provider。
 
-## 状态含义
-
-- `PASS`：适用的断言全部通过；
-- `FAIL`：至少一个断言失败；
-- `NOT_RUN`：依赖、调度任务或当前源码能力不具备，不能当作通过。
-
-一次同时运行两条主线时使用：
+`evaluate_ai.py` 只负责对真实运行中的 PulseFlow AI Campaign API 做专项评估：
 
 ```powershell
-.\testing\run-all.ps1 -Scale small -BaseUrl http://localhost:18080 -Performance smoke
+$env:PULSEFLOW_TOKEN = '<test-token>'
+python testing/functional/evaluate_ai.py `
+  --base-url http://localhost:18080 `
+  --pii-enabled
 ```
 
-`run-all.ps1` 会分别生成 Functional 和 Performance 报告，再汇总
-`functionalStatus`、`performanceStatus` 和 `overallStatus`。
+它保留 loopback 安全限制、token/auth、PII enabled、HTTP status expectation、DSL/parser response shape、failure report、duration、case ID 和 category。API Evaluation 不提供离线模式；没有 token 或应用不可达时不会把数据集检查伪装成通过。
 
-人工阅读时优先打开 `testing/reports/<run-id>/run-all-report.md`；如果功能验收有问题，
-再看 `functional/functional-report.md` 和对应场景的 `summary.md`。需要深入 Debug 时，
-再查看 `summary.json`、`failures.json` 和 `k6-summary.json`。
+## 报告与状态
+
+报告写入 `testing/reports/<run-id>/`，由 `testing/.gitignore` 忽略。单独运行时优先阅读 `functional/functional-report.md` 或 `performance/performance-report.md`；需要 Debug 时再查看场景目录中的 `summary.json`、`failures.json`、`replay-results.jsonl` 和 `k6-summary.json`。
+
+- `PASS`：适用断言全部通过；
+- `FAIL`：已执行但至少一项断言失败，或请求/依赖发生错误；
+- `NOT_RUN`：依赖、调度任务、显式安全门或当前能力不满足，不能当作 PASS。
+
+需要同时运行两条手工主线时：
+
+```powershell
+.\testing\run-all.ps1 `
+  -Scale small `
+  -BaseUrl http://localhost:18080 `
+  -Performance smoke
+```
+
+`run-all.ps1` 只负责创建 RunId、编排 Functional/Performance、读取两边最终状态并生成简洁的 `run-all-report.json` 与 `run-all-report.md`。详细场景、失败原因和业务校验仍由各自报告负责。

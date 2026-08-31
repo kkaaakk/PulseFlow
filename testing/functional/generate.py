@@ -28,8 +28,9 @@ SCALES: dict[str, dict[str, int]] = {
     "LARGE": {"users": 50_000, "events": 1_000_000},
 }
 
-# This list is copied from pulseflow-common/EventType.java and is checked by
-# verify_contract.py.  Do not add an invented event type here.
+# This list is copied from pulseflow-common/EventType.java. Keep generated
+# request data aligned with the application event model; runtime behavior is
+# verified by Maven/HTTP tests rather than source-text scanning.
 EVENT_TYPES = [
     "LOGIN",
     "CONTENT_VIEW",

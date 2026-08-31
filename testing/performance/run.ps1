@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet('smoke', 'load', 'stress')][string]$Scenario = 'smoke',
     [string]$BaseUrl = 'http://localhost:8080',
     [string]$ReportDir = '',
@@ -158,6 +158,26 @@ function Write-PerformanceMarkdown {
 
 try {
     Assert-LoopbackUrl -Url $BaseUrl
+    if ($Scenario -eq 'stress' -and -not $AllowStress) {
+        if (-not $ReportDir) {
+            $ReportDir = Join-Path (Get-TestReportDirectory -RunId (New-TestRunId)) 'performance'
+        }
+        New-Item -ItemType Directory -Path $ReportDir -Force | Out-Null
+        $reason = 'Stress is manual only. Re-run with -AllowStress after confirming the target is disposable.'
+        $notRun = [ordered]@{
+            status = 'NOT_RUN'
+            scenario = $Scenario
+            baseUrl = $BaseUrl
+            reason = $reason
+            checkedAt = (Get-Date).ToUniversalTime().ToString('o')
+        }
+        $notRun | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $ReportDir 'performance-report.json') -Encoding UTF8
+        $notRun | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $ReportDir 'k6-summary.json') -Encoding UTF8
+        Write-PerformanceMarkdown -ReportDir $ReportDir -Scenario $Scenario -BaseUrl $BaseUrl `
+            -Status 'NOT_RUN' -SummaryPath (Join-Path $ReportDir 'k6-summary.json') -Reason $reason
+        Write-Warning $reason
+        exit 2
+    }
     if (-not (Get-Command k6 -ErrorAction SilentlyContinue)) {
         if (-not $ReportDir) {
             $ReportDir = Join-Path (Get-TestReportDirectory -RunId (New-TestRunId)) 'performance'
@@ -176,9 +196,6 @@ try {
             -Status 'NOT_RUN' -SummaryPath (Join-Path $ReportDir 'k6-summary.json') -Reason 'k6 未在 PATH 中找到。'
         Write-Warning 'k6 was not found; performance validation is NOT_RUN.'
         exit 2
-    }
-    if ($Scenario -eq 'stress' -and -not $AllowStress) {
-        throw 'Stress is manual only. Re-run with -AllowStress after confirming the target is disposable.'
     }
     try {
         Assert-TcpEndpoint -Url $BaseUrl
@@ -206,9 +223,9 @@ try {
         $ReportDir = Join-Path (Get-TestReportDirectory -RunId $runId) 'performance'
     }
     New-Item -ItemType Directory -Path $ReportDir -Force | Out-Null
-    $script = Join-Path $PSScriptRoot "$Scenario.js"
+    $script = Join-Path $PSScriptRoot 'performance.js'
     $summaryPath = Join-Path $ReportDir 'k6-summary.json'
-    $arguments = @('run', '-e', "BASE_URL=$BaseUrl", '-e', "RUN_ID=$(New-TestRunId)")
+    $arguments = @('run', '-e', "BASE_URL=$BaseUrl", '-e', "RUN_ID=$(New-TestRunId)", '-e', "SCENARIO=$Scenario")
     if ($Scenario -eq 'smoke') {
         $arguments += @('-e', "VUS=$Vus", '-e', "DURATION=$Duration")
     }

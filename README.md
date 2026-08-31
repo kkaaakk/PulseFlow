@@ -199,8 +199,11 @@ pulseflow/
 - `GITHUB_ACTIONS=true` 时 enforcer 强制 `PULSEFLOW_TEST_DOCKER=true`，否则构建失败——**Docker 集成测试不允许被静默跳过**
 - `mvn clean verify` 单条命令执行 `*Test`（surefire）+ `*IT`（failsafe）
 - GitHub Runner 上真实拉 `mysql:8.0` 镜像跑 Flyway 迁移与事件幂等消费，**11 个 IT 零跳过零失败**
+- 同一 CI job 运行 `python testing/functional/validate_ai_dataset.py`，静态校验 AI evaluation dataset，不启动应用或外部 Provider
 
 > 用 `GITHUB_ACTIONS` 而非 `CI` 变量做 enforcer 触发条件，因为本地 IDE（Trae CN）会设 `CI=true`，会误触发。
+
+重型专项测试不塞进普通 push/PR CI：见 [`testing/README.md`](testing/README.md) 运行 Functional Replay、最终状态 Validator、Campaign/Attribution、真实 AI API Evaluation 以及 k6 Smoke/Load/Stress。
 
 ---
 
