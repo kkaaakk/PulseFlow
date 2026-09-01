@@ -17,6 +17,7 @@ import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration;
+import org.springframework.boot.autoconfigure.jdbc.JdbcTemplateAutoConfiguration;
 import org.springframework.boot.autoconfigure.transaction.TransactionAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -97,6 +98,7 @@ class EventIdempotentConsumptionIT {
     @ImportAutoConfiguration({
             DataSourceAutoConfiguration.class,
             DataSourceTransactionManagerAutoConfiguration.class,
+            JdbcTemplateAutoConfiguration.class,
             TransactionAutoConfiguration.class,
             FlywayAutoConfiguration.class,
             MybatisPlusAutoConfiguration.class
