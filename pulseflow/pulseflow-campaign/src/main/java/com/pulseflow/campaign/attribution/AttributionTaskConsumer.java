@@ -18,10 +18,10 @@ public class AttributionTaskConsumer {
      * Poll every 30 seconds for attribution tasks whose grace window has expired.
      *
      * <p>用 {@link AttributionService#claimExpiredTasks()} 原子领取（pending → processing），
-     * 多实例不会重复处理。处理完成（无论成功还是 EXPIRED）后必须调用
+     * 多实例不会重复处理。只有业务执行成功后才调用
      * {@link AttributionService#completeClaimedTask} 清理 processing ZSET；
-     * 异常时也清理，避免任务卡在 processing（虽然无超时恢复，但归因失败本身
-     * 可接受——attribution_task 仍为 PENDING，下次 onTargetEvent 会重新入队）。</p>
+     * 异常时调用 {@link AttributionService#requeueClaimedTask} 回到 pending，
+     * 避免 PENDING 任务从调度系统中消失。</p>
      */
     @Scheduled(fixedDelay = 30000)
     public void processAttributionTasks() {
@@ -44,15 +44,28 @@ public class AttributionTaskConsumer {
                 attributionService.executeAttribution(targetEventId);
             } catch (Exception e) {
                 log.error("Attribution matching failed for {}: {}", targetEventId, e.getMessage(), e);
-            } finally {
-                // 无论成功/失败/异常，都从 processing ZSET 移除。
-                // 归因匹配是幂等的（attribution_record.uk_target_event_id 兜底），
-                // 失败不重试，避免无限循环；attribution_task 状态由 executeAttribution 内部维护。
                 try {
-                    attributionService.completeClaimedTask(targetEventId);
-                } catch (Exception e) {
-                    log.warn("Failed to remove attribution task {} from processing ZSET: {}",
-                            targetEventId, e.getMessage());
+                    attributionService.requeueClaimedTask(targetEventId);
+                } catch (Exception requeueException) {
+                    log.error("Failed to requeue attribution task {} after execution failure: {}",
+                            targetEventId, requeueException.getMessage(), requeueException);
+                }
+                continue;
+            }
+
+            try {
+                attributionService.completeClaimedTask(targetEventId);
+            } catch (Exception e) {
+                // The business transaction completed, but cleanup failed. Try
+                // the same atomic move used for execution failures so the
+                // claimed item remains discoverable until cleanup succeeds.
+                log.warn("Failed to remove completed attribution task {} from processing ZSET: {}",
+                        targetEventId, e.getMessage());
+                try {
+                    attributionService.requeueClaimedTask(targetEventId);
+                } catch (Exception requeueException) {
+                    log.error("Failed to requeue attribution task {} after cleanup failure: {}",
+                            targetEventId, requeueException.getMessage(), requeueException);
                 }
             }
         }
