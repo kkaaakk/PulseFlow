@@ -6,6 +6,8 @@ import com.pulseflow.mapper.UserMetricHourlyMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.dao.DuplicateKeyException;
 import org.mockito.ArgumentCaptor;
 
@@ -139,5 +141,27 @@ class EventPersistenceServiceTest {
         ArgumentCaptor<UserEvent> eventCaptor = ArgumentCaptor.forClass(UserEvent.class);
         verify(userEventMapper).insert(eventCaptor.capture());
         assertThat(eventCaptor.getValue().getTargetId()).isNull();
+    }
+
+    @ParameterizedTest(name = "targetId={0}")
+    @ValueSource(longs = {0L, 123L})
+    @DisplayName("非空 targetId 保持原始数值")
+    void preservesNumericTargetId(long targetId) {
+        Map<String, Object> rawEventMap = new HashMap<>();
+        rawEventMap.put("eventId", "evt-numeric-target-" + targetId);
+        rawEventMap.put("userId", 1004L);
+        rawEventMap.put("eventType", "CONTENT_VIEW");
+        rawEventMap.put("targetId", targetId);
+        rawEventMap.put("eventTime", "2026-08-23T23:00");
+        rawEventMap.put("receivedAt", "2026-08-23T23:00:01");
+        rawEventMap.put("effectiveEventTime", "2026-08-23T23:00");
+        rawEventMap.put("clockSkew", false);
+        rawEventMap.put("properties", Map.of());
+
+        service.persist(rawEventMap);
+
+        ArgumentCaptor<UserEvent> eventCaptor = ArgumentCaptor.forClass(UserEvent.class);
+        verify(userEventMapper).insert(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().getTargetId()).isEqualTo(targetId);
     }
 }

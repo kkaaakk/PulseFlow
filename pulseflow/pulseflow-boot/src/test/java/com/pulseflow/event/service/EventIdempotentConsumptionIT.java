@@ -20,6 +20,7 @@ import org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerA
 import org.springframework.boot.autoconfigure.transaction.TransactionAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Transactional;
@@ -114,6 +115,9 @@ class EventIdempotentConsumptionIT {
     @Autowired
     private UserMetricHourlyMapper userMetricHourlyMapper;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     private Map<String, Object> buildEvent(String eventId, String eventType) {
         Map<String, Object> eventMap = new LinkedHashMap<>();
         eventMap.put("eventId", eventId);
@@ -187,5 +191,48 @@ class EventIdempotentConsumptionIT {
         // amount_sum 也应累加（两次 29.9 = 59.8）
         assertTrue(metric.getAmountSum().compareTo(new BigDecimal("59.7")) >= 0,
                 "amount_sum should accumulate, got " + metric.getAmountSum());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("targetId NULL and zero remain distinct through MyBatis INSERT and MySQL")
+    void targetIdNullAndZeroRoundTripToMysql() {
+        String nullEventId = "evt_it_null_target";
+        Map<String, Object> nullEvent = buildEvent(nullEventId, "LOGIN");
+        nullEvent.put("targetId", null);
+
+        EventPersistenceService.PersistResult nullResult =
+                eventPersistenceService.persist(nullEvent);
+
+        assertTrue(nullResult.isOk());
+        Integer sqlNullRows = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM user_event WHERE event_id = ? AND target_id IS NULL",
+                Integer.class,
+                nullEventId);
+        assertEquals(1, sqlNullRows);
+        UserEvent nullSaved = userEventMapper.selectOne(
+                new LambdaQueryWrapper<UserEvent>()
+                        .eq(UserEvent::getEventId, nullEventId));
+        assertNotNull(nullSaved);
+        assertNull(nullSaved.getTargetId());
+
+        String zeroEventId = "evt_it_zero_target";
+        Map<String, Object> zeroEvent = buildEvent(zeroEventId, "LOGIN");
+        zeroEvent.put("targetId", 0L);
+
+        EventPersistenceService.PersistResult zeroResult =
+                eventPersistenceService.persist(zeroEvent);
+
+        assertTrue(zeroResult.isOk());
+        Integer zeroRows = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM user_event WHERE event_id = ? AND target_id = 0",
+                Integer.class,
+                zeroEventId);
+        assertEquals(1, zeroRows);
+        UserEvent zeroSaved = userEventMapper.selectOne(
+                new LambdaQueryWrapper<UserEvent>()
+                        .eq(UserEvent::getEventId, zeroEventId));
+        assertNotNull(zeroSaved);
+        assertEquals(0L, zeroSaved.getTargetId());
     }
 }
