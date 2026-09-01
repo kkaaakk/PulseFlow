@@ -2,6 +2,7 @@ package com.pulseflow.campaign.attribution;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.pulseflow.common.enums.AttributionTaskStatus;
 import com.pulseflow.entity.AttributionRecord;
 import com.pulseflow.entity.AttributionTask;
 import com.pulseflow.entity.ClickEvent;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -38,6 +40,7 @@ public class AttributionService {
 
     private static final int GRACE_WINDOW_SECONDS = 300; // 5 minutes
     private static final int ATTRIBUTION_WINDOW_HOURS = 24;
+    static final int ATTRIBUTION_RETRY_DELAY_SECONDS = 30;
     private static final String ATTRIBUTION_DELAY_KEY = "delay:attribution";
     private static final String ATTRIBUTION_PROCESSING_KEY = "delay:attribution:processing";
     private static final int CLAIM_BATCH_SIZE = 100;
@@ -76,6 +79,58 @@ public class AttributionService {
             """;
 
     /**
+     * Atomically return one claimed task to the pending queue for a short retry.
+     * The membership check prevents a late/duplicate failure handler from
+     * resurrecting a task that has already been completed by another path.
+     *
+     * <p>KEYS[1] = delay:attribution:processing
+     * KEYS[2] = delay:attribution (pending)
+     * ARGV[1] = target event id
+     * ARGV[2] = retry timestamp (epoch millis)</p>
+     */
+    private static final String REQUEUE_ATTRIBUTION_LUA = """
+            local processingKey = KEYS[1]
+            local pendingKey = KEYS[2]
+            local taskId = ARGV[1]
+            local retryAt = tonumber(ARGV[2])
+
+            if redis.call('ZSCORE', processingKey, taskId) == false then
+                return 0
+            end
+
+            redis.call('ZREM', processingKey, taskId)
+            redis.call('ZADD', pendingKey, retryAt, taskId)
+            return 1
+            """;
+
+    /**
+     * Recover a PENDING DB task only when neither Redis queue currently owns it.
+     * The check and ZADD are one Redis operation so duplicate target-event
+     * deliveries cannot race a consumer claim and create a second queue entry.
+     *
+     * <p>KEYS[1] = delay:attribution (pending)
+     * KEYS[2] = delay:attribution:processing
+     * ARGV[1] = target event id
+     * ARGV[2] = execution timestamp (epoch millis)</p>
+     */
+    private static final String ENSURE_PENDING_ATTRIBUTION_LUA = """
+            local pendingKey = KEYS[1]
+            local processingKey = KEYS[2]
+            local taskId = ARGV[1]
+            local executeAt = tonumber(ARGV[2])
+
+            if redis.call('ZSCORE', pendingKey, taskId) ~= false then
+                return 0
+            end
+            if redis.call('ZSCORE', processingKey, taskId) ~= false then
+                return 0
+            end
+
+            redis.call('ZADD', pendingKey, executeAt, taskId)
+            return 1
+            """;
+
+    /**
      * Called when a target event (like ORDER_PAID) arrives.
      * Creates attribution waiting task and schedules delayed matching.
      */
@@ -90,22 +145,55 @@ public class AttributionService {
                     .userId(userId)
                     .targetEventType(targetEventType)
                     .targetEventTime(targetEventTime)
-                    .status("PENDING")
+                    .status(AttributionTaskStatus.PENDING.name())
                     .graceUntil(graceUntil)
                     .build();
 
             attributionTaskMapper.insert(task);
 
             // Add to Redis delay ZSET
-            long executeAtMillis = graceUntil.atZone(java.time.ZoneId.systemDefault())
-                    .toInstant().toEpochMilli();
+            long executeAtMillis = toEpochMillis(graceUntil);
             redissonClient.getScoredSortedSet(ATTRIBUTION_DELAY_KEY)
                     .add(executeAtMillis, targetEventId);
 
             log.info("Attribution task created: targetEventId={}, graceUntil={}",
                     targetEventId, graceUntil);
         } catch (DuplicateKeyException e) {
-            log.info("Attribution task already exists for target event: {}", targetEventId);
+            recoverOrphanedPendingTask(targetEventId);
+        }
+    }
+
+    /**
+     * A duplicate target event may be the replay that follows a crash after the
+     * MySQL insert but before the Redis ZADD. Only a still-PENDING DB row is
+     * eligible for recovery; terminal rows must remain terminal.
+     */
+    private void recoverOrphanedPendingTask(String targetEventId) {
+        AttributionTask existing = attributionTaskMapper.selectOne(
+                new LambdaQueryWrapper<AttributionTask>()
+                        .eq(AttributionTask::getTargetEventId, targetEventId));
+
+        if (existing == null) {
+            log.warn("Duplicate attribution task insert but existing row was not found: targetEventId={}",
+                    targetEventId);
+            return;
+        }
+        if (!AttributionTaskStatus.PENDING.name().equals(existing.getStatus())) {
+            log.info("Attribution task already terminal for target event: targetEventId={}, status={}",
+                    targetEventId, existing.getStatus());
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        long executeAtMillis = existing.getGraceUntil() == null
+                ? now
+                : Math.max(toEpochMillis(existing.getGraceUntil()), now);
+        boolean recovered = ensurePendingTask(targetEventId, executeAtMillis);
+        if (recovered) {
+            log.warn("Recovered orphaned PENDING attribution task: targetEventId={}, executeAt={}",
+                    targetEventId, executeAtMillis);
+        } else {
+            log.info("Attribution task is already owned by a Redis queue: targetEventId={}", targetEventId);
         }
     }
 
@@ -140,6 +228,31 @@ public class AttributionService {
     }
 
     /**
+     * Atomically move a failed claimed task from processing back to pending.
+     * A short retry delay separates transient execution failures from the
+     * attribution grace window, which is only for waiting on out-of-order clicks.
+     */
+    public void requeueClaimedTask(String targetEventId) {
+        long retryAt = System.currentTimeMillis()
+                + ATTRIBUTION_RETRY_DELAY_SECONDS * 1000L;
+        Object result = redissonClient.getScript(StringCodec.INSTANCE).eval(
+                RScript.Mode.READ_WRITE,
+                REQUEUE_ATTRIBUTION_LUA,
+                RScript.ReturnType.INTEGER,
+                List.of(ATTRIBUTION_PROCESSING_KEY, ATTRIBUTION_DELAY_KEY),
+                targetEventId,
+                retryAt);
+
+        if (result instanceof Number && ((Number) result).longValue() == 1L) {
+            log.info("Requeued failed attribution task: targetEventId={}, retryAt={}",
+                    targetEventId, retryAt);
+        } else {
+            log.info("Attribution task was no longer in processing; skip requeue: targetEventId={}",
+                    targetEventId);
+        }
+    }
+
+    /**
      * Execute attribution matching for a target event after grace window expires.
      * This is called by AttributionTaskConsumer when the delay ZSET triggers.
      */
@@ -149,7 +262,7 @@ public class AttributionService {
         AttributionTask task = attributionTaskMapper.selectOne(
                 new LambdaQueryWrapper<AttributionTask>()
                         .eq(AttributionTask::getTargetEventId, targetEventId)
-                        .eq(AttributionTask::getStatus, "PENDING"));
+                        .eq(AttributionTask::getStatus, AttributionTaskStatus.PENDING.name()));
 
         if (task == null) {
             log.info("No pending attribution task for targetEventId={}", targetEventId);
@@ -166,10 +279,7 @@ public class AttributionService {
                         .orderByDesc(ClickEvent::getClickTime));
 
         if (clicks.isEmpty()) {
-            attributionTaskMapper.update(null,
-                    new LambdaUpdateWrapper<AttributionTask>()
-                            .eq(AttributionTask::getId, task.getId())
-                            .set(AttributionTask::getStatus, "EXPIRED"));
+            markTaskExpired(task);
             log.info("No clicks found for attribution: targetEventId={}", targetEventId);
             return;
         }
@@ -199,26 +309,66 @@ public class AttributionService {
 
                     attributionRecordMapper.insert(record);
 
-                    attributionTaskMapper.update(null,
-                            new LambdaUpdateWrapper<AttributionTask>()
-                                    .eq(AttributionTask::getId, task.getId())
-                                    .set(AttributionTask::getStatus, "MATCHED")
-                                    .set(AttributionTask::getMatchedTaskId, lastClick.getTaskId()));
+                    markTaskMatched(task, lastClick.getTaskId());
 
                     log.info("Attribution matched: targetEventId={}, campaignId={}, clickEventId={}",
                             targetEventId, delivery.getCampaignId(), lastClick.getId());
                 } catch (DuplicateKeyException e) {
-                    log.info("Attribution already recorded for targetEventId={}", targetEventId);
+                    // The unique target-event key means the business operation
+                    // already succeeded. Complete the DB state as well so the
+                    // Consumer can safely remove the Redis claim without
+                    // leaving a terminal record paired with a PENDING task.
+                    markTaskMatched(task, lastClick.getTaskId());
+                    log.info("Attribution already recorded; task marked MATCHED for targetEventId={}",
+                            targetEventId);
                 }
                 return;
             }
         }
 
         // No valid attribution found
-        attributionTaskMapper.update(null,
+        markTaskExpired(task);
+        log.info("No valid attribution match for targetEventId={}", targetEventId);
+    }
+
+    private boolean ensurePendingTask(String targetEventId, long executeAtMillis) {
+        Object result = redissonClient.getScript(StringCodec.INSTANCE).eval(
+                RScript.Mode.READ_WRITE,
+                ENSURE_PENDING_ATTRIBUTION_LUA,
+                RScript.ReturnType.INTEGER,
+                List.of(ATTRIBUTION_DELAY_KEY, ATTRIBUTION_PROCESSING_KEY),
+                targetEventId,
+                executeAtMillis);
+        return result instanceof Number && ((Number) result).longValue() == 1L;
+    }
+
+    private void markTaskMatched(AttributionTask task, Long matchedTaskId) {
+        int updated = attributionTaskMapper.update(null,
                 new LambdaUpdateWrapper<AttributionTask>()
                         .eq(AttributionTask::getId, task.getId())
-                        .set(AttributionTask::getStatus, "EXPIRED"));
-        log.info("No valid attribution match for targetEventId={}", targetEventId);
+                        .eq(AttributionTask::getStatus, AttributionTaskStatus.PENDING.name())
+                        .set(AttributionTask::getStatus, AttributionTaskStatus.MATCHED.name())
+                        .set(AttributionTask::getMatchedTaskId, matchedTaskId));
+        requireTaskUpdate(task, updated, AttributionTaskStatus.MATCHED);
+    }
+
+    private void markTaskExpired(AttributionTask task) {
+        int updated = attributionTaskMapper.update(null,
+                new LambdaUpdateWrapper<AttributionTask>()
+                        .eq(AttributionTask::getId, task.getId())
+                        .eq(AttributionTask::getStatus, AttributionTaskStatus.PENDING.name())
+                        .set(AttributionTask::getStatus, AttributionTaskStatus.EXPIRED.name()));
+        requireTaskUpdate(task, updated, AttributionTaskStatus.EXPIRED);
+    }
+
+    private void requireTaskUpdate(AttributionTask task, int updated, AttributionTaskStatus expectedStatus) {
+        if (updated != 1) {
+            throw new IllegalStateException("Attribution task status was not updated: targetEventId="
+                    + task.getTargetEventId() + ", expectedStatus=" + expectedStatus);
+        }
+    }
+
+    private long toEpochMillis(LocalDateTime time) {
+        return time.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
     }
 }
