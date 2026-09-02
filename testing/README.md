@@ -43,6 +43,8 @@ testing/
 │   ├── validate.py
 │   ├── validate_ai_dataset.py
 │   ├── evaluate_ai.py
+│   ├── ownership.json       # Functional 测试所有权目录
+│   ├── state.py             # MySQL/Redis pre-clean、post-clean、核对
 │   ├── campaign-fixture.sql
 │   └── run.ps1
 ├── performance/
@@ -81,6 +83,8 @@ docker compose -f .\testing\docker-compose.test.yml -p pulseflow-test up -d
 
 `generate.py` 使用 fixed seed 生成 normal、duplicate、out-of-order、late、invalid、hot-user、concurrency 和 campaign 数据；`replay.py` 负责 HTTP Replay、到达顺序、受控并发、事件时间 rebase、dry run、失败记录和 replay evidence；`validate.py` 负责 MySQL、Redis、Realtime Profile、Window Metrics、User Tags、Campaign、Frequency Control、Delivery、Attribution 和 Compensation 的最终状态校验。
 
+Functional runner 会在每个场景开始前清理所有 `ownership.json` 声明的测试数据，并在场景结束及整个 run 结束时再次清理。清理只作用于 `pf-*` 事件、保留的 Functional 用户范围、`PF_TEST_*` Campaign 及其派生记录，同时按真实业务 Key 清理 Redis 的 processed/profile/frequency/delay 状态；它不会执行 `FLUSHDB`、删库或全库截断。默认会执行 post-clean；需要保留本轮运行态数据调试时显式使用 `-KeepTestData`，下次运行仍会先执行 pre-clean。`testing/functional/state.py --mode verify` 可独立核对当前 test-owned 数据是否为零。
+
 Replay 默认串行以保留到达顺序；`concurrency` 和 `hot-user` 通过 `-Concurrency 8`（或更大值）验证幂等、原子指标更新和实时画像。并发参数是功能正确性工具，不是吞吐量门槛。
 
 没有运行中的应用时可以使用 dry run：
@@ -94,6 +98,14 @@ Replay 默认串行以保留到达顺序；`concurrency` 和 `hot-user` 通过 `
 ```
 
 Dry run 的结果是 `NOT_RUN`，只代表已检查数据生成、场景编排和报告结构，不代表业务链路通过。Campaign 场景继续使用 [`campaign-fixture.sql`](functional/campaign-fixture.sql)；没有公开 HTTP 触发方式的 XXL-JOB 产物会在报告中显示 `NOT_RUN`，不会伪装成 PASS。
+
+需要在失败后保留 MySQL/Redis 运行态数据时：
+
+```powershell
+.\testing\functional\run.ps1 -Scenario campaign -KeepTestData
+```
+
+`-KeepTestData` 只跳过本轮 post-clean 和 final-clean；pre-clean 仍然执行，避免上一轮中断污染本轮。
 
 ## Performance k6
 

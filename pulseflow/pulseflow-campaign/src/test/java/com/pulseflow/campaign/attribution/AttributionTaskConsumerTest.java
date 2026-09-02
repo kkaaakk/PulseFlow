@@ -39,7 +39,7 @@ class AttributionTaskConsumerTest {
     }
 
     @Test
-    @DisplayName("attribution exception requeues and never completes the processing claim")
+    @DisplayName("a temporarily invisible DB task requeues and never completes the claim")
     void attributionExceptionRequeuesInsteadOfCompleting() {
         when(attributionService.claimExpiredTasks()).thenReturn(Set.of("target-evt-1"));
         doThrow(new RuntimeException("temporary attribution failure"))
@@ -54,11 +54,21 @@ class AttributionTaskConsumerTest {
     }
 
     @Test
+    @DisplayName("scheduled reconciliation restores orphaned PENDING tasks")
+    void scheduledReconciliationRestoresOrphanedTasks() {
+        when(attributionService.reconcilePendingTasks()).thenReturn(1);
+
+        consumer.reconcileOrphanedTasks();
+
+        verify(attributionService).reconcilePendingTasks();
+    }
+
+    @Test
     @DisplayName("a later poll can retry a failed task and complete it after success")
     void laterPollRetriesThenCompletes() {
         when(attributionService.claimExpiredTasks()).thenReturn(Set.of("target-evt-1"));
         doThrow(new RuntimeException("first attempt"))
-                .doNothing()
+                .doReturn(AttributionService.ExecutionResult.MATCHED)
                 .when(attributionService).executeAttribution("target-evt-1");
 
         consumer.processAttributionTasks();

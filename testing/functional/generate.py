@@ -680,6 +680,7 @@ def manifest_for(
     user_ids = [int(row["userId"]) for row in rows if isinstance(row.get("userId"), int)]
     canonical = canonical_rows(row for row in rows if row.get("eventId"))
     canonical_metrics = metric_totals(canonical)
+    event_prefix = f"pf-{slug(scenario)}-{seed}-"
     manifest: dict[str, Any] = {
         "datasetId": dataset_id,
         "version": 1,
@@ -706,6 +707,18 @@ def manifest_for(
         },
         "sampleEventIds": unique_ids[:5],
         "sampleUserIds": list(dict.fromkeys(user_ids))[:5],
+        # The state reset tool uses this manifest metadata for the current
+        # run, while ownership.json describes the complete historical test
+        # namespace. Keeping both explicit prevents cleanup from guessing
+        # from a handful of samples.
+        "ownership": {
+            "eventIdNamespace": "pf-",
+            "eventIdPrefix": event_prefix,
+            "userIdRange": {
+                "min": min(user_ids) if user_ids else None,
+                "max": max(user_ids) if user_ids else None,
+            },
+        },
         "expected": {
             "mysql": {
                 "uniqueUserEventCount": len(unique_ids),

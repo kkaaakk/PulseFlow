@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "eventIdLikePattern": "pf-%",
+  "eventIdPrefixes": [
+    "pf-fixture-smoke-v1-",
+    "pf-normal-",
+    "pf-duplicate-",
+    "pf-out-of-order-",
+    "pf-late-",
+    "pf-invalid-",
+    "pf-hot-user-",
+    "pf-concurrency-",
+    "pf-campaign-"
+  ],
+  "campaignNameLikePattern": "PF_TEST_%",
+  "userIdRanges": [
+    {"name": "normal", "min": 1000000, "max": 1049999},
+    {"name": "duplicate", "min": 2000000, "max": 2000009},
+    {"name": "out-of-order", "min": 3000001, "max": 3000001},
+    {"name": "late", "min": 4000000, "max": 4000005},
+    {"name": "invalid", "min": 5000000, "max": 5000005},
+    {"name": "hot-user", "min": 6000001, "max": 6000001},
+    {"name": "campaign", "min": 7000001, "max": 7000001},
+    {"name": "concurrency", "min": 8500001, "max": 8500001},
+    {"name": "fixture", "min": 9000001, "max": 9000002}
+  ],
+  "fixedCampaignIds": [9202, 9203],
+  "fixedDeliveryTaskIds": [9203],
+  "fixedUserIds": [7000001, 9000001, 9000002],
+  "redis": {
+    "attributionPendingKey": "delay:attribution",
+    "attributionProcessingKey": "delay:attribution:processing",
+    "delayedPendingKey": "delay:pending:DELAYED_CAMPAIGN",
+    "delayedProcessingKey": "delay:processing:DELAYED_CAMPAIGN"
+  }
+}

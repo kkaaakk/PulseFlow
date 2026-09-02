@@ -18,6 +18,8 @@ import org.redisson.api.RedissonClient;
 import org.redisson.client.codec.StringCodec;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -41,9 +43,16 @@ public class AttributionService {
     private static final int GRACE_WINDOW_SECONDS = 300; // 5 minutes
     private static final int ATTRIBUTION_WINDOW_HOURS = 24;
     static final int ATTRIBUTION_RETRY_DELAY_SECONDS = 30;
+    static final int ATTRIBUTION_RECONCILIATION_BATCH_SIZE = 100;
     private static final String ATTRIBUTION_DELAY_KEY = "delay:attribution";
     private static final String ATTRIBUTION_PROCESSING_KEY = "delay:attribution:processing";
     private static final int CLAIM_BATCH_SIZE = 100;
+
+    public enum ExecutionResult {
+        MATCHED,
+        EXPIRED,
+        ALREADY_TERMINAL
+    }
 
     /**
      * Lua 脚本：原子领取到期归因任务（pending → processing）。
@@ -132,7 +141,9 @@ public class AttributionService {
 
     /**
      * Called when a target event (like ORDER_PAID) arrives.
-     * Creates attribution waiting task and schedules delayed matching.
+     * Creates the attribution waiting task. Redis scheduling is registered as
+     * an after-commit action so a consumer can never claim a task that is not
+     * visible in MySQL yet.
      */
     @Transactional
     public void onTargetEvent(String targetEventId, Long userId, String targetEventType,
@@ -151,10 +162,8 @@ public class AttributionService {
 
             attributionTaskMapper.insert(task);
 
-            // Add to Redis delay ZSET
             long executeAtMillis = toEpochMillis(graceUntil);
-            redissonClient.getScoredSortedSet(ATTRIBUTION_DELAY_KEY)
-                    .add(executeAtMillis, targetEventId);
+            schedulePendingTaskAfterCommit(targetEventId, executeAtMillis);
 
             log.info("Attribution task created: targetEventId={}, graceUntil={}",
                     targetEventId, graceUntil);
@@ -188,13 +197,7 @@ public class AttributionService {
         long executeAtMillis = existing.getGraceUntil() == null
                 ? now
                 : Math.max(toEpochMillis(existing.getGraceUntil()), now);
-        boolean recovered = ensurePendingTask(targetEventId, executeAtMillis);
-        if (recovered) {
-            log.warn("Recovered orphaned PENDING attribution task: targetEventId={}, executeAt={}",
-                    targetEventId, executeAtMillis);
-        } else {
-            log.info("Attribution task is already owned by a Redis queue: targetEventId={}", targetEventId);
-        }
+        schedulePendingTaskAfterCommit(targetEventId, executeAtMillis);
     }
 
     /**
@@ -255,18 +258,29 @@ public class AttributionService {
     /**
      * Execute attribution matching for a target event after grace window expires.
      * This is called by AttributionTaskConsumer when the delay ZSET triggers.
+     *
+     * <p>A missing DB row is retryable. A terminal row is an idempotent
+     * success, so the consumer may safely remove its processing claim.</p>
      */
     @Transactional
-    public void executeAttribution(String targetEventId) {
+    public ExecutionResult executeAttribution(String targetEventId) {
         // Load the attribution task
         AttributionTask task = attributionTaskMapper.selectOne(
                 new LambdaQueryWrapper<AttributionTask>()
-                        .eq(AttributionTask::getTargetEventId, targetEventId)
-                        .eq(AttributionTask::getStatus, AttributionTaskStatus.PENDING.name()));
+                        .eq(AttributionTask::getTargetEventId, targetEventId));
 
         if (task == null) {
-            log.info("No pending attribution task for targetEventId={}", targetEventId);
-            return;
+            throw new AttributionTaskNotFoundException(targetEventId);
+        }
+        if (AttributionTaskStatus.MATCHED.name().equals(task.getStatus())
+                || AttributionTaskStatus.EXPIRED.name().equals(task.getStatus())) {
+            log.info("Attribution task already terminal: targetEventId={}, status={}",
+                    targetEventId, task.getStatus());
+            return ExecutionResult.ALREADY_TERMINAL;
+        }
+        if (!AttributionTaskStatus.PENDING.name().equals(task.getStatus())) {
+            throw new IllegalStateException("Unexpected attribution task status: targetEventId="
+                    + targetEventId + ", status=" + task.getStatus());
         }
 
         // Query click events in attribution window (24h before target event)
@@ -281,7 +295,7 @@ public class AttributionService {
         if (clicks.isEmpty()) {
             markTaskExpired(task);
             log.info("No clicks found for attribution: targetEventId={}", targetEventId);
-            return;
+            return ExecutionResult.EXPIRED;
         }
 
         // Last-touch: pick the most recent click
@@ -313,6 +327,7 @@ public class AttributionService {
 
                     log.info("Attribution matched: targetEventId={}, campaignId={}, clickEventId={}",
                             targetEventId, delivery.getCampaignId(), lastClick.getId());
+                    return ExecutionResult.MATCHED;
                 } catch (DuplicateKeyException e) {
                     // The unique target-event key means the business operation
                     // already succeeded. Complete the DB state as well so the
@@ -321,14 +336,98 @@ public class AttributionService {
                     markTaskMatched(task, lastClick.getTaskId());
                     log.info("Attribution already recorded; task marked MATCHED for targetEventId={}",
                             targetEventId);
+                    return ExecutionResult.MATCHED;
                 }
-                return;
             }
         }
 
         // No valid attribution found
         markTaskExpired(task);
         log.info("No valid attribution match for targetEventId={}", targetEventId);
+        return ExecutionResult.EXPIRED;
+    }
+
+    /**
+     * Reconcile a bounded batch of MySQL PENDING tasks with Redis. MySQL is the
+     * source of truth; the Lua membership check makes this safe to run while a
+     * consumer is claiming a task and prevents pending/processing duplicates.
+     *
+     * @return number of tasks newly restored to the pending ZSET
+     */
+    public int reconcilePendingTasks() {
+        List<AttributionTask> pendingTasks = attributionTaskMapper.selectList(
+                new LambdaQueryWrapper<AttributionTask>()
+                        .eq(AttributionTask::getStatus, AttributionTaskStatus.PENDING.name())
+                        .orderByAsc(AttributionTask::getId)
+                        .last("LIMIT " + ATTRIBUTION_RECONCILIATION_BATCH_SIZE));
+
+        int recovered = 0;
+        for (AttributionTask task : pendingTasks == null
+                ? Collections.<AttributionTask>emptyList() : pendingTasks) {
+            if (task == null || task.getTargetEventId() == null) {
+                continue;
+            }
+            long executeAtMillis = task.getGraceUntil() == null
+                    ? System.currentTimeMillis()
+                    : Math.max(toEpochMillis(task.getGraceUntil()), System.currentTimeMillis());
+            try {
+                if (ensurePendingTask(task.getTargetEventId(), executeAtMillis)) {
+                    recovered++;
+                    log.warn("Reconciled PENDING attribution task into Redis: targetEventId={}, executeAt={}",
+                            task.getTargetEventId(), executeAtMillis);
+                }
+            } catch (Exception e) {
+                // Leave the DB row PENDING. A later reconciliation pass will
+                // retry the Redis write; one broken task must not hide others.
+                log.error("Failed to reconcile attribution task {}: {}",
+                        task.getTargetEventId(), e.getMessage(), e);
+            }
+        }
+        return recovered;
+    }
+
+    /**
+     * Publish Redis scheduling only after the surrounding DB transaction has
+     * committed. Direct calls without a transaction are safe because the
+     * MyBatis statement has already auto-committed.
+     */
+    private void schedulePendingTaskAfterCommit(String targetEventId, long executeAtMillis) {
+        Runnable publish = () -> {
+            boolean scheduled = ensurePendingTask(targetEventId, executeAtMillis);
+            if (scheduled) {
+                log.info("Attribution task scheduled after DB commit: targetEventId={}, executeAt={}",
+                        targetEventId, executeAtMillis);
+            } else {
+                log.info("Attribution task is already owned by a Redis queue: targetEventId={}",
+                        targetEventId);
+            }
+        };
+
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        publish.run();
+                    } catch (Exception e) {
+                        // The DB commit cannot be rolled back at this point.
+                        // Reconciliation will restore this PENDING task.
+                        log.error("Failed to schedule attribution task after DB commit: targetEventId={}, {}",
+                                targetEventId, e.getMessage(), e);
+                    }
+                }
+            });
+            return;
+        }
+
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException(
+                    "Attribution scheduling requires active transaction synchronization");
+        }
+
+        // Unit callers and non-Spring integrations have no transaction
+        // synchronization; the INSERT above has already committed.
+        publish.run();
     }
 
     private boolean ensurePendingTask(String targetEventId, long executeAtMillis) {

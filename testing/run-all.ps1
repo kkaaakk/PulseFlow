@@ -8,6 +8,7 @@
     [switch]$PrepareDependencies,
     [switch]$RebaseEventTime,
     [switch]$JobsTriggered,
+    [switch]$KeepTestData,
     [ValidateSet('none', 'smoke', 'load', 'stress')][string]$Performance = 'none',
     [switch]$AllowStress
 )
@@ -128,7 +129,8 @@ try {
         -WaitSeconds $WaitSeconds -CampaignWaitSeconds $CampaignWaitSeconds `
         -RunId $runId -ReportDir $functionalDir `
         -PrepareDependencies:$PrepareDependencies `
-        -RebaseEventTime:$RebaseEventTime -JobsTriggered:$JobsTriggered
+        -RebaseEventTime:$RebaseEventTime -JobsTriggered:$JobsTriggered `
+        -KeepTestData:$KeepTestData
     $functionalExit = [int]$LASTEXITCODE
     $functionalReportPath = Join-Path $functionalDir 'functional-report.json'
     $functionalStatus = Read-ReportStatus -Path $functionalReportPath `
