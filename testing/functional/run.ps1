@@ -12,6 +12,7 @@
     [switch]$RebaseEventTime,
     [switch]$JobsTriggered,
     [switch]$DryRun,
+    [switch]$KeepTestData,
     [string]$RunId = '',
     [string]$ReportDir = ''
 )
@@ -69,6 +70,20 @@ function Get-StatusFromExitCode {
     if ($ExitCode -eq 0) { return 'PASS' }
     if ($ExitCode -eq 1) { return 'FAIL' }
     return 'NOT_RUN'
+}
+
+function Invoke-FunctionalStateCommand {
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet('reset', 'verify')][string]$Mode,
+        [Parameter(Mandatory = $true)][string]$ReportPath,
+        [ValidateSet('all', 'current')][string]$Scope = 'all',
+        [string]$ManifestPath = ''
+    )
+    $stateScript = Join-Path $PSScriptRoot 'state.py'
+    $stateArgs = @('--mode', $Mode, '--scope', $Scope, '--report-path', $ReportPath)
+    if ($ManifestPath) { $stateArgs += @('--manifest', $ManifestPath) }
+    & (Resolve-PythonCommand) $stateScript @stateArgs | Out-Host
+    return [int]$LASTEXITCODE
 }
 
 $script:ReportStatusLabels = @{
@@ -203,63 +218,6 @@ function Write-FunctionalMarkdown {
         $passScenarios = @($CaseResults | Where-Object { $_.status -eq 'PASS' }).Count
         $failScenarios = @($CaseResults | Where-Object { $_.status -eq 'FAIL' }).Count
         $notRunScenarios = @($CaseResults | Where-Object { $_.status -eq 'NOT_RUN' }).Count
-        $failureRows = @()
-        $notRunRows = @()
-        $scenarioRows = @()
-
-        foreach ($result in $CaseResults) {
-            $summary = $null
-            $summaryPath = Join-Path ([string]$result.reportDir) 'summary.json'
-            if (Test-Path -LiteralPath $summaryPath) {
-                try { $summary = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json } catch { $summary = $null }
-            }
-            if ($summary) {
-                foreach ($check in @($summary.checks)) {
-                    if ($check.status -eq 'FAIL') {
-                        $failureRows += [pscustomobject]@{
-                            Scenario = $result.scenario
-                            Name = Get-ReportCheckLabel -CheckId $check.checkId -Description $check.description
-                            Module = Get-ReportModuleLabel -Module $check.module
-                            Reason = Get-ReportShortValue -Value $check.reason
-                            CheckId = $check.checkId
-                        }
-                    } elseif ($check.status -eq 'NOT_RUN') {
-                        $notRunRows += [pscustomobject]@{
-                            Scenario = $result.scenario
-                            Name = Get-ReportCheckLabel -CheckId $check.checkId -Description $check.description
-                            Module = Get-ReportModuleLabel -Module $check.module
-                            Reason = Get-ReportShortValue -Value $check.reason
-                            CheckId = $check.checkId
-                        }
-                    }
-                }
-            }
-            $replayFailuresPath = Join-Path ([string]$result.reportDir) 'replay-failures.json'
-            if (Test-Path -LiteralPath $replayFailuresPath) {
-                try {
-                    $replayFailures = Get-Content -Raw -LiteralPath $replayFailuresPath | ConvertFrom-Json
-                    foreach ($failure in @($replayFailures)) {
-                        $failureRows += [pscustomobject]@{
-                            Scenario = $result.scenario
-                            Name = Get-ReportCheckLabel -CheckId 'replay-request'
-                            Module = 'Replay（业务重放）'
-                            Reason = Get-ReportShortValue -Value ($failure.exceptionOrLog)
-                            CheckId = if ($failure.checkId) { $failure.checkId } else { 'replay-request' }
-                        }
-                    }
-                } catch { }
-            }
-            $scenarioRows += [pscustomobject]@{
-                Scenario = $result.scenario
-                Label = Get-ReportScenarioLabel -Scenario $result.scenario
-                Status = Get-ReportStatusLabel -Status $result.status -Partial
-                Replay = Get-ReportStatusLabel -Status $result.replayStatus
-                Validator = Get-ReportStatusLabel -Status $result.validationStatus
-                Checks = Get-ReportCheckCountText -Summary $summary
-                Concurrency = $result.concurrency
-            }
-        }
-
         $lines = @(
             '# PulseFlow 功能验收总报告',
             '',
@@ -269,42 +227,29 @@ function Write-FunctionalMarkdown {
             "运行 ID：$([char]96)$RunId$([char]96)",
             "数据规模：$([char]96)$Scale$([char]96)",
             "随机种子：$([char]96)$Seed$([char]96)",
+            "测试数据策略：$(if ($KeepTestData) { '本轮数据已按 -KeepTestData 保留' } else { '本轮结束自动清理；每个场景开始前仍强制 pre-clean' })",
             '',
             '### 场景结果统计',
             '',
             "- ✅ 通过场景：$passScenarios",
             "- ❌ 失败场景：$failScenarios",
-            "- ⚠️ 部分未执行场景：$notRunScenarios",
+            "- ⚠️ 未执行场景：$notRunScenarios",
             '',
-            '## ❌ 当前失败项',
-            ''
+            '## 场景结果',
+            '',
+            '| 场景 | 数据集 | 结果 | Replay | Validator | 并发 |',
+            '|---|---|---|---|---|---:|'
         )
-        if ($failureRows.Count -gt 0) {
-            $lines += '| 场景 | 校验内容 | 模块 | 原因 | 技术标识 |'
-            $lines += '|---|---|---|---|---|'
-            foreach ($row in $failureRows) {
-                $lines += "| $(Get-ReportScenarioLabel -Scenario $row.Scenario) | $($row.Name) | $($row.Module) | $($row.Reason) | ``$($row.CheckId)`` |"
-            }
-        } else {
-            $lines += '无。'
+        foreach ($result in $CaseResults) {
+            $lines += "| [$($result.scenario)]($($result.scenario)/summary.md) | $($result.dataset) | $(Get-ReportStatusLabel -Status $result.status -Partial) | $(Get-ReportStatusLabel -Status $result.replayStatus) | $(Get-ReportStatusLabel -Status $result.validationStatus) | $($result.concurrency) |"
         }
-
-        $lines += @('', '## ⚠️ 当前未执行项', '')
-        if ($notRunRows.Count -gt 0) {
-            $lines += '| 场景 | 校验内容 | 模块 | 原因 | 技术标识 |'
-            $lines += '|---|---|---|---|---|'
-            foreach ($row in $notRunRows) {
-                $lines += "| $(Get-ReportScenarioLabel -Scenario $row.Scenario) | $($row.Name) | $($row.Module) | $($row.Reason) | ``$($row.CheckId)`` |"
-            }
-        } else {
-            $lines += '无。'
-        }
-
-        $lines += @('', '## 场景结果', '', '| 场景 | 中文说明 | 结果 | Replay | Validator | 校验统计 | 并发 |', '|---|---|---|---|---|---|---:|')
-        foreach ($row in $scenarioRows) {
-            $lines += "| [$($row.Scenario)]($($row.Scenario)/summary.md) | $($row.Label) | $($row.Status) | $($row.Replay) | $($row.Validator) | $($row.Checks) | $($row.Concurrency) |"
-        }
-        $lines += @('', '## 详细报告', '', '每个场景的完整 Expected、Actual、SQL 和调试数据仍保存在对应目录的 `summary.json`；', '本页只保留面向阅读的摘要。')
+        $lines += @(
+            '',
+            '## 详细报告',
+            '',
+            '每个场景的 Expected、Actual、SQL、失败证据和完整校验项保存在对应目录的 summary.md、summary.json 和 failures.json。',
+            '本页只保留 Functional 的整体状态和场景索引。'
+        )
         $lines | Set-Content -LiteralPath (Join-Path $ReportRoot 'functional-report.md') -Encoding UTF8
     } catch {
         Write-Warning "Functional Markdown report generation failed; JSON reports are preserved: $($_.Exception.Message)"
@@ -350,52 +295,6 @@ WHERE campaign_id = 9202 AND rule_name = 'phase1-scenario';
     }
 }
 
-function Reset-CampaignAttributionState {
-    param(
-        [Parameter(Mandatory = $true)][string]$TargetEventId,
-        [Parameter(Mandatory = $true)][string]$MysqlDatabase
-    )
-    $mysqlBin = if ($env:PULSEFLOW_TEST_MYSQL_BIN) { $env:PULSEFLOW_TEST_MYSQL_BIN } else { 'mysql' }
-    $mysqlHost = if ($env:PULSEFLOW_TEST_MYSQL_HOST) { $env:PULSEFLOW_TEST_MYSQL_HOST } else { '127.0.0.1' }
-    $mysqlPort = if ($env:PULSEFLOW_TEST_MYSQL_PORT) { [int]$env:PULSEFLOW_TEST_MYSQL_PORT } else { 13306 }
-    $mysqlUser = if ($env:PULSEFLOW_TEST_MYSQL_USER) { $env:PULSEFLOW_TEST_MYSQL_USER } else { 'test' }
-    $mysqlPassword = if ($env:PULSEFLOW_TEST_MYSQL_PASSWORD) { $env:PULSEFLOW_TEST_MYSQL_PASSWORD } else { 'test' }
-    Assert-TestStoreHost -HostName $mysqlHost
-    $redisBin = if ($env:PULSEFLOW_TEST_REDIS_BIN) { $env:PULSEFLOW_TEST_REDIS_BIN } else { 'redis-cli' }
-    $redisHost = if ($env:PULSEFLOW_TEST_REDIS_HOST) { $env:PULSEFLOW_TEST_REDIS_HOST } else { '127.0.0.1' }
-    $redisPort = if ($env:PULSEFLOW_TEST_REDIS_PORT) { [int]$env:PULSEFLOW_TEST_REDIS_PORT } else { 16379 }
-    $redisPassword = if ($env:PULSEFLOW_TEST_REDIS_PASSWORD) { $env:PULSEFLOW_TEST_REDIS_PASSWORD } else { '' }
-    Assert-TestStoreHost -HostName $redisHost
-    if (-not (Get-Command $redisBin -ErrorAction SilentlyContinue) -and -not (Test-Path -LiteralPath $redisBin)) {
-        throw "Redis CLI was not found: $redisBin"
-    }
-
-    $previousPassword = $env:MYSQL_PWD
-    try {
-        $env:MYSQL_PWD = $mysqlPassword
-        $targetLiteral = $TargetEventId.Replace("'", "''")
-        $cleanupSql = "DELETE FROM attribution_record WHERE target_event_id = '$targetLiteral'; DELETE FROM attribution_task WHERE target_event_id = '$targetLiteral'; DELETE FROM user_metric_hourly WHERE user_id = 7000001 AND event_type = 'ORDER_PAID'; DELETE FROM user_event WHERE event_id = '$targetLiteral';"
-        & $mysqlBin '--batch' '--raw' '--protocol=tcp' '-h' $mysqlHost '-P' $mysqlPort.ToString() '-u' $mysqlUser $MysqlDatabase '--execute' $cleanupSql
-        if ($LASTEXITCODE -ne 0) { throw 'Campaign attribution DB state cleanup failed.' }
-    } finally {
-        $env:MYSQL_PWD = $previousPassword
-    }
-
-    $previousRedisAuth = $env:REDISCLI_AUTH
-    try {
-        if ($redisPassword) { $env:REDISCLI_AUTH = $redisPassword }
-        & $redisBin '-h' $redisHost '-p' $redisPort.ToString() 'ZREM' 'delay:attribution' $TargetEventId
-        if ($LASTEXITCODE -ne 0) { throw 'Campaign attribution pending ZSET cleanup failed.' }
-        & $redisBin '-h' $redisHost '-p' $redisPort.ToString() 'ZREM' 'delay:attribution:processing' $TargetEventId
-        if ($LASTEXITCODE -ne 0) { throw 'Campaign attribution processing ZSET cleanup failed.' }
-        & $redisBin '-h' $redisHost '-p' $redisPort.ToString() 'DEL' "event:processed:$TargetEventId"
-        if ($LASTEXITCODE -ne 0) { throw 'Campaign processed flag cleanup failed.' }
-    } finally {
-        $env:REDISCLI_AUTH = $previousRedisAuth
-    }
-    Write-Host "Reset Campaign attribution runtime state for targetEventId=$TargetEventId."
-}
-
 try {
     if ($Concurrency -lt 1) { throw 'Concurrency must be at least 1.' }
     Assert-LoopbackUrl -Url $BaseUrl
@@ -437,6 +336,14 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Test dependency compose startup failed.' }
     }
 
+    if (-not $DryRun) {
+        $preRunStateReport = Join-Path $runRoot 'functional-state-pre-run.json'
+        $preRunStateExit = Invoke-FunctionalStateCommand -Mode reset -ReportPath $preRunStateReport
+        if ($preRunStateExit -ne 0) {
+            throw "Functional pre-run state reset failed; see $preRunStateReport"
+        }
+    }
+
     $generator = Join-Path $PSScriptRoot 'generate.py'
     $generatedRoot = Join-Path $TestingRoot 'data\generated'
     foreach ($generatorScenario in (Get-GeneratorScenarios -SelectedScenario $Scenario)) {
@@ -473,65 +380,98 @@ try {
 
         $fixtureStatus = $null
         $fixtureChecks = @()
-        if ($case.name -eq 'campaign' -and -not $DryRun) {
-            if ($Seed -ne 20260827) {
-                throw 'The Campaign fixture is keyed to seed 20260827; update campaign-fixture.sql before using another seed.'
-            }
-            Prepare-CampaignFixture -MysqlDatabase $env:PULSEFLOW_TEST_MYSQL_DATABASE
-            $targetEventId = $scenarioDetailsProperty.Value.attribution.targetEventId
-            if (-not $targetEventId) { throw 'Campaign Manifest has no attribution targetEventId.' }
-            Reset-CampaignAttributionState -TargetEventId ([string]$targetEventId) -MysqlDatabase $env:PULSEFLOW_TEST_MYSQL_DATABASE
-            $fixtureStatus = 'PASS'
-            $fixtureChecks += 'campaign_rule.rule_config JSON_VALID=1'
-        }
-
-        $replayArgs = @(
-            '--dataset', $dataset, '--base-url', $BaseUrl, '--report-dir', $caseDir,
-            '--run-id', "$runId-$($case.name)", '--pacing-ms', '1'
-        )
-        if ($case.name -in @('hot-user', 'concurrency')) {
-            $replayArgs += @('--concurrency', $Concurrency.ToString())
-        } else {
-            $replayArgs += @('--concurrency', '1')
-        }
-        if ($RebaseEventTime -or $case.name -in @('out-of-order', 'late', 'campaign', 'concurrency')) {
-            $replayArgs += '--rebase-event-time'
-        }
-        if ($DryRun) { $replayArgs += '--dry-run' }
-        & (Resolve-PythonCommand) (Join-Path $PSScriptRoot 'replay.py') @replayArgs
-        $replayExit = $LASTEXITCODE
-
-        $caseWaitSeconds = if ($case.name -eq 'campaign') { $CampaignWaitSeconds } else { $WaitSeconds }
-        $validateArgs = @(
-            '--manifest', $manifest, '--run-dir', $caseDir, '--report-dir', $caseDir,
-            '--wait-seconds', $caseWaitSeconds.ToString()
-        )
-        if ($DryRun -or $case.name -eq 'invalid') { $validateArgs += '--http-only' }
-        if ($JobsTriggered -and $case.name -ne 'invalid') { $validateArgs += '--jobs-triggered' }
-        if ($SkipMySql) { $validateArgs += '--skip-mysql' }
-        if ($SkipRedis) { $validateArgs += '--skip-redis' }
-        & (Resolve-PythonCommand) (Join-Path $PSScriptRoot 'validate.py') @validateArgs
-        $validateExit = $LASTEXITCODE
-
-        $replayStatus = Get-StatusFromExitCode -ExitCode $replayExit
-        $validateStatus = Get-StatusFromExitCode -ExitCode $validateExit
         $notRunChecks = @()
-        $validationSummaryPath = Join-Path $caseDir 'summary.json'
-        if (Test-Path -LiteralPath $validationSummaryPath) {
-            $validationSummary = Get-Content -Raw -LiteralPath $validationSummaryPath | ConvertFrom-Json
-            foreach ($check in @($validationSummary.checks)) {
-                if ($check.status -eq 'NOT_RUN') {
-                    $notRunChecks += [ordered]@{
-                        checkId = $check.checkId
-                        module = $check.module
-                        description = $check.description
-                        reason = $check.reason
+        $caseError = $null
+        $replayExit = 2
+        $validateExit = 2
+        $preStateReport = $null
+        $postStateReport = $null
+        $preStateExit = 0
+        $postStateExit = 0
+        $stateLifecycleStatus = if ($DryRun) { 'NOT_RUN' } elseif ($KeepTestData) { 'KEPT' } else { 'PASS' }
+
+        if (-not $DryRun) {
+            $preStateReport = Join-Path $caseDir 'functional-state-pre-scenario.json'
+            $preStateExit = Invoke-FunctionalStateCommand -Mode reset -Scope current `
+                -ReportPath $preStateReport -ManifestPath $manifest
+            if ($preStateExit -ne 0) {
+                throw "Functional pre-scenario state reset failed for $($case.name); see $preStateReport"
+            }
+        }
+
+        try {
+            if ($case.name -eq 'campaign' -and -not $DryRun) {
+                if ($Seed -ne 20260827) {
+                    throw 'The Campaign fixture is keyed to seed 20260827; update campaign-fixture.sql before using another seed.'
+                }
+                Prepare-CampaignFixture -MysqlDatabase $env:PULSEFLOW_TEST_MYSQL_DATABASE
+                $fixtureStatus = 'PASS'
+                $fixtureChecks += 'campaign_rule.rule_config JSON_VALID=1'
+            }
+
+            $replayArgs = @(
+                '--dataset', $dataset, '--base-url', $BaseUrl, '--report-dir', $caseDir,
+                '--run-id', "$runId-$($case.name)", '--pacing-ms', '1'
+            )
+            if ($case.name -in @('hot-user', 'concurrency')) {
+                $replayArgs += @('--concurrency', $Concurrency.ToString())
+            } else {
+                $replayArgs += @('--concurrency', '1')
+            }
+            if ($RebaseEventTime -or $case.name -in @('out-of-order', 'late', 'campaign', 'concurrency')) {
+                $replayArgs += '--rebase-event-time'
+            }
+            if ($DryRun) { $replayArgs += '--dry-run' }
+            & (Resolve-PythonCommand) (Join-Path $PSScriptRoot 'replay.py') @replayArgs
+            $replayExit = $LASTEXITCODE
+
+            $caseWaitSeconds = if ($case.name -eq 'campaign') { $CampaignWaitSeconds } else { $WaitSeconds }
+            $validateArgs = @(
+                '--manifest', $manifest, '--run-dir', $caseDir, '--report-dir', $caseDir,
+                '--wait-seconds', $caseWaitSeconds.ToString()
+            )
+            if ($DryRun -or $case.name -eq 'invalid') { $validateArgs += '--http-only' }
+            if ($JobsTriggered -and $case.name -ne 'invalid') { $validateArgs += '--jobs-triggered' }
+            if ($SkipMySql) { $validateArgs += '--skip-mysql' }
+            if ($SkipRedis) { $validateArgs += '--skip-redis' }
+            & (Resolve-PythonCommand) (Join-Path $PSScriptRoot 'validate.py') @validateArgs
+            $validateExit = $LASTEXITCODE
+
+            $validationSummaryPath = Join-Path $caseDir 'summary.json'
+            if (Test-Path -LiteralPath $validationSummaryPath) {
+                $validationSummary = Get-Content -Raw -LiteralPath $validationSummaryPath | ConvertFrom-Json
+                foreach ($check in @($validationSummary.checks)) {
+                    if ($check.status -eq 'NOT_RUN') {
+                        $notRunChecks += [ordered]@{
+                            checkId = $check.checkId
+                            module = $check.module
+                            description = $check.description
+                            reason = $check.reason
+                        }
+                        Write-Warning "NOT_RUN [$($case.name)] $($check.checkId) module=$($check.module) reason=$($check.reason)"
                     }
-                    Write-Warning "NOT_RUN [$($case.name)] $($check.checkId) module=$($check.module) reason=$($check.reason)"
+                }
+            }
+        } catch {
+            $caseError = $_.Exception.Message
+            Write-Error "Functional scenario $($case.name) failed before completion: $caseError"
+            $replayExit = 1
+            $validateExit = 1
+        } finally {
+            if (-not $DryRun -and -not $KeepTestData) {
+                $postStateReport = Join-Path $caseDir 'functional-state-post-scenario.json'
+                $postStateExit = Invoke-FunctionalStateCommand -Mode reset -Scope current `
+                    -ReportPath $postStateReport -ManifestPath $manifest
+                if ($postStateExit -ne 0) {
+                    $stateLifecycleStatus = 'FAIL'
+                    Write-Error "Functional post-scenario state cleanup failed for $($case.name); see $postStateReport"
                 }
             }
         }
-        $caseStatus = if ($replayStatus -eq 'FAIL' -or $validateStatus -eq 'FAIL') {
+
+        $replayStatus = Get-StatusFromExitCode -ExitCode $replayExit
+        $validateStatus = Get-StatusFromExitCode -ExitCode $validateExit
+        $caseStatus = if ($caseError -or $postStateExit -ne 0 -or $replayStatus -eq 'FAIL' -or $validateStatus -eq 'FAIL') {
             'FAIL'
         } elseif ($replayStatus -eq 'NOT_RUN' -or $validateStatus -eq 'NOT_RUN') {
             'NOT_RUN'
@@ -549,11 +489,29 @@ try {
             fixtureStatus = $fixtureStatus
             fixtureChecks = $fixtureChecks
             notRunChecks = $notRunChecks
+            state = [ordered]@{
+                preCleanup = $preStateReport
+                postCleanup = $postStateReport
+                preCleanupStatus = if ($DryRun) { 'NOT_RUN' } else { Get-StatusFromExitCode -ExitCode $preStateExit }
+                postCleanupStatus = if ($DryRun) { 'NOT_RUN' } elseif ($KeepTestData) { 'KEPT' } else { Get-StatusFromExitCode -ExitCode $postStateExit }
+                lifecycleStatus = $stateLifecycleStatus
+            }
+            error = $caseError
             reportDir = $caseDir
         }
     }
 
-    $overallStatus = if ($caseResults.status -contains 'FAIL') { 'FAIL' }
+    $finalStateReport = $null
+    $finalStateExit = 0
+    if (-not $DryRun -and -not $KeepTestData) {
+        $finalStateReport = Join-Path $runRoot 'functional-state-final.json'
+        $finalStateExit = Invoke-FunctionalStateCommand -Mode reset -ReportPath $finalStateReport
+        if ($finalStateExit -ne 0) {
+            Write-Error "Functional final state cleanup failed; see $finalStateReport"
+        }
+    }
+
+    $overallStatus = if ($finalStateExit -ne 0 -or $caseResults.status -contains 'FAIL') { 'FAIL' }
     elseif ($caseResults.status -contains 'NOT_RUN') { 'NOT_RUN' }
     else { 'PASS' }
     $scenarioStatuses = [ordered]@{}
@@ -566,6 +524,12 @@ try {
         baseUrl = $BaseUrl
         replay = 'Functional Replay with deterministic datasets and bounded concurrency'
         performance = 'Not run here; use testing/performance/run.ps1'
+        keepTestData = [bool]$KeepTestData
+        stateCleanup = [ordered]@{
+            preRun = if ($DryRun) { $null } else { Join-Path $runRoot 'functional-state-pre-run.json' }
+            final = $finalStateReport
+            finalStatus = if ($DryRun) { 'NOT_RUN' } elseif ($KeepTestData) { 'KEPT' } else { Get-StatusFromExitCode -ExitCode $finalStateExit }
+        }
         scenarios = $scenarioStatuses
         details = $caseResults
     }

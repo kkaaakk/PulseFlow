@@ -70,4 +70,23 @@ public class AttributionTaskConsumer {
             }
         }
     }
+
+    /**
+     * Rebuild Redis scheduling from MySQL PENDING rows. This closes the
+     * unavoidable DB-commit-to-Redis-write failure window without reviving
+     * MATCHED/EXPIRED tasks (the service query only selects PENDING rows).
+     */
+    @Scheduled(fixedDelay = 30000, initialDelay = 5000)
+    public void reconcileOrphanedTasks() {
+        try {
+            int recovered = attributionService.reconcilePendingTasks();
+            if (recovered > 0) {
+                log.info("Reconciled {} orphaned PENDING attribution tasks", recovered);
+            }
+        } catch (Exception e) {
+            // Keep the next scheduled pass available; a transient DB/Redis
+            // outage must not stop the consumer from processing owned claims.
+            log.error("Attribution reconciliation failed: {}", e.getMessage(), e);
+        }
+    }
 }

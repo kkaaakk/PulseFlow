@@ -21,6 +21,10 @@ import org.redisson.api.RedissonClient;
 import org.redisson.client.codec.Codec;
 import org.redisson.client.codec.StringCodec;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.AbstractPlatformTransactionManager;
+import org.springframework.transaction.support.DefaultTransactionStatus;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -28,6 +32,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -307,5 +312,116 @@ class AttributionServiceTest {
 
         verify(attributionRecordMapper).insert(any(AttributionRecord.class));
         verify(attributionTaskMapper).update(eq(null), any());
+    }
+
+    @Test
+    @DisplayName("initial attribution scheduling is invisible before DB commit")
+    void initialSchedulingRunsOnlyAfterCommit() {
+        RScript script = mock(RScript.class);
+        when(redissonClient.getScript(eq(StringCodec.INSTANCE))).thenReturn(script);
+        when(script.eval(eq(RScript.Mode.READ_WRITE), anyString(),
+                eq(RScript.ReturnType.INTEGER), eq(List.of(
+                        "delay:attribution", "delay:attribution:processing")),
+                eq("target-evt-1"), anyLong())).thenReturn(1L);
+
+        TransactionTemplate transactionTemplate = new TransactionTemplate(new TestTransactionManager());
+        transactionTemplate.execute(status -> {
+            attributionService.onTargetEvent(
+                    "target-evt-1", 1001L, "ORDER_PAID",
+                    LocalDateTime.of(2026, 8, 6, 12, 0, 0));
+
+            // The INSERT has happened, but the transaction has not committed;
+            // Redis must still be untouched at this exact synchronization point.
+            verifyNoInteractions(redissonClient);
+            return null;
+        });
+
+        verify(script).eval(eq(RScript.Mode.READ_WRITE), anyString(),
+                eq(RScript.ReturnType.INTEGER), eq(List.of(
+                        "delay:attribution", "delay:attribution:processing")),
+                eq("target-evt-1"), anyLong());
+    }
+
+    @Test
+    @DisplayName("rolled back attribution insert never publishes to Redis")
+    void rolledBackSchedulingIsNotPublished() {
+        TransactionTemplate transactionTemplate = new TransactionTemplate(new TestTransactionManager());
+        transactionTemplate.execute(status -> {
+            attributionService.onTargetEvent(
+                    "target-evt-1", 1001L, "ORDER_PAID",
+                    LocalDateTime.of(2026, 8, 6, 12, 0, 0));
+            status.setRollbackOnly();
+            return null;
+        });
+
+        verifyNoInteractions(redissonClient);
+    }
+
+    @Test
+    @DisplayName("a claimed task missing from MySQL is retryable, not silent success")
+    void missingTaskIsRetryable() {
+        when(attributionTaskMapper.selectOne(any())).thenReturn(null);
+
+        assertThatThrownBy(() -> attributionService.executeAttribution("target-evt-1"))
+                .isInstanceOf(AttributionTaskNotFoundException.class)
+                .hasMessageContaining("target-evt-1");
+        verifyNoInteractions(clickEventMapper, attributionRecordMapper, deliveryRecordMapper);
+    }
+
+    @Test
+    @DisplayName("reconciliation restores a PENDING task after a post-commit Redis failure")
+    void reconciliationRestoresPendingTaskAfterRedisFailure() {
+        AttributionTask task = pendingTask();
+        when(attributionTaskMapper.selectList(any())).thenReturn(List.of(task));
+
+        RScript script = mock(RScript.class);
+        when(redissonClient.getScript(eq(StringCodec.INSTANCE))).thenReturn(script);
+        when(script.eval(eq(RScript.Mode.READ_WRITE), anyString(),
+                eq(RScript.ReturnType.INTEGER), eq(List.of(
+                        "delay:attribution", "delay:attribution:processing")),
+                eq("target-evt-1"), anyLong()))
+                .thenThrow(new RuntimeException("temporary Redis outage"))
+                .thenReturn(1L);
+
+        assertThat(attributionService.reconcilePendingTasks()).isZero();
+        assertThat(attributionService.reconcilePendingTasks()).isEqualTo(1);
+        verify(script, times(2)).eval(eq(RScript.Mode.READ_WRITE), anyString(),
+                eq(RScript.ReturnType.INTEGER), eq(List.of(
+                        "delay:attribution", "delay:attribution:processing")),
+                eq("target-evt-1"), anyLong());
+    }
+
+    @Test
+    @DisplayName("terminal task is an idempotent execution success")
+    void terminalTaskIsIdempotentSuccess() {
+        AttributionTask task = pendingTask();
+        task.setStatus("MATCHED");
+        when(attributionTaskMapper.selectOne(any())).thenReturn(task);
+
+        assertThat(attributionService.executeAttribution("target-evt-1"))
+                .isEqualTo(AttributionService.ExecutionResult.ALREADY_TERMINAL);
+        verifyNoInteractions(clickEventMapper, attributionRecordMapper, deliveryRecordMapper);
+    }
+
+    private static final class TestTransactionManager extends AbstractPlatformTransactionManager {
+
+        @Override
+        protected Object doGetTransaction() {
+            return new Object();
+        }
+
+        @Override
+        protected void doBegin(Object transaction, TransactionDefinition definition) {
+            // No resource is needed; this manager exists only to exercise
+            // Spring's real synchronization/afterCommit lifecycle.
+        }
+
+        @Override
+        protected void doCommit(DefaultTransactionStatus status) {
+        }
+
+        @Override
+        protected void doRollback(DefaultTransactionStatus status) {
+        }
     }
 }

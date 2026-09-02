@@ -38,6 +38,11 @@
     "pf-fixture-smoke-v1-0005"
   ],
   "sampleUserIds": [9000001, 9000002],
+  "ownership": {
+    "eventIdNamespace": "pf-",
+    "eventIdPrefix": "pf-fixture-smoke-v1-",
+    "userIdRange": {"min": 9000001, "max": 9000002}
+  },
   "metricTotalsByEventType": {
     "ADD_CART": {"eventCount": 1, "durationSum": 0, "amountSum": "29.90"},
     "CLICK": {"eventCount": 1, "durationSum": 0, "amountSum": "0.00"},
