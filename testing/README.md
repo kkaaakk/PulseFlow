@@ -83,7 +83,7 @@ docker compose -f .\testing\docker-compose.test.yml -p pulseflow-test up -d
 
 `generate.py` 使用 fixed seed 生成 normal、duplicate、out-of-order、late、invalid、hot-user、concurrency 和 campaign 数据；`replay.py` 负责 HTTP Replay、到达顺序、受控并发、事件时间 rebase、dry run、失败记录和 replay evidence；`validate.py` 负责 MySQL、Redis、Realtime Profile、Window Metrics、User Tags、Campaign、Frequency Control、Delivery、Attribution 和 Compensation 的最终状态校验。
 
-Functional runner 会在每个场景开始前清理所有 `ownership.json` 声明的测试数据，并在场景结束及整个 run 结束时再次清理。清理只作用于 `pf-*` 事件、保留的 Functional 用户范围、`PF_TEST_*` Campaign 及其派生记录，同时按真实业务 Key 清理 Redis 的 processed/profile/frequency/delay 状态；它不会执行 `FLUSHDB`、删库或全库截断。reset 会在发现活跃消费者把旧 Kafka 消息重新写入时进行有界的清理—稳定性复核收敛，避免把一次瞬时竞态误报为 PASS 或 FAIL。默认会执行 post-clean；需要保留本轮运行态数据调试时显式使用 `-KeepTestData`，下次运行仍会先执行 pre-clean。`testing/functional/state.py --mode verify` 可独立核对当前 test-owned 数据是否为零。
+Functional runner 会在每个场景开始前清理所有 `ownership.json` 声明的测试数据，并在场景结束及整个 run 结束时再次清理。清理只作用于 `pf-*` 事件、保留的 Functional 用户范围、`PF_TEST_*` Campaign 及其派生记录，同时按真实业务 Key 清理 Redis 的 processed/profile/frequency/delay 状态；它不会执行 `FLUSHDB`、删库或全库截断。reset 会先等待已运行的测试 Kafka consumer group 排空旧 backlog，再进行清理；随后仍会执行有界的清理—稳定性复核收敛，避免活跃消费者在清理期间重新写入而误报。默认会执行 post-clean；需要保留本轮运行态数据调试时显式使用 `-KeepTestData`，下次运行仍会先执行 pre-clean。`testing/functional/state.py --mode verify` 可独立核对当前 test-owned 数据是否为零。
 
 Replay 默认串行以保留到达顺序；`concurrency` 和 `hot-user` 通过 `-Concurrency 8`（或更大值）验证幂等、原子指标更新和实时画像。并发参数是功能正确性工具，不是吞吐量门槛。
 
