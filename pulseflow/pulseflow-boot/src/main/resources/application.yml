@@ -27,7 +27,7 @@ spring:
       auto-offset-reset: earliest
       max-poll-records: 100
     listener:
-      ack-mode: manual
+      ack-mode: record
   redis:
     host: localhost
     port: 6379
