@@ -35,6 +35,8 @@ DEFAULT_REDIS_DATABASE = 0
 DEFAULT_BATCH_SIZE = 100
 DEFAULT_RESET_ATTEMPTS = 5
 DEFAULT_STABILIZE_SECONDS = 1.0
+DEFAULT_KAFKA_WAIT_SECONDS = 180.0
+DEFAULT_KAFKA_POLL_SECONDS = 3.0
 
 
 class StateCommandError(RuntimeError):
@@ -147,6 +149,42 @@ def parse_args() -> argparse.Namespace:
         "--stabilize-seconds", type=float, default=DEFAULT_STABILIZE_SECONDS,
         help="seconds to wait before confirming that the cleaned state stays stable",
     )
+    parser.add_argument(
+        "--kafka-container", default=os.environ.get(
+            "PULSEFLOW_TEST_KAFKA_CONTAINER", "pulseflow-test-kafka-1"
+        ),
+        help="test Kafka container used for read-only consumer-group lag checks",
+    )
+    parser.add_argument(
+        "--kafka-groups-bin", default=os.environ.get("PULSEFLOW_TEST_KAFKA_GROUPS_BIN", ""),
+        help="optional kafka-consumer-groups executable; Docker is used when omitted",
+    )
+    parser.add_argument(
+        "--kafka-bootstrap-server", default=os.environ.get(
+            "PULSEFLOW_TEST_KAFKA_BOOTSTRAP", "localhost:9092"
+        ),
+    )
+    parser.add_argument(
+        "--kafka-event-group", default=os.environ.get(
+            "PULSEFLOW_TEST_KAFKA_EVENT_GROUP", "pulseflow-event-group"
+        ),
+    )
+    parser.add_argument(
+        "--kafka-delivery-group", default=os.environ.get(
+            "PULSEFLOW_TEST_KAFKA_DELIVERY_GROUP", "pulseflow-delivery-group"
+        ),
+    )
+    parser.add_argument(
+        "--kafka-wait-seconds", type=float, default=float(os.environ.get(
+            "PULSEFLOW_TEST_KAFKA_WAIT_SECONDS", DEFAULT_KAFKA_WAIT_SECONDS
+        )),
+        help="maximum time to wait for active test consumers to drain old backlog",
+    )
+    parser.add_argument(
+        "--kafka-poll-seconds", type=float, default=float(os.environ.get(
+            "PULSEFLOW_TEST_KAFKA_POLL_SECONDS", DEFAULT_KAFKA_POLL_SECONDS
+        )),
+    )
     parser.add_argument("--manifest", action="append", type=Path, default=[])
     parser.add_argument("--report-path", type=Path)
     parser.add_argument("--mysql-bin", default=os.environ.get("PULSEFLOW_TEST_MYSQL_BIN", "mysql"))
@@ -226,6 +264,115 @@ def run_redis(args: argparse.Namespace, command_args: list[str], timeout: int = 
     if result.returncode != 0:
         raise StateCommandError(result.stderr.strip() or f"Redis exited with {result.returncode}")
     return result.stdout.splitlines()
+
+
+def kafka_groups_command(args: argparse.Namespace, group: str) -> list[str] | None:
+    """Build a read-only consumer-group describe command when available."""
+    command = args.kafka_groups_bin.strip()
+    if command and command_exists(command):
+        return [
+            command, "--bootstrap-server", args.kafka_bootstrap_server,
+            "--describe", "--group", group,
+        ]
+    if not command_exists("docker") or not args.kafka_container:
+        return None
+    return [
+        "docker", "exec", args.kafka_container,
+        "/opt/kafka/bin/kafka-consumer-groups.sh",
+        "--bootstrap-server", args.kafka_bootstrap_server,
+        "--describe", "--group", group,
+    ]
+
+
+def describe_kafka_group(args: argparse.Namespace, group: str) -> dict[str, Any]:
+    command = kafka_groups_command(args, group)
+    if command is None:
+        return {"group": group, "available": False, "reason": "Kafka admin command is unavailable"}
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=20,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"group": group, "available": False, "reason": str(error)}
+    output = "\n".join(value for value in (result.stdout, result.stderr) if value)
+    if result.returncode != 0:
+        # A group that has never existed has no backlog to drain. Other
+        # command failures are reported as unavailable so the store reset can
+        # still fall back to its bounded MySQL/Redis convergence loop.
+        if "has no active members" in output.lower() or "does not exist" in output.lower():
+            return {"group": group, "available": True, "active": False, "lag": 0, "raw": output}
+        return {"group": group, "available": False, "reason": output.strip() or f"exit={result.returncode}"}
+
+    lines = [line for line in output.splitlines() if line.strip()]
+    header_index = next(
+        (index for index, line in enumerate(lines) if line.split()[:1] == ["GROUP"]),
+        None,
+    )
+    if header_index is None:
+        return {"group": group, "available": True, "active": False, "lag": 0, "raw": output}
+    header = lines[header_index].split()
+    try:
+        lag_index = header.index("LAG")
+        consumer_index = header.index("CONSUMER-ID")
+    except ValueError:
+        return {"group": group, "available": False, "reason": "Kafka describe output has no LAG/CONSUMER-ID columns"}
+
+    total_lag = 0
+    active = False
+    unknown_lag = False
+    rows = 0
+    for line in lines[header_index + 1:]:
+        fields = line.split()
+        if len(fields) <= max(lag_index, consumer_index):
+            continue
+        rows += 1
+        active = active or fields[consumer_index] != "-"
+        if fields[lag_index].lstrip("-").isdigit():
+            total_lag += int(fields[lag_index])
+        else:
+            unknown_lag = True
+    return {
+        "group": group,
+        "available": True,
+        "active": active,
+        "lag": None if unknown_lag else total_lag,
+        "partitions": rows,
+    }
+
+
+def wait_for_kafka_quiescence(args: argparse.Namespace) -> dict[str, Any]:
+    """Wait for active test consumers to drain old Kafka backlog.
+
+    The reset owns MySQL/Redis only. If an interrupted run left messages in
+    Kafka, an active consumer can repopulate those stores while DELETE/DEL is
+    executing. Waiting for the already-running test groups to reach zero lag
+    removes that writer race without resetting offsets or deleting Kafka data.
+    """
+    groups = [args.kafka_event_group, args.kafka_delivery_group]
+    initial = [describe_kafka_group(args, group) for group in groups]
+    if all(not item.get("available") for item in initial):
+        return {"status": "UNAVAILABLE", "groups": initial}
+
+    deadline = time.monotonic() + max(0.0, float(args.kafka_wait_seconds))
+    snapshots = initial
+    while True:
+        active_with_backlog = [
+            item for item in snapshots
+            if item.get("available") and item.get("active")
+            and (item.get("lag") is None or item.get("lag", 0) > 0)
+        ]
+        if not active_with_backlog:
+            return {"status": "DRAINED", "groups": snapshots}
+        if time.monotonic() >= deadline:
+            raise StateCommandError(
+                "Kafka test consumer groups did not drain before state reset: "
+                + ", ".join(
+                    f"{item['group']} lag={item.get('lag')}" for item in active_with_backlog
+                )
+            )
+        time.sleep(max(0.1, float(args.kafka_poll_seconds)))
+        snapshots = [describe_kafka_group(args, group) for group in groups]
 
 
 def sql_user_condition(scope: OwnershipScope, column: str = "user_id") -> str:
@@ -553,6 +700,7 @@ def reset(args: argparse.Namespace, scope: OwnershipScope) -> dict[str, Any]:
     loop repeats the same ownership-scoped cleanup and requires a clean
     verification after a short settling interval before returning PASS.
     """
+    kafka_status = wait_for_kafka_quiescence(args)
     attempts: list[dict[str, Any]] = []
     last_result: dict[str, Any] | None = None
     max_attempts = max(1, int(args.max_reset_attempts))
@@ -591,6 +739,7 @@ def reset(args: argparse.Namespace, scope: OwnershipScope) -> dict[str, Any]:
     if last_result is None:
         raise StateCommandError("Functional state reset did not run")
     last_result["status"] = "PASS" if reset_result_is_clean(last_result) else "FAIL"
+    last_result["kafka"] = kafka_status
     last_result["stabilization"] = {
         "maxAttempts": max_attempts,
         "settleSeconds": settle_seconds,
