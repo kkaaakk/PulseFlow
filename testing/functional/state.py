@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -32,6 +33,8 @@ DEFAULT_REDIS_HOST = "127.0.0.1"
 DEFAULT_REDIS_PORT = 16379
 DEFAULT_REDIS_DATABASE = 0
 DEFAULT_BATCH_SIZE = 100
+DEFAULT_RESET_ATTEMPTS = 5
+DEFAULT_STABILIZE_SECONDS = 1.0
 
 
 class StateCommandError(RuntimeError):
@@ -135,6 +138,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--scope", choices=("all", "current"), default="all",
         help="all uses the complete historical catalog; current uses only the supplied Manifest",
+    )
+    parser.add_argument(
+        "--max-reset-attempts", type=int, default=DEFAULT_RESET_ATTEMPTS,
+        help="bounded cleanup retries used when an active consumer writes during reset",
+    )
+    parser.add_argument(
+        "--stabilize-seconds", type=float, default=DEFAULT_STABILIZE_SECONDS,
+        help="seconds to wait before confirming that the cleaned state stays stable",
     )
     parser.add_argument("--manifest", action="append", type=Path, default=[])
     parser.add_argument("--report-path", type=Path)
@@ -469,7 +480,7 @@ UNION ALL SELECT 'user_profile', COUNT(*) FROM user_profile WHERE {user_conditio
     return {row[0]: int(row[1]) for row in rows if len(row) >= 2}
 
 
-def reset(args: argparse.Namespace, scope: OwnershipScope) -> dict[str, Any]:
+def reset_once(args: argparse.Namespace, scope: OwnershipScope) -> dict[str, Any]:
     users_before, tasks_before, campaigns_before = query_owned_ids(args, scope)
     # The catalog ranges already own generated users. Only retain an ID that
     # falls outside those declared ranges (for example a future fixed fixture)
@@ -520,6 +531,73 @@ def reset(args: argparse.Namespace, scope: OwnershipScope) -> dict[str, Any]:
             "deliveryTaskIds": sorted(scope.delivery_task_ids),
         },
     }
+
+
+def reset_result_is_clean(result: dict[str, Any]) -> bool:
+    mysql = result.get("mysql", {}).get("remainingOwnedRows", {})
+    redis = result.get("redis", {})
+    return (
+        result.get("status") == "PASS"
+        and not any(mysql.values())
+        and redis.get("remainingKeyCount") == 0
+        and not redis.get("remainingZsetMembers")
+    )
+
+
+def reset(args: argparse.Namespace, scope: OwnershipScope) -> dict[str, Any]:
+    """Run a bounded cleanup convergence loop.
+
+    Functional's Kafka consumers may still be draining messages from an
+    interrupted run while MySQL/Redis are being reset. A single snapshot can
+    therefore be dirty again immediately after a successful DELETE/DEL. The
+    loop repeats the same ownership-scoped cleanup and requires a clean
+    verification after a short settling interval before returning PASS.
+    """
+    attempts: list[dict[str, Any]] = []
+    last_result: dict[str, Any] | None = None
+    max_attempts = max(1, int(args.max_reset_attempts))
+    settle_seconds = max(0.0, float(args.stabilize_seconds))
+
+    for attempt in range(1, max_attempts + 1):
+        last_result = reset_once(args, scope)
+        clean_now = reset_result_is_clean(last_result)
+        attempts.append({
+            "attempt": attempt,
+            "cleanImmediately": clean_now,
+            "remainingMysqlRows": sum(last_result.get("mysql", {}).get("remainingOwnedRows", {}).values()),
+            "remainingRedisKeys": last_result.get("redis", {}).get("remainingKeyCount"),
+            "remainingRedisZsetMembers": sum(last_result.get("redis", {}).get("remainingZsetMembers", {}).values()),
+        })
+
+        if clean_now and settle_seconds > 0:
+            time.sleep(settle_seconds)
+            stable_mysql = verify_mysql(args, scope)
+            stable_redis = verify_redis(args, scope, scope.delivery_task_ids)
+            stable = not any(stable_mysql.values()) \
+                and stable_redis["remainingKeyCount"] == 0 \
+                and not stable_redis["remainingZsetMembers"]
+            last_result["mysql"]["remainingOwnedRows"] = stable_mysql
+            last_result["redis"].update(stable_redis)
+            attempts[-1]["stableAfterWait"] = stable
+            if stable:
+                break
+        elif clean_now:
+            attempts[-1]["stableAfterWait"] = True
+            break
+
+        if attempt < max_attempts and settle_seconds > 0:
+            time.sleep(settle_seconds)
+
+    if last_result is None:
+        raise StateCommandError("Functional state reset did not run")
+    last_result["status"] = "PASS" if reset_result_is_clean(last_result) else "FAIL"
+    last_result["stabilization"] = {
+        "maxAttempts": max_attempts,
+        "settleSeconds": settle_seconds,
+        "attempts": attempts,
+        "stable": last_result["status"] == "PASS",
+    }
+    return last_result
 
 
 def main() -> int:
