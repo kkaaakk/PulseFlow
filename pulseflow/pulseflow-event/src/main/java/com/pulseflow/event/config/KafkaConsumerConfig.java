@@ -25,7 +25,11 @@ public class KafkaConsumerConfig {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
-        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        // Listeners use normal return / exception propagation as their commit
+        // contract and do not receive Acknowledgment. RECORD commits each
+        // successfully handled record while leaving thrown failures for
+        // redelivery; MANUAL_IMMEDIATE would freeze committed offsets forever.
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.RECORD);
         factory.getContainerProperties().setSyncCommits(true);
         return factory;
     }
