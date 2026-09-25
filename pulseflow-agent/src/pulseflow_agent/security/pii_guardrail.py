@@ -60,7 +60,9 @@ class AzurePiiGuardrail:
         self._client = client
 
     async def check(self, content: Any) -> None:
-        with trace.get_tracer(__name__).start_as_current_span("pii.preflight") as span:
+        with trace.get_tracer(__name__).start_as_current_span(
+            "pii.preflight", record_exception=False, set_status_on_exception=False
+        ) as span:
             try:
                 texts = list(dict.fromkeys(_texts(content)))  # local check before Azure
                 if not texts or self._settings.is_test_model:

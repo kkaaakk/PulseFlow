@@ -1,0 +1,5 @@
+{
+  "ctr_decline": ["compare_metric", "compare_metric", "breakdown_metric"],
+  "conversion_decline": ["compare_metric", "compare_metric", "get_attribution_breakdown"],
+  "no_anomaly": ["compare_metric", "compare_metric"]
+}

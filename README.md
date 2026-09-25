@@ -15,20 +15,19 @@ Event API → Kafka → MySQL 事件事实 → Profile (Redis / MySQL)
 
 ## Agent 接入边界
 
-Python + Pydantic AI Agent Service 已在 Java 服务外建立基础。Java 已提供只读的 [内部业务 Tool API](docs/agent/agent-tool-contract.md)；后续阶段会将 Agent 连接到这些端点，并实现调查和类型化 Campaign Proposal。Java 负责重新验证 DSL、人群预估、草稿归属与人工确认。
+Python + Pydantic AI Agent Service 已在 Java 服务外建立基础，并通过 [内部业务 Tool API](docs/agent/agent-tool-contract.md) 自主调查、记录 Evidence 和生成 Diagnosis。调查契约见 [Investigation Domain](docs/agent/investigation-domain.md)。后续阶段将实现 workspace 持久化与类型化 Campaign Proposal；Java 负责重新验证 DSL、人群预估、草稿归属与人工确认。
 
-**Phase 1 已加入独立 Python Agent Service 基础，Phase 2 已加入 Java 只读 Tool API。** Python Agent 尚未调用这些端点或连接前端。运行方法见 [Agent README](pulseflow-agent/README.md)。Java 不包含 LLM Provider、Prompt Runtime、模型输出解析器或 AI Review。PII 要求见 [PII Guardrail Contract](docs/agent/pii-guardrail-contract.md)。
+**Phase 3 已将单个 Python Agent 接到 Java 只读 Tool API。** 当前提供内部调查入口，尚未连接前端，也没有跨请求持久化。运行方法见 [Agent README](pulseflow-agent/README.md)。Java 不包含 LLM Provider、Prompt Runtime、模型输出解析器或 AI Review。PII 要求见 [PII Guardrail Contract](docs/agent/pii-guardrail-contract.md)。
 
 ```text
-Python Agent Service（Phase 1 基础已建立）
-          │ HTTP Tool Calls
+Python Growth Investigation Agent
+          │ 已鉴权的只读 HTTP Tool Calls
           ▼
-PulseFlow Java Business APIs
-  ├─ Profile / Metrics
-  ├─ Campaign DSL Validation / Audience Preview
-  ├─ Campaign Draft / Confirm
-  ├─ Campaign Performance
-  └─ Attribution
+PulseFlow Java Internal Agent Tool API
+  ├─ 指标查询 / 对比 / 拆解
+  ├─ Campaign Performance Summary
+  ├─ Attribution Breakdown
+  └─ Campaign DSL Validation / Audience Preview
 ```
 
 ## 模块

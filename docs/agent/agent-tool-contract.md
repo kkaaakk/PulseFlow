@@ -1,6 +1,6 @@
 # Agent 内部只读 Tool API（Phase 2）
 
-Java 在 `/internal/v1/agent-tools` 提供六个业务语义端点。Python Agent 只能通过这些端点读取聚合事实；请求不能包含 SQL、表名、列名或单用户标识。Phase 2 尚未把 Python Agent 连接到这些端点。
+Java 在 `/internal/v1/agent-tools` 提供六个业务语义端点。Phase 3 的 Python Agent 已通过强类型客户端连接这些端点；请求不能包含 SQL、表名、列名或单用户标识。
 
 ## 部署与认证
 
