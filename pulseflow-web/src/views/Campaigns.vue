@@ -38,7 +38,6 @@ onMounted(load)
 <template>
   <div class="page-heading">
     <div><h1>Campaigns</h1><p>围绕人群、规则和触达结果管理运营活动。</p></div>
-    <button class="primary-button" @click="router.push('/copilot')">创建 Campaign</button>
   </div>
 
   <section class="panel table-panel">
@@ -65,7 +64,7 @@ onMounted(load)
         <el-table-column label="创建时间" min-width="150"><template #default="scope">{{ formatDateTime(scope.row.createdAt) }}</template></el-table-column>
         <el-table-column label="" width="54"><template #default="scope"><button class="text-button" :aria-label="`打开 ${scope.row.name}`" @click.stop="openCampaign(scope.row.id)">→</button></template></el-table-column>
       </el-table>
-      <div v-else class="empty-state"><span>暂无符合条件的 Campaign</span><button class="text-button" @click="router.push('/copilot')">从 Copilot 创建一个</button></div>
+      <div v-else class="empty-state"><span>暂无符合条件的 Campaign</span></div>
     </div>
     <div class="pagination-row"><el-pagination background layout="prev, pager, next" :current-page="page" :page-size="pageSize" :total="result.total" @current-change="changePage" /></div>
   </section>

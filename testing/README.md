@@ -8,16 +8,13 @@
 
 - Backend：在 `pulseflow/` 执行 `mvn clean verify`，覆盖 Unit、Integration、Testcontainers 和 Flyway Migration。
 - Frontend：在 `pulseflow-web/` 执行 `npm ci`、`npm run typecheck`、`npm run lint`、`npm run test` 和 `npm run build`。
-- AI Dataset：在仓库根目录执行 `python testing/functional/validate_ai_dataset.py`，检查 JSONL、manifest/SHA-256、数量、ID、类别和字段完整性。
 
-这些 CI 检查不启动 PulseFlow，也不需要 Kafka、MySQL、Redis、Azure、AI Provider 或 Secret。
 
 ### `testing/` 手工专项负责
 
 - Functional Replay 与最终业务状态 Validator；
 - Deterministic Dataset Generator、重放证据和受控并发正确性；
 - Campaign、Frequency Control、Delivery、Attribution、Compensation 验证；
-- 真实运行中的 PulseFlow AI Campaign API Evaluation；
 - k6 Smoke、Load、Stress 性能测试。
 
 Maven/JUnit 测试继续留在 `pulseflow/**/src/test`。本地需要 Maven 验证时直接执行：
@@ -41,8 +38,6 @@ testing/
 │   ├── generate.py
 │   ├── replay.py
 │   ├── validate.py
-│   ├── validate_ai_dataset.py
-│   ├── evaluate_ai.py
 │   ├── ownership.json       # Functional 测试所有权目录
 │   ├── state.py             # MySQL/Redis pre-clean、post-clean、核对
 │   ├── campaign-fixture.sql
@@ -130,21 +125,17 @@ Smoke 使用少量 VU 和短时长，阈值为错误率 `<5%`、P95 `<1000 ms`�
 
 k6 只判断 HTTP/API 接入、错误率、吞吐和延迟，不调用 Functional Validator，也不判断 MySQL、Redis 或 Campaign 最终业务状态。报告包含 `performance-report.md`、`performance-report.json` 和 `k6-summary.json`。
 
-## AI Dataset 与 API Evaluation
 
 AI 数据集静态完整性检查由 CI 自动执行；本地也可以从仓库根目录运行：
 
 ```powershell
-python testing/functional/validate_ai_dataset.py
 ```
 
 该检查验证 JSONL 格式、manifest 与 SHA-256、case 数量、case ID 唯一、required categories、required fields 以及 overlong case 合法性，不启动应用或调用 Provider。
 
-`evaluate_ai.py` 只负责对真实运行中的 PulseFlow AI Campaign API 做专项评估：
 
 ```powershell
 $env:PULSEFLOW_TOKEN = '<test-token>'
-python testing/functional/evaluate_ai.py `
   --base-url http://localhost:18080 `
   --pii-enabled
 ```

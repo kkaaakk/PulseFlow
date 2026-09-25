@@ -17,11 +17,6 @@ const detail = ref<CampaignDetailData>()
 const deliveryTrend = ref<TrendPoint[]>([])
 const campaignId = computed(() => Number(route.params.id))
 const campaign = computed(() => detail.value?.campaign)
-const review = computed(() => detail.value?.aiReview)
-const reviewData = computed(() => review.value?.review ?? {})
-const reviewSummary = computed(() => typeof reviewData.value.summary === 'string' ? reviewData.value.summary : '复盘结果尚未生成。')
-const reviewHighlights = computed(() => Array.isArray(reviewData.value.highlights) ? reviewData.value.highlights as Array<{ title?: string; description?: string }> : [])
-
 const load = async () => {
   loading.value = true
   try { const [campaignResult, trendResult] = await Promise.all([getCampaign(campaignId.value), getCampaignDeliveryTrend(campaignId.value)]); detail.value = campaignResult; deliveryTrend.value = trendResult } catch (error) { ElMessage.error(error instanceof Error ? error.message : 'Campaign 详情加载失败') } finally { loading.value = false }
@@ -46,7 +41,7 @@ onMounted(load)
           <StatusTag :status="campaign.status" />
         </div>
       </div>
-      <div class="page-actions"><button class="secondary-button" @click="router.push(`/deliveries?campaignId=${campaign.id}`)">查看触达</button><button class="text-button" @click="router.push('/copilot')">创建相似 Campaign</button></div>
+      <div class="page-actions"><button class="secondary-button" @click="router.push(`/deliveries?campaignId=${campaign.id}`)">查看触达</button></div>
     </div>
 
     <div class="detail-kpis">
@@ -85,15 +80,7 @@ onMounted(load)
             <div class="setting-row"><span class="field-label"><el-icon><DataAnalysis /></el-icon> 版本</span><strong>{{ detail.audience.dataVersion || '—' }}</strong></div>
           </div>
         </section>
-        <section class="panel">
-          <div class="panel-header"><h2 class="panel-title">AI Campaign Review</h2><StatusTag v-if="review" :status="review.status" /><span v-else class="panel-subtitle">暂无复盘</span></div>
-          <div class="panel-body">
-            <template v-if="review">
-              <div class="review-block"><div class="review-summary">{{ reviewSummary }}</div><div v-if="reviewHighlights.length" class="review-list"><div v-for="item in reviewHighlights" :key="item.title" class="review-item"><strong>{{ item.title }}</strong><p>{{ item.description }}</p></div></div><div v-if="review.errorMessage" class="status-tag danger">{{ review.errorMessage }}</div><div class="panel-subtitle">{{ review.model }} · 更新于 {{ formatDateTime(review.updatedAt) }}</div></div>
-            </template>
-            <div v-else class="empty-state" style="min-height:140px">Campaign 结束并有足够数据后，AI Review 会在这里出现。</div>
-          </div>
-        </section>
+
       </aside>
     </div>
   </template>

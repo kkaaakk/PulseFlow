@@ -58,7 +58,6 @@ onMounted(load)
       <p>从事件吞吐到 Campaign 结果，掌握今天正在发生的用户运营动作。</p>
     </div>
     <div class="page-actions">
-      <button class="primary-button" @click="router.push('/copilot')">创建 Campaign</button>
       <button class="text-button" @click="router.push('/campaigns')">查看全部</button>
     </div>
   </div>

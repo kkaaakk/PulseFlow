@@ -9,11 +9,11 @@ npm install
 npm run dev
 ```
 
-The Vite proxy forwards `/api` to `http://localhost:8080`. Start the Spring Boot app with the existing local infrastructure, and enable the built-in fake AI provider when you want to use Copilot:
+The Vite proxy forwards `/api` to `http://localhost:8080`. Start the Spring Boot app with the existing local infrastructure:
 
 ```powershell
 cd ..\pulseflow
-mvn spring-boot:run -pl pulseflow-boot -Dspring-boot.run.arguments="--pulseflow.ai.enabled=true --pulseflow.ai.mock-enabled=true"
+mvn spring-boot:run -pl pulseflow-boot -am
 ```
 
 The local login defaults are Operator ID `1024` and password `pulseflow-local`. Replace them with `PULSEFLOW_OPERATOR_PASSWORD` (and the related auth properties) outside a demo environment.
