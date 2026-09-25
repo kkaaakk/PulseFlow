@@ -84,3 +84,9 @@ v1 schema 不直接支持 A/B 分变体，固定为空数组 `[]`。
 ## 5. 数据质量与变更
 
 当 `audienceCount=0` 或 `sentCount=0` 时，比率为 0，不能据此推断效果。相对提升和百分点差需要分别计算。新增或修改指标时，更新本字典、`CampaignFieldRegistry`（若涉及 DSL 字段）和相应的 Java 计算测试。
+
+## 6. Agent 内部查询的时间窗聚合
+
+Phase 2 的 [只读 Tool API](agent/agent-tool-contract.md) 用同一计数和比率公式按时间窗聚合 `delivery_record.sent_at`、`click_event.click_time`、`attribution_record.credited_at`。`SENT` 为发送记录数，`DELIVERED` 为成功状态记录数，`CLICKS` / `CONVERSIONS` 为窗内去重用户数，`ATTRIBUTED_CONVERSIONS` 为归因记录数。按 `CAMPAIGN`、`CHANNEL` 或 `DAY` 分组时，去重在每个分组内进行，跨组求和可能重复计入同一用户。
+
+时间窗比率使用同窗事实，不能推断为同一批触达用户的因果转化率。比较接口由 Java 计算绝对差与相对差；基线为 0 时，相对差返回 null。实时事实聚合无固定快照版本，`dataVersion=null`。Campaign 绩效端点只读已计算摘要，不触发 `PerformanceSummaryCalculator.compute()` 的写入路径。

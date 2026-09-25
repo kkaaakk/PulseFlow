@@ -85,6 +85,9 @@ logging:
     org.springframework.kafka: INFO
 
 pulseflow:
+  agent:
+    # Dedicated machine secret. An empty value disables the internal API.
+    internal-token: ${PULSEFLOW_AGENT_INTERNAL_TOKEN:}
   # Local web-console credentials. Disable this directory when an external
   # identity provider is wired in; passwords are environment-backed.
   auth:

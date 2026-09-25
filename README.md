@@ -15,9 +15,9 @@ Event API → Kafka → MySQL 事件事实 → Profile (Redis / MySQL)
 
 ## Agent 接入边界
 
-Python + Pydantic AI Agent Service 已在 Java 服务外建立基础。后续阶段会通过受权限保护的业务 Tool API 读取指标、画像、Campaign 绩效与归因，并提交类型化 Campaign Proposal。Java 负责重新验证 DSL、人群预估、草稿归属与人工确认。
+Python + Pydantic AI Agent Service 已在 Java 服务外建立基础。Java 已提供只读的 [内部业务 Tool API](docs/agent/agent-tool-contract.md)；后续阶段会将 Agent 连接到这些端点，并实现调查和类型化 Campaign Proposal。Java 负责重新验证 DSL、人群预估、草稿归属与人工确认。
 
-**Phase 1 已加入独立 Python Agent Service 基础。** 它目前只有离线可测试的 Agent Runtime、PII 出站保护和健康检查，尚未连接 Java 业务 Tool 或前端。运行方法见 [Agent README](pulseflow-agent/README.md)。Java 不包含 LLM Provider、Prompt Runtime、模型输出解析器或 AI Review。PII 要求见 [PII Guardrail Contract](docs/agent/pii-guardrail-contract.md)。
+**Phase 1 已加入独立 Python Agent Service 基础，Phase 2 已加入 Java 只读 Tool API。** Python Agent 尚未调用这些端点或连接前端。运行方法见 [Agent README](pulseflow-agent/README.md)。Java 不包含 LLM Provider、Prompt Runtime、模型输出解析器或 AI Review。PII 要求见 [PII Guardrail Contract](docs/agent/pii-guardrail-contract.md)。
 
 ```text
 Python Agent Service（Phase 1 基础已建立）
