@@ -94,7 +94,6 @@ CHECK_NAMES = {
     "campaign-frequency-redis": "营销频控计数",
     "campaign-frequency-reservations": "营销频控配额预留",
     "campaign-performance-summary": "营销活动效果汇总",
-    "campaign-ai-review": "营销活动 AI 审核",
     "attribution-click-event": "归因点击事件",
     "attribution-last-touch": "末次点击归因",
     "attribution-task-state": "归因任务状态",
@@ -750,38 +749,13 @@ def validate_campaign_derived_outputs(args: argparse.Namespace, campaign_details
             }
             if not actual:
                 status = "NOT_RUN"
-                reason = "campaign_performance_summary has no rows; campaignReviewJob was not observed"
+                reason = "campaign_performance_summary has no rows; campaignPerformanceSummaryJob was not observed"
             else:
                 status = "PASS" if actual == expected else "FAIL"
                 reason = None
             add_check(checks, "campaign-performance-summary", "Campaign", "Performance summary contents match delivery facts",
                       status, expected=expected, actual=actual, query=summary_query, reason=reason)
 
-    if "aiReview" in stages:
-        query = (
-            "SELECT campaign_id, status, review_json FROM campaign_ai_review "
-            f"WHERE campaign_id IN ({campaign_sql}) ORDER BY campaign_id"
-        )
-        rows, error = run_mysql(args, query)
-        if error:
-            add_check(checks, "campaign-ai-review", "AI", "AI review rows are terminal and contain output", "NOT_RUN",
-                      expected="terminal review rows", actual=None, query=query, reason=error)
-        else:
-            actual = {
-                str(row[0]): {"campaignId": int(row[0]), "status": row[1], "hasReviewJson": bool(row[2])}
-                for row in rows or [] if len(row) >= 3
-            }
-            valid = all(item["status"] in {"SUCCESS", "RETRYABLE_FAILED", "SKIPPED_INSUFFICIENT_DATA", "PERMANENT_FAILED"}
-                        and (item["status"] != "SUCCESS" or item["hasReviewJson"])
-                        for item in actual.values())
-            if not actual:
-                status = "NOT_RUN"
-                reason = "campaign_ai_review has no rows; campaignReviewJob/AI was not observed"
-            else:
-                status = "PASS" if valid and len(actual) == len(set(campaign_ids)) else "FAIL"
-                reason = None
-            add_check(checks, "campaign-ai-review", "AI", "AI review rows are terminal and contain output", status,
-                      expected="one terminal row per fixture campaign", actual=actual, query=query, reason=reason)
 
 
 def validate_campaign_frequency_redis(args: argparse.Namespace, campaign_details: dict[str, Any],
@@ -1582,8 +1556,7 @@ def main() -> int:
     for module, filename in (("Profile", "profile-validation.json"),
                              ("Campaign", "campaign-validation.json"),
                              ("Attribution", "attribution-validation.json"),
-                             ("Compensation", "compensation-validation.json"),
-                             ("AI", "ai-validation.json")):
+                             ("Compensation", "compensation-validation.json")):
         module_checks = [check for check in checks if check["module"] == module]
         if module_checks:
             module_status = "FAIL" if any(check["status"] == "FAIL" for check in module_checks) else (

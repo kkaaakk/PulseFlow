@@ -12,7 +12,6 @@ const router = createRouter({
       children: [
         { path: '', redirect: '/dashboard' },
         { path: 'dashboard', name: 'dashboard', component: () => import('@/views/Dashboard.vue'), meta: { title: 'Dashboard' } },
-        { path: 'copilot', name: 'copilot', component: () => import('@/views/Copilot.vue'), meta: { title: 'AI Campaign Copilot' } },
         { path: 'campaigns', name: 'campaigns', component: () => import('@/views/Campaigns.vue'), meta: { title: 'Campaigns' } },
         { path: 'campaigns/:id', name: 'campaign-detail', component: () => import('@/views/CampaignDetail.vue'), meta: { title: 'Campaign Detail' } },
         { path: 'users', name: 'users', component: () => import('@/views/Users.vue'), meta: { title: 'Users' } },

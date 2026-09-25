@@ -144,8 +144,7 @@ public final class WebDtos {
             List<RuleView> rules,
             AudienceView audience,
             DeliverySummary deliverySummary,
-            AttributionSummary attributionSummary,
-            ReviewView aiReview
+            AttributionSummary attributionSummary
     ) {
         public CampaignDetail {
             rules = rules == null ? List.of() : List.copyOf(rules);
@@ -166,24 +165,6 @@ public final class WebDtos {
             BigDecimal unsubscribeRate,
             LocalDateTime calculatedAt
     ) {
-    }
-
-    public record ReviewView(
-            Long campaignId,
-            String status,
-            String model,
-            String promptVersion,
-            String errorMessage,
-            String failureCode,
-            Boolean retryable,
-            Integer retryCount,
-            LocalDateTime nextRetryAt,
-            LocalDateTime updatedAt,
-            Map<String, Object> review
-    ) {
-        public ReviewView {
-            review = review == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(review));
-        }
     }
 
     public record UserListItem(
@@ -314,9 +295,7 @@ public final class WebDtos {
             String backend,
             String mysql,
             String redis,
-            String kafka,
-            String aiMode,
-            String piiGuardrail
+            String kafka
     ) {
     }
 

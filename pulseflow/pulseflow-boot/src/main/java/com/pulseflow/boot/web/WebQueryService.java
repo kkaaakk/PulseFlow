@@ -3,9 +3,8 @@ package com.pulseflow.boot.web;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.pulseflow.ai.infrastructure.config.AiFeatureProperties;
-import com.pulseflow.ai.support.AiForbiddenException;
-import com.pulseflow.ai.support.AiResourceNotFoundException;
+import com.pulseflow.campaign.exception.CampaignForbiddenException;
+import com.pulseflow.campaign.exception.CampaignResourceNotFoundException;
 import com.pulseflow.common.util.JsonUtil;
 import com.pulseflow.entity.AttributionRecord;
 import com.pulseflow.entity.Campaign;
@@ -31,7 +30,6 @@ import com.pulseflow.profile.service.ProfileService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RedissonClient;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -77,7 +75,6 @@ public class WebQueryService {
     private final UserTagMapper userTagMapper;
     private final ProfileService profileService;
     private final JdbcTemplate jdbcTemplate;
-    private final ObjectProvider<AiFeatureProperties> aiProperties;
     private final RedissonClient redissonClient;
 
     public WebDtos.DashboardSummary dashboardSummary() {
@@ -172,11 +169,8 @@ public class WebQueryService {
         WebDtos.DeliverySummary deliverySummary = p.toDeliverySummary();
         WebDtos.AttributionSummary attributionSummary = new WebDtos.AttributionSummary(
                 p.converted(), "CLICK_LAST_TOUCH", 24);
-        WebDtos.ReviewView review = canReadReview(campaign, operatorId)
-                ? reviewForCampaign(campaignId)
-                : null;
         return new WebDtos.CampaignDetail(
-                toCampaignView(campaign), rules, audience, deliverySummary, attributionSummary, review);
+                toCampaignView(campaign), rules, audience, deliverySummary, attributionSummary);
     }
 
     public WebDtos.PerformanceView campaignPerformance(Long campaignId) {
@@ -208,12 +202,6 @@ public class WebQueryService {
             output.add(new WebDtos.TrendPoint(bucket.format(DAY_LABEL), values.getOrDefault(bucket.toString(), 0L)));
         }
         return output;
-    }
-
-    public WebDtos.ReviewView campaignReview(Long campaignId, Long operatorId) {
-        Campaign campaign = findCampaign(campaignId);
-        requireReviewOwner(campaign, operatorId);
-        return reviewForCampaign(campaignId);
     }
 
     public WebDtos.PageResponse<WebDtos.DeliveryListItem> campaignDeliveries(
@@ -294,7 +282,7 @@ public class WebQueryService {
         UserEvent event = userEventMapper.selectOne(
                 new LambdaQueryWrapper<UserEvent>().eq(UserEvent::getEventId, eventId));
         if (event == null) {
-            throw new AiResourceNotFoundException("Event not found: " + eventId);
+            throw new CampaignResourceNotFoundException("Event not found: " + eventId);
         }
         return toEventView(event);
     }
@@ -329,7 +317,7 @@ public class WebQueryService {
     public WebDtos.DeliveryDetail delivery(Long taskId) {
         DeliveryTask task = deliveryTaskMapper.selectById(taskId);
         if (task == null) {
-            throw new AiResourceNotFoundException("Delivery task not found: " + taskId);
+            throw new CampaignResourceNotFoundException("Delivery task not found: " + taskId);
         }
         DeliveryRecord record = deliveryRecordMapper.selectOne(
                 new LambdaQueryWrapper<DeliveryRecord>().eq(DeliveryRecord::getTaskId, taskId));
@@ -370,7 +358,7 @@ public class WebQueryService {
     public WebDtos.AttributionView attribution(Long attributionId) {
         AttributionRecord record = attributionRecordMapper.selectById(attributionId);
         if (record == null) {
-            throw new AiResourceNotFoundException("Attribution not found: " + attributionId);
+            throw new CampaignResourceNotFoundException("Attribution not found: " + attributionId);
         }
         return toAttributionView(record);
     }
@@ -380,9 +368,7 @@ public class WebQueryService {
                 "UP",
                 mysqlStatus(),
                 redisStatus(),
-                kafkaStatus(),
-                aiMode(),
-                piiMode());
+                kafkaStatus());
     }
 
     private WebDtos.CampaignView toCampaignView(Campaign campaign) {
@@ -542,41 +528,10 @@ public class WebQueryService {
         }
     }
 
-    private WebDtos.ReviewView reviewForCampaign(Long campaignId) {
-        try {
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "SELECT campaign_id, status, model, prompt_version, error_message, failure_code, retryable, "
-                            + "retry_count, next_retry_at, updated_at, review_json FROM campaign_ai_review WHERE campaign_id = ?",
-                    campaignId);
-            if (rows.isEmpty()) {
-                return null;
-            }
-            Map<String, Object> row = rows.get(0);
-            return new WebDtos.ReviewView(
-                    numberObject(row.get("campaign_id")), string(row.get("status")), string(row.get("model")),
-                    string(row.get("prompt_version")), string(row.get("error_message")), string(row.get("failure_code")),
-                    bool(row.get("retryable")), integer(row.get("retry_count")), localDateTime(row.get("next_retry_at")),
-                    localDateTime(row.get("updated_at")), parseJson(string(row.get("review_json"))));
-        } catch (DataAccessException e) {
-            log.debug("AI review unavailable for campaign {}: {}", campaignId, e.getMessage());
-            return null;
-        }
-    }
-
-    private boolean canReadReview(Campaign campaign, Long operatorId) {
-        return campaign.getCreatedBy() != null && campaign.getCreatedBy().equals(operatorId);
-    }
-
-    private void requireReviewOwner(Campaign campaign, Long operatorId) {
-        if (!canReadReview(campaign, operatorId)) {
-            throw new AiForbiddenException("Operator does not own campaign " + campaign.getId());
-        }
-    }
-
     private Campaign findCampaign(Long campaignId) {
         Campaign campaign = campaignMapper.selectById(campaignId);
         if (campaign == null) {
-            throw new AiResourceNotFoundException("Campaign not found: " + campaignId);
+            throw new CampaignResourceNotFoundException("Campaign not found: " + campaignId);
         }
         return campaign;
     }
@@ -585,7 +540,7 @@ public class WebQueryService {
         UserProfile profile = userProfileMapper.selectOne(
                 new LambdaQueryWrapper<UserProfile>().eq(UserProfile::getUserId, userId));
         if (profile == null) {
-            throw new AiResourceNotFoundException("User not found: " + userId);
+            throw new CampaignResourceNotFoundException("User not found: " + userId);
         }
         return profile;
     }
@@ -660,23 +615,6 @@ public class WebQueryService {
 
     private String kafkaStatus() {
         return "UP";
-    }
-
-    private String aiMode() {
-        AiFeatureProperties properties = aiProperties.getIfAvailable();
-        if (properties == null || !properties.isEnabled()) {
-            return "DISABLED";
-        }
-        return properties.isMockEnabled() ? "MOCK" : "REAL";
-    }
-
-    private String piiMode() {
-        AiFeatureProperties properties = aiProperties.getIfAvailable();
-        if (properties == null || !properties.isEnabled() || properties.getPii() == null
-                || !properties.getPii().isEnabled()) {
-            return "DISABLED";
-        }
-        return properties.isMockEnabled() || properties.getPii().isMockEnabled() ? "MOCK" : "REAL";
     }
 
     @SuppressWarnings("unchecked")

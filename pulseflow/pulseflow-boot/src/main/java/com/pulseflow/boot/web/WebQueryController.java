@@ -80,11 +80,6 @@ public class WebQueryController {
         return ApiResponse.success(queryService.campaignAttributions(campaignId, page, pageSize));
     }
 
-    @GetMapping("/campaigns/{campaignId}/review")
-    public ApiResponse<WebDtos.ReviewView> campaignReview(@PathVariable Long campaignId) {
-        return ApiResponse.success(queryService.campaignReview(campaignId, currentOperatorId()));
-    }
-
     @GetMapping("/users")
     public ApiResponse<WebDtos.PageResponse<WebDtos.UserListItem>> users(
             @RequestParam(name = "page", defaultValue = "1") int page,

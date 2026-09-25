@@ -613,8 +613,7 @@ def campaign_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         },
         "downstreamStages": {
             "campaignExecution": "requires-scheduled-campaign-fixture-and-campaignSelectionJob",
-            "performanceSummary": "requires-campaignReviewJob",
-            "aiReview": "requires-campaignReviewJob-and-AI-enabled",
+            "performanceSummary": "requires-campaignPerformanceSummaryJob",
         },
         "sourceLimitation": (
             "No HTTP endpoint currently writes click_event; the SQL fixture documents the "

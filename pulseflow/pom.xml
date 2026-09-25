@@ -25,7 +25,6 @@
         <module>pulseflow-campaign</module>
         <module>pulseflow-job</module>
         <module>pulseflow-simulator</module>
-        <module>pulseflow-ai</module>
         <module>pulseflow-boot</module>
     </modules>
 
@@ -43,7 +42,6 @@
         <hutool.version>5.8.27</hutool.version>
         <mapstruct.version>1.5.5.Final</mapstruct.version>
         <lombok.version>1.18.32</lombok.version>
-        <azure-ai-textanalytics.version>5.5.12</azure-ai-textanalytics.version>
     </properties>
 
     <dependencyManagement>
@@ -72,11 +70,6 @@
             <dependency>
                 <groupId>com.pulseflow</groupId>
                 <artifactId>pulseflow-job</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.pulseflow</groupId>
-                <artifactId>pulseflow-ai</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

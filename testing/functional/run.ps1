@@ -100,7 +100,6 @@ $script:ReportModuleLabels = @{
     Attribution = 'Attribution（归因）'
     Compensation = 'Compensation（补偿）'
     Replay = 'Replay（业务重放）'
-    AI = 'AI（智能审核）'
 }
 
 $script:ReportCheckLabels = @{
@@ -137,7 +136,6 @@ $script:ReportCheckLabels = @{
     'campaign-frequency-redis' = '营销频控计数'
     'campaign-frequency-reservations' = '营销频控配额预留'
     'campaign-performance-summary' = '营销活动效果汇总'
-    'campaign-ai-review' = '营销活动 AI 审核'
     'attribution-click-event' = '归因点击事件'
     'attribution-last-touch' = '末次点击归因'
     'attribution-task-state' = '归因任务状态'

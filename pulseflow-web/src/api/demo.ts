@@ -1,19 +1,13 @@
 import type {
   AttributionView,
   CampaignDetail,
-  CampaignDsl,
   CampaignListItem,
-  ContentResponse,
   DashboardSummary,
   DashboardTrends,
   DeliveryDetail,
   DeliveryListItem,
-  DraftResponse,
   EventView,
-  InsightResponse,
   PageResponse,
-  ParseResponse,
-  ReviewView,
   SystemStatus,
   TrendPoint,
   UserDetail,
@@ -27,34 +21,6 @@ const at = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOStri
 
 export const demoResolve = <T>(value: T | (() => T)): Promise<T> =>
   Promise.resolve(structuredClone(typeof value === 'function' ? (value as () => T)() : value))
-
-const condition = (field: string, operator: string, valueType: string, value: string | number | boolean) => ({
-  field,
-  operator,
-  valueType,
-  value,
-})
-
-export const demoDsl: CampaignDsl = {
-  schemaVersion: 1,
-  campaignName: '高活跃未购买用户召回',
-  objective: 'CONVERSION',
-  audience: {
-    logic: 'AND',
-    conditions: [
-      condition('activeDays7d', 'GTE', 'INTEGER', 3),
-      condition('orderCount30d', 'EQ', 'INTEGER', 0),
-    ],
-  },
-  channel: 'IN_APP',
-  schedule: {
-    type: 'ONCE',
-    sendAt: new Date(now + 24 * 60 * 60_000).toISOString(),
-    timezone: 'Asia/Shanghai',
-  },
-  frequencyCap: { maxTimes: 1, windowHours: 24 },
-  promotionFacts: [{ type: 'FULL_REDUCTION', threshold: 300, discount: 30, description: '满300减30' }],
-}
 
 const campaignRows: CampaignListItem[] = [
   { id: 2001, name: '高活跃未购买用户召回', status: 'ACTIVE', triggerType: 'SCHEDULED', channel: 'IN_APP', audience: 128430, sent: 42800, clicked: 5393, converted: 1268, createdAt: at(85), createdBy: 1024 },
@@ -86,18 +52,7 @@ const detailFor = (campaign: CampaignListItem): CampaignDetail => ({
   audience: { estimatedCount: campaign.audience, dataVersion: 'profile-20260830-1030', calculationMode: 'SNAPSHOT', warnings: [] },
   deliverySummary: { sent: campaign.sent, delivered: Math.round(campaign.sent * 0.992), clicked: campaign.clicked, converted: campaign.converted, deliveryRate: 0.992, clickRate: campaign.sent ? campaign.clicked / campaign.sent : 0, conversionRate: campaign.sent ? campaign.converted / campaign.sent : 0 },
   attributionSummary: { attributedConversions: campaign.converted, model: 'CLICK_LAST_TOUCH', windowHours: 24 },
-  aiReview: campaign.id === 2001 ? {
-    campaignId: campaign.id,
-    status: 'SUCCESS',
-    model: 'fake-mock-v1',
-    promptVersion: 'campaign-review-v1',
-    updatedAt: at(8),
-    review: {
-      summary: '本次活动点击表现优于历史平均，转化率小幅提升。',
-      highlights: [{ title: '点击率明显提升', description: '本次点击率为12.6%，高于历史平均9.1%。', evidenceKeys: ['metrics.clickRate', 'historicalBaseline.clickRate'] }],
-      nextActions: [{ action: '下一次优先使用直接利益型文案', reason: '该版本点击率和转化率均为最高。' }],
-    },
-  } : null,
+
 })
 
 const userRows: UserListItem[] = [
@@ -156,7 +111,6 @@ export const demoData = {
     const sent = campaignRows.find((row) => row.id === campaignId)?.sent ?? 0
     return [0.48, 0.64, 0.58, 0.77, 0.83, 0.91, 1].map((scale, index) => ({ label: `08-${String(index + 1).padStart(2, '0')}`, value: Math.round(sent * scale) }))
   },
-  review: (campaignId: number): ReviewView | null => detailFor(campaignRows.find((row) => row.id === campaignId) ?? campaignRows[0]).aiReview ?? null,
   users: (pageNumber: number, pageSize: number, keyword?: string) => page(userRows.filter((row) => !keyword || String(row.userId).includes(keyword) || row.nickname?.includes(keyword)), pageNumber, pageSize),
   userDetail: (userId: number): UserDetail => {
     const user = userRows.find((row) => row.userId === userId) ?? userRows[0]
@@ -168,10 +122,5 @@ export const demoData = {
   delivery: (taskId: number): DeliveryDetail => { const task = deliveryRows.find((row) => row.taskId === taskId) ?? deliveryRows[0]; return { task, record: task.sentAt ? { id: task.taskId + 1000, taskId: task.taskId, campaignId: task.campaignId, userId: task.userId, channel: task.channel, status: 'SENT', sentAt: task.sentAt } : null, clicks: task.taskId === 7001 ? [{ id: 8101, taskId, userId: task.userId, clickSource: 'IN_APP', clickTime: at(30), properties: {} }] : [], attributions: attributionRows.filter((row) => row.taskId === task.taskId) } },
   attributions: (pageNumber: number, pageSize: number, campaignId?: number, userId?: string) => page(attributionRows.filter((row) => (!campaignId || row.campaignId === campaignId) && (!userId || String(row.userId).includes(userId))), pageNumber, pageSize),
   attribution: (id: number) => attributionRows.find((row) => row.id === id) ?? attributionRows[0],
-  system: (): SystemStatus => ({ backend: 'UP', mysql: 'UP', redis: 'UP', kafka: 'UP', aiMode: 'MOCK', piiGuardrail: 'DISABLED' }),
-  parse: (draftId: number): ParseResponse => ({ requestId: 'ai_demo_request_01', draftId, status: 'VALIDATED', dsl: demoDsl, estimatedAudience: { count: 128430, dataVersion: 'profile-20260830-1030', calculationMode: 'SNAPSHOT', warnings: [] }, missingFields: [], warnings: [] }),
-  draft: (draftId: number, dsl = demoDsl): DraftResponse => ({ draftId, status: 'VALIDATED', dsl, warnings: [], estimatedAudience: { count: 128430, dataVersion: 'profile-20260830-1030', calculationMode: 'SNAPSHOT', warnings: [] } }),
-  insight: (draftId: number): InsightResponse => ({ requestId: 'ai_demo_insight_01', draftId, metrics: { estimatedAudienceCount: 128430, activeRate7d: 0.78, priceSensitiveRate: 0.35, churnRiskRate: 0.18, cartWithoutPurchaseRate: 0.42 }, insight: { summary: '目标人群活跃度高，但加购后的购买转化偏弱，价格敏感特征明显。', findings: [{ title: '活跃度高于全站平均', description: '目标人群 7 日活跃率为 78%，全站基线为 59%。', importance: 'HIGH' }], strategySuggestions: [{ type: 'OFFER', suggestion: '优先采用明确的满减优惠', reason: '价格敏感用户占比为 35%' }], risks: ['该人群包含一定比例的流失风险用户，不适合高频轰炸'] }, dataQuality: { baselineType: 'CANDIDATE_POOL', proxyMetrics: ['cartWithoutPurchaseRate'], unavailableMetrics: ['topCategories'] } }),
-  content: (draftId: number): ContentResponse => ({ requestId: 'ai_demo_content_01', draftId, content: { variants: [{ type: 'DIRECT_BENEFIT', variant: 'A', title: '购物车好物，满300减30', body: '你关注的商品还在购物车中，满300减30优惠已开放。', strategy: '直接表达优惠利益' }, { type: 'URGENCY', variant: 'B', title: '满减优惠即将结束', body: '购物车商品仍可购买，满300减30优惠有效至明天。', strategy: '基于真实截止时间制造适度紧迫感' }, { type: 'PERSONALIZED', variant: 'C', title: '你关注的好物有新优惠', body: '近期关注的商品可享满300减30，点击查看当前优惠。', strategy: '强调用户近期兴趣' }] } }),
-  confirm: (campaignId: number) => ({ campaignId, draftId: 3001, idempotent: false }),
+  system: (): SystemStatus => ({ backend: 'UP', mysql: 'UP', redis: 'UP', kafka: 'UP' }),
 }

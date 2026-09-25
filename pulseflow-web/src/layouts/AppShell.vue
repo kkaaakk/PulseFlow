@@ -7,7 +7,6 @@ import {
   Bell,
   DataAnalysis,
   DataLine,
-  MagicStick,
   MessageBox,
   Operation,
   Promotion,
@@ -24,7 +23,6 @@ const collapsed = ref(false)
 
 const navItems = [
   { label: 'Dashboard', to: '/dashboard', icon: markRaw(DataAnalysis) },
-  { label: 'AI Copilot', to: '/copilot', icon: markRaw(MagicStick) },
   { label: 'Campaigns', to: '/campaigns', icon: markRaw(Promotion) },
   { label: 'Users', to: '/users', icon: markRaw(User) },
   { label: 'Events', to: '/events', icon: markRaw(Lightning) },

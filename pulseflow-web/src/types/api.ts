@@ -101,27 +101,12 @@ export interface AttributionSummary {
   windowHours?: number
 }
 
-export interface ReviewView {
-  campaignId: number
-  status: string
-  model?: string
-  promptVersion?: string
-  errorMessage?: string
-  failureCode?: string
-  retryable?: boolean
-  retryCount?: number
-  nextRetryAt?: string
-  updatedAt?: string
-  review: Record<string, any>
-}
-
 export interface CampaignDetail {
   campaign: CampaignView
   rules: RuleView[]
   audience: AudienceView
   deliverySummary: DeliverySummary
   attributionSummary: AttributionSummary
-  aiReview?: ReviewView | null
 }
 
 export interface PerformanceView {
@@ -241,8 +226,6 @@ export interface SystemStatus {
   mysql: string
   redis: string
   kafka: string
-  aiMode: string
-  piiGuardrail: string
 }
 
 export interface AuthSession {
@@ -252,85 +235,4 @@ export interface AuthSession {
   tokenName?: string
   tokenValue?: string | null
   loginId?: string
-}
-
-export interface AudienceEstimate {
-  count: number
-  dataVersion?: string
-  calculationMode?: string
-  warnings: string[]
-}
-
-export interface AudienceCondition {
-  field: string
-  operator: string
-  valueType: string
-  value: string | number | boolean
-}
-
-export interface CampaignDsl {
-  schemaVersion: number
-  campaignName: string
-  objective: string
-  audience: {
-    logic: 'AND' | 'OR'
-    conditions: AudienceCondition[]
-  }
-  channel: string
-  schedule: {
-    type: string
-    sendAt: string
-    timezone: string
-  }
-  frequencyCap: {
-    maxTimes: number
-    windowHours: number
-  }
-  promotionFacts: Array<Record<string, any>>
-}
-
-export interface ParseResponse {
-  requestId: string
-  draftId: number
-  status: string
-  dsl: CampaignDsl
-  estimatedAudience?: AudienceEstimate
-  missingFields: string[]
-  warnings: string[]
-}
-
-export interface DraftResponse {
-  draftId: number
-  status: string
-  dsl: CampaignDsl
-  errors?: string[]
-  warnings: string[]
-  estimatedAudience?: AudienceEstimate
-}
-
-export interface InsightResponse {
-  requestId: string
-  draftId: number
-  metrics: Record<string, any>
-  insight: Record<string, any>
-  dataQuality: {
-    baselineType: string
-    proxyMetrics: string[]
-    unavailableMetrics: string[]
-  }
-}
-
-export interface ContentVariant {
-  type?: string
-  variant?: string
-  title: string
-  body: string
-  strategy?: string
-  tone?: string
-}
-
-export interface ContentResponse {
-  requestId: string
-  draftId: number
-  content: ContentVariant[] | { variants: ContentVariant[] }
 }

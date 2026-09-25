@@ -22,7 +22,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.redisson.api.RedissonClient;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -56,7 +55,6 @@ class WebQueryServiceTest {
     @Mock private UserTagMapper userTagMapper;
     @Mock private ProfileService profileService;
     @Mock private JdbcTemplate jdbcTemplate;
-    @Mock private ObjectProvider<com.pulseflow.ai.infrastructure.config.AiFeatureProperties> aiProperties;
     @Mock private RedissonClient redissonClient;
 
     private WebQueryService service;
@@ -66,7 +64,7 @@ class WebQueryServiceTest {
         service = new WebQueryService(
                 campaignMapper, campaignRuleMapper, deliveryTaskMapper, deliveryRecordMapper,
                 clickEventMapper, attributionRecordMapper, userProfileMapper, userEventMapper,
-                behaviorSummaryMapper, userTagMapper, profileService, jdbcTemplate, aiProperties,
+                behaviorSummaryMapper, userTagMapper, profileService, jdbcTemplate,
                 redissonClient);
     }
 
@@ -135,18 +133,8 @@ class WebQueryServiceTest {
         when(campaignMapper.selectById(404L)).thenReturn(null);
 
         assertThatThrownBy(() -> service.campaignPerformance(404L))
-                .isInstanceOf(com.pulseflow.ai.support.AiResourceNotFoundException.class)
+                .isInstanceOf(com.pulseflow.campaign.exception.CampaignResourceNotFoundException.class)
                 .hasMessageContaining("404");
-    }
-
-    @Test
-    void reviewRejectsAUserWhoDoesNotOwnTheCampaign() {
-        Campaign campaign = Campaign.builder().id(77L).createdBy(1024L).build();
-        when(campaignMapper.selectById(77L)).thenReturn(campaign);
-
-        assertThatThrownBy(() -> service.campaignReview(77L, 2048L))
-                .isInstanceOf(com.pulseflow.ai.support.AiForbiddenException.class)
-                .hasMessageContaining("does not own");
     }
 
     @Test

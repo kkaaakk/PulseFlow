@@ -51,9 +51,8 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p>需要 Docker 运行（拉 mysql:8.0 镜像）。</p>
  */
-// Default-skipped: Testcontainers' docker-java returns Status 400 against
-// Docker Desktop 29.x on this host. Run with -DPULSEFLOW_TEST_DOCKER=true in
-// CI / any environment with a working Testcontainers setup.
+// Docker-backed tests are opt-in locally to avoid pulling/starting containers
+// during ordinary unit-test runs. CI and full validation set this flag to true.
 @EnabledIfEnvironmentVariable(named = "PULSEFLOW_TEST_DOCKER", matches = "true")
 @Testcontainers
 @SpringBootTest(

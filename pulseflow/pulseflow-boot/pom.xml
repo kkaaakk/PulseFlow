@@ -11,6 +11,21 @@
     <artifactId>pulseflow-boot</artifactId>
     <name>PulseFlow Boot</name>
 
+    <dependencyManagement>
+        <dependencies>
+            <!-- Keep every Testcontainers module aligned. Docker Engine 29
+                 requires Docker API >= 1.44; the 1.21.4 line contains the
+                 compatibility fix without Testcontainers 2.x package moves. -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>1.21.4</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <!-- Aggregate all business modules -->
         <dependency>
@@ -32,10 +47,6 @@
         <dependency>
             <groupId>com.pulseflow</groupId>
             <artifactId>pulseflow-job</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.pulseflow</groupId>
-            <artifactId>pulseflow-ai</artifactId>
         </dependency>
 
         <!-- Spring Boot -->
