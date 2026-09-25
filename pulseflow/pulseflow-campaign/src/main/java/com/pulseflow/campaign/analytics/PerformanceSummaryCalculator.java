@@ -183,7 +183,8 @@ public class PerformanceSummaryCalculator {
         return out;
     }
 
-    private BigDecimal rate(long numerator, long denominator) {
+    /** Shared authoritative rate semantics for summaries and period aggregates. */
+    public static BigDecimal rate(long numerator, long denominator) {
         if (denominator == 0) return BigDecimal.ZERO;
         return BigDecimal.valueOf(numerator)
                 .divide(BigDecimal.valueOf(denominator), 4, RoundingMode.HALF_UP);

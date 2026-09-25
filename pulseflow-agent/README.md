@@ -1,6 +1,6 @@
 # PulseFlow Agent foundation
 
-This is the Phase 1 Python 3.11 service foundation. It has one typed Pydantic AI agent and no business tools or investigation API yet. Java remains the authority for all business data and writes.
+This is the Phase 1 Python 3.11 service foundation. It has one typed Pydantic AI agent and no connected business tools or investigation API yet. Java now exposes the Phase 2 [read-only internal tool contract](../docs/agent/agent-tool-contract.md); Python integration follows in Phase 3. Java remains the authority for all business data and writes.
 
 ## Local setup
 
