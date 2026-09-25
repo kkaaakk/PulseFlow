@@ -7,7 +7,26 @@ on:
     branches: [main, develop]
 
 jobs:
-  build-and-test:
+  agent-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v6
+      - name: Validate agent offline
+        working-directory: pulseflow-agent
+        env:
+          PULSEFLOW_AGENT_MODEL: test
+          PULSEFLOW_JAVA_BASE_URL: http://127.0.0.1:8080
+        run: |
+          uv sync --locked
+          uv run ruff check .
+          uv run mypy src tests
+          uv run pytest -q
+
+  backend-java:
     runs-on: ubuntu-latest
     env:
       # Signals to Maven enforcer that Docker integration tests MUST run.
@@ -45,6 +64,10 @@ jobs:
           path: pulseflow/**/target/failsafe-reports/*.xml
           retention-days: 7
 
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:

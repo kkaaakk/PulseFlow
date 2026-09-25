@@ -32,6 +32,7 @@ logs/
 .env
 .env.*
 !testing/.env.test.example
+!pulseflow-agent/.env.example
 *.pem
 *.key
 *.p12
@@ -45,3 +46,12 @@ runtime/
 # runtime output remains ignored by testing/.gitignore.
 !testing/data/
 !testing/data/**
+
+# Python agent local artifacts
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+.uv-cache/
+*.pyc
