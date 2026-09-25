@@ -58,9 +58,10 @@ Branch: `codex/pydantic-agent-preparation`
 
 - `mvn clean test`：通过；包括迁移后的 DSL/Draft/Content 测试与新 Audience Preview、Performance Summary 测试。
 - `mvn clean verify`（未设置 `PULSEFLOW_TEST_DOCKER`）：通过；Docker 条件测试跳过。
-- `PULSEFLOW_TEST_DOCKER=true; mvn clean verify`：本机 Docker Desktop daemon 不可用，Testcontainers 在启动容器前报 `Could not find a valid Docker environment`；Flyway 与事件幂等集成测试需由 GitHub CI 的 Docker Runner 验证。
+- `PULSEFLOW_TEST_DOCKER=true; mvn clean verify`：本机 Docker Desktop daemon 不可用，Testcontainers 在启动容器前报 `Could not find a valid Docker environment`。GitHub CI Run [36107086298](https://github.com/kkaaakk/PulseFlow/actions/runs/36107086298) 已在 Docker Runner 上完成相同的 `mvn clean verify`，包括 Flyway V1–V5 与事件幂等集成测试。
 - 前端 `typecheck`、`lint`、`test`、`build`、Demo E2E：通过。
 - `mvn dependency:tree -Dincludes=com.pulseflow:pulseflow-ai`：8 模块 reactor 成功，无匹配依赖。
 - 旧 LLM 符号与配置在生产代码、前端源码、测试脚本中全局搜索为 0。
 - V3 migration 内容与 base Git blob 完全一致。
 - `testing/functional` Python 单测：9/9 通过。
+- PR #10 的 `build-and-test`：通过，后端与前端 CI 均绿色。
