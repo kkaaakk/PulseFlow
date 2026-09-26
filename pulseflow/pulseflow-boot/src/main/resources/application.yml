@@ -103,6 +103,7 @@ logging:
 
 pulseflow:
   agent:
+    service-url: ${PULSEFLOW_AGENT_SERVICE_URL:}
     # Dedicated machine secret. An empty value disables the internal API.
     internal-token: ${PULSEFLOW_AGENT_INTERNAL_TOKEN:}
   # Local web-console credentials. Disable this directory when an external

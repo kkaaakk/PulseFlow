@@ -1,6 +1,9 @@
 package com.pulseflow.boot.agenttools;
 
 import com.pulseflow.campaign.exception.CampaignResourceNotFoundException;
+import com.pulseflow.campaign.exception.CampaignForbiddenException;
+import com.pulseflow.campaign.exception.CampaignConflictException;
+import cn.dev33.satoken.exception.NotLoginException;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.dao.DataAccessException;
@@ -14,8 +17,21 @@ import java.util.Map;
 
 /** Error codes only; never echo request bodies, SQL, credentials or raw exceptions. */
 @Order(Ordered.HIGHEST_PRECEDENCE)
-@RestControllerAdvice(assignableTypes = AgentToolController.class)
+@RestControllerAdvice(assignableTypes = {AgentToolController.class, AgentDraftController.class,
+        AgentProposalGateway.class})
 public class AgentToolExceptionHandler {
+    @ExceptionHandler(NotLoginException.class)
+    public ResponseEntity<Map<String, String>> unauthorized(NotLoginException ignored) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "unauthorized"));
+    }
+    @ExceptionHandler(CampaignForbiddenException.class)
+    public ResponseEntity<Map<String, String>> forbidden(CampaignForbiddenException ignored) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "draft_grant_denied"));
+    }
+    @ExceptionHandler(CampaignConflictException.class)
+    public ResponseEntity<Map<String, String>> conflict(CampaignConflictException ignored) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "draft_conflict"));
+    }
     @ExceptionHandler({IllegalArgumentException.class, HttpMessageNotReadableException.class})
     public ResponseEntity<Map<String, String>> invalid(Exception ignored) {
         return ResponseEntity.badRequest().body(Map.of("error", "invalid_tool_request"));
