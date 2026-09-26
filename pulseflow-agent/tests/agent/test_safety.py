@@ -20,6 +20,7 @@ def settings() -> AgentSettings:
     return AgentSettings.model_validate({
         "pulseflow_java_base_url": "http://java.internal:8080",
         "pulseflow_agent_internal_token": SecretStr("test-internal-token"),
+        "pulseflow_agent_database_url": SecretStr("sqlite+aiosqlite:///:memory:"),
     })
 
 

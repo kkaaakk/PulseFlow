@@ -1,5 +1,9 @@
 """One Pydantic AI agent that chooses Java read-only tools dynamically."""
 
+from asyncio import CancelledError, shield
+from collections.abc import Awaitable, Callable
+from typing import Literal
+
 from opentelemetry import trace
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.exceptions import UsageLimitExceeded
@@ -33,6 +37,8 @@ from pulseflow_agent.domain.contracts import (
 )
 from pulseflow_agent.domain.investigation import (
     Diagnosis,
+    Hypothesis,
+    HypothesisStatus,
     InvestigationResult,
     InvestigationWorkspace,
     ToolObservation,
@@ -109,7 +115,7 @@ class GrowthInvestigator:
             "dataVersion": metadata.data_version,
             "warnings": metadata.warnings,
         })
-        evidence = ctx.deps.workspace.add_evidence(name, metadata, observation, args)
+        evidence = await ctx.deps.workspace.add_evidence(name, metadata, observation, args)
         return ToolObservation(
             evidence_id=evidence.id, observation=observation, warnings=list(metadata.warnings)
         )
@@ -117,12 +123,18 @@ class GrowthInvestigator:
     def _register_tools(self) -> None:
         agent = self._agent
 
+        @agent.instructions
+        async def investigation_context(ctx: RunContext[AgentDependencies]) -> str:
+            context = ctx.deps.workspace.context_text()
+            await ctx.deps.guardrail.check(context)
+            return context
+
         @agent.tool
         async def query_metric(
             ctx: RunContext[AgentDependencies], request: QueryMetricArgs
         ) -> ToolObservation:
             """Query one authoritative campaign metric over a bounded period."""
-            ctx.deps.workspace.record_tool("query_metric")
+            await ctx.deps.workspace.record_tool("query_metric")
             try:
                 response = await ctx.deps.pulseflow.query_metric(request)
                 return await self._save(ctx, "query_metric", request, response,
@@ -135,7 +147,7 @@ class GrowthInvestigator:
             ctx: RunContext[AgentDependencies], request: CompareMetricArgs
         ) -> ToolObservation:
             """Compare one metric across two periods; Java computes both deltas."""
-            ctx.deps.workspace.record_tool("compare_metric")
+            await ctx.deps.workspace.record_tool("compare_metric")
             try:
                 response = await ctx.deps.pulseflow.compare_metric(request)
                 return await self._save(ctx, "compare_metric", request, response,
@@ -148,7 +160,7 @@ class GrowthInvestigator:
             ctx: RunContext[AgentDependencies], request: BreakdownMetricArgs
         ) -> ToolObservation:
             """Break one metric down by campaign, channel, or day."""
-            ctx.deps.workspace.record_tool("breakdown_metric")
+            await ctx.deps.workspace.record_tool("breakdown_metric")
             try:
                 response = await ctx.deps.pulseflow.breakdown_metric(request)
                 return await self._save(ctx, "breakdown_metric", request, response,
@@ -161,7 +173,7 @@ class GrowthInvestigator:
             ctx: RunContext[AgentDependencies], campaign_id: int
         ) -> ToolObservation:
             """Read a precomputed campaign summary, without triggering a write."""
-            ctx.deps.workspace.record_tool("get_campaign_performance")
+            await ctx.deps.workspace.record_tool("get_campaign_performance")
             try:
                 response: PerformanceResponse = await ctx.deps.pulseflow.get_campaign_performance(
                     campaign_id
@@ -178,7 +190,7 @@ class GrowthInvestigator:
             ctx: RunContext[AgentDependencies], request: AttributionArgs
         ) -> ToolObservation:
             """Get aggregate attributed conversions by a supported dimension."""
-            ctx.deps.workspace.record_tool("get_attribution_breakdown")
+            await ctx.deps.workspace.record_tool("get_attribution_breakdown")
             try:
                 response = await ctx.deps.pulseflow.get_attribution_breakdown(request)
                 return await self._save(ctx, "get_attribution_breakdown", request, response,
@@ -191,13 +203,69 @@ class GrowthInvestigator:
             ctx: RunContext[AgentDependencies], request: PreviewAudienceArgs
         ) -> ToolObservation:
             """Validate a Campaign DSL and preview only its aggregate audience size."""
-            ctx.deps.workspace.record_tool("preview_audience")
+            await ctx.deps.workspace.record_tool("preview_audience")
             try:
                 response = await ctx.deps.pulseflow.preview_audience(request)
                 return await self._save(ctx, "preview_audience", request, response,
                                         audience_observation(response))
             except ToolClientError as error:
                 return ToolObservation(evidence_id=None, observation=error.code)
+
+        @agent.tool
+        async def propose_hypothesis(
+            ctx: RunContext[AgentDependencies], statement: str,
+            supporting_evidence_ids: list[str], contradicting_evidence_ids: list[str],
+            reason: str | None = None,
+        ) -> Hypothesis:
+            """Add a tentative hypothesis linked only to existing business Evidence."""
+            await ctx.deps.workspace.record_tool("propose_hypothesis")
+            await ctx.deps.guardrail.check([statement, reason])
+            try:
+                return await ctx.deps.workspace.propose_hypothesis(
+                    statement, supporting_evidence_ids, contradicting_evidence_ids, reason
+                )
+            except ValueError:
+                raise ModelRetry("Hypothesis evidence must exist in the current scope.") from None
+
+        @agent.tool
+        async def update_hypothesis(
+            ctx: RunContext[AgentDependencies], hypothesis_id: str, status: HypothesisStatus,
+            supporting_evidence_ids: list[str], contradicting_evidence_ids: list[str],
+            reason: str, confidence: Literal["low", "medium", "high"] | None = None,
+        ) -> Hypothesis:
+            """Strengthen, weaken or reject a hypothesis using current Evidence."""
+            await ctx.deps.workspace.record_tool("update_hypothesis")
+            await ctx.deps.guardrail.check(reason)
+            try:
+                updated = await ctx.deps.workspace.update_hypothesis(
+                    hypothesis_id, status, supporting_evidence_ids,
+                    contradicting_evidence_ids, reason, confidence,
+                )
+                await ctx.deps.guardrail.check([updated.statement, updated.reason])
+                return updated
+            except ValueError:
+                raise ModelRetry("Hypothesis or Evidence is not in the current scope.") from None
+
+        @agent.tool
+        async def list_hypotheses(ctx: RunContext[AgentDependencies]) -> list[Hypothesis]:
+            """List hypotheses already recorded in this Investigation Workspace."""
+            await ctx.deps.workspace.record_tool("list_hypotheses")
+            await ctx.deps.guardrail.check([
+                text for item in ctx.deps.workspace.hypotheses
+                for text in (item.statement, item.reason) if text is not None
+            ])
+            return ctx.deps.workspace.hypotheses
+
+        @agent.tool
+        async def update_scope(ctx: RunContext[AgentDependencies], description: str) -> str:
+            """Apply a user-requested investigation scope change within the same ID."""
+            await ctx.deps.workspace.record_tool("update_scope")
+            await ctx.deps.guardrail.check(description)
+            try:
+                version = await ctx.deps.workspace.change_scope(description)
+            except ValueError:
+                raise ModelRetry("Scope must be a nonempty user-requested description.") from None
+            return f"scopeVersion={version}; previous scoped evidence is historical background"
 
         @agent.output_validator
         def validate_diagnosis(
@@ -222,9 +290,15 @@ class GrowthInvestigator:
             return output
 
     async def run(
-        self, prompt: str, operator_context: OperatorContext | None = None
+        self, prompt: str, operator_context: OperatorContext | None = None,
+        workspace_factory: Callable[[str], Awaitable[InvestigationWorkspace]] | None = None,
     ) -> InvestigationResult:
-        workspace = InvestigationWorkspace(goal=prompt)
+        await self._guardrail.check(prompt)
+        workspace = (
+            await workspace_factory(prompt)
+            if workspace_factory is not None else InvestigationWorkspace(goal=prompt)
+        )
+        await workspace.add_message("USER", prompt)
         deps = AgentDependencies(self._pulseflow, workspace, operator_context, self._guardrail)
         with trace.get_tracer(__name__).start_as_current_span(
             "agent.investigation", record_exception=False, set_status_on_exception=False
@@ -232,12 +306,14 @@ class GrowthInvestigator:
             span.set_attribute(
                 "agent.model_provider", "test" if self._settings.is_test_model else "openai"
             )
-            await self._guardrail.check(prompt)
             try:
                 result = await self._agent.run(
                     prompt, deps=deps, usage_limits=create_usage_limits(self._settings)
                 )
                 diagnosis = result.output
+                status: Literal["COMPLETED", "INSUFFICIENT_EVIDENCE", "BUDGET_EXHAUSTED"] = (
+                    "COMPLETED" if diagnosis.status == "DIAGNOSED" else "INSUFFICIENT_EVIDENCE"
+                )
             except UsageLimitExceeded:
                 diagnosis = Diagnosis(
                     status="INSUFFICIENT_EVIDENCE",
@@ -250,14 +326,45 @@ class GrowthInvestigator:
                     confidence="low",
                     recommended_next_action=None,
                 )
-            await self._guardrail.check({
-                "summary": diagnosis.summary,
-                "findings": [finding.claim for finding in diagnosis.findings],
-                "unresolved": diagnosis.unresolved_questions,
-                "recommendedAction": diagnosis.recommended_next_action,
-            })
+                status = "BUDGET_EXHAUSTED"
+            except CancelledError:
+                cancelled = Diagnosis(
+                    status="INSUFFICIENT_EVIDENCE", summary="Investigation cancelled.",
+                    findings=[], evidence_ids=[],
+                    unresolved_questions=["The investigation was cancelled before completion."],
+                    confidence="low", recommended_next_action=None,
+                )
+                await shield(workspace.finish("CANCELLED", cancelled))
+                raise
+            except Exception:
+                failure = Diagnosis(
+                    status="INSUFFICIENT_EVIDENCE", summary="Investigation failed.",
+                    findings=[], evidence_ids=[],
+                    unresolved_questions=["The investigation did not complete."],
+                    confidence="low", recommended_next_action=None,
+                )
+                await workspace.finish("FAILED", failure)
+                raise
+            try:
+                await self._guardrail.check({
+                    "summary": diagnosis.summary,
+                    "findings": [finding.claim for finding in diagnosis.findings],
+                    "unresolved": diagnosis.unresolved_questions,
+                    "recommendedAction": diagnosis.recommended_next_action,
+                })
+            except Exception:
+                failure = Diagnosis(
+                    status="INSUFFICIENT_EVIDENCE", summary="Final output blocked.",
+                    findings=[], evidence_ids=[],
+                    unresolved_questions=["The final output did not pass safety checks."],
+                    confidence="low", recommended_next_action=None,
+                )
+                await workspace.finish("FAILED", failure)
+                raise
+            await workspace.finish(status, diagnosis)
             return InvestigationResult(
                 diagnosis=diagnosis,
                 evidence=workspace.evidence,
                 tool_trajectory=workspace.tool_trajectory,
+                investigation_id=workspace.id,
             )
