@@ -24,6 +24,11 @@ jobs:
           done
           test "$(docker compose -f testing/docker-compose.test.yml --profile agent exec -T agent id -u)" = "10001"
           python testing/agent_smoke.py
+      - name: Diagnose offline Java startup on failure
+        if: failure()
+        run: |
+          docker compose -f testing/docker-compose.test.yml --profile agent ps --all
+          docker compose -f testing/docker-compose.test.yml --profile agent logs --no-color --tail 160 java
       - name: Stop offline stack
         if: always()
         run: docker compose -f testing/docker-compose.test.yml --profile agent down -v
