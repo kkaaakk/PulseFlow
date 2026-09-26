@@ -17,7 +17,7 @@ Event API → Kafka → MySQL 事件事实 → Profile (Redis / MySQL)
 
 Python + Pydantic AI Agent Service 已在 Java 服务外建立基础，并通过 [内部业务 Tool API](docs/agent/agent-tool-contract.md) 自主调查、记录 Evidence 和生成 Diagnosis。调查与 [Workspace 持久化](docs/agent/agent-workspace-persistence.md)已接入；后续阶段将实现类型化 Campaign Proposal。Java 负责重新验证 DSL、人群预估、草稿归属与人工确认。
 
-**Phase 4 已支持持久化调查、Hypothesis 和同 ID 续查。** 当前提供内部调查入口，尚未连接前端。运行方法见 [Agent README](pulseflow-agent/README.md)。Java 不包含 LLM Provider、Prompt Runtime、模型输出解析器或 AI Review。PII 要求见 [PII Guardrail Contract](docs/agent/pii-guardrail-contract.md)。
+**Phase 5 已加入评测集、质量指标和跨 Python/Java 的 OTel 追踪。** 当前提供内部调查入口，尚未连接前端。评测边界见 [Agent Evaluation](docs/agent/agent-evaluation.md)，运行方法见 [Agent README](pulseflow-agent/README.md)。Java 不包含 LLM Provider、Prompt Runtime、模型输出解析器或 AI Review。PII 要求见 [PII Guardrail Contract](docs/agent/pii-guardrail-contract.md)。
 
 ```text
 Python Growth Investigation Agent

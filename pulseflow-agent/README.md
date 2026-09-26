@@ -26,3 +26,5 @@ uv run pytest
 ```
 
 CI uses offline TestModel/FunctionModel and mocked Java/Azure responses. It makes no paid model or Azure calls. The installed Pydantic AI version enforces request, tool-call and input-token limits through `UsageLimits`; its API does not expose a cost limit. `PULSEFLOW_AGENT_MAX_COST_USD` remains reserved for a future supported implementation and is **not enforced**. The request/token limits bound runs now.
+
+Phase 5 adds 22 fixture evaluation cases, an optional `REAL_AGENT_EVAL=true` suite, official OTel instrumentation and the machine-only `/internal/v1/agent-quality` metrics snapshot. See [evaluation and tracing](../docs/agent/agent-evaluation.md) for measurement limits and collector setup. Prompt, Tool content, credentials and SQL parameters are excluded from exported telemetry.

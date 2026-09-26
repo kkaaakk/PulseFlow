@@ -8,6 +8,9 @@ from typing import Annotated
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from pydantic import BaseModel, ConfigDict, StringConstraints
 from sqlalchemy.ext.asyncio import create_async_engine
 from starlette.middleware.base import RequestResponseEndpoint
@@ -17,6 +20,7 @@ from pulseflow_agent.agent.growth_investigator import GrowthInvestigator
 from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient
 from pulseflow_agent.config import AgentSettings
 from pulseflow_agent.domain.investigation import Investigation
+from pulseflow_agent.observability.tracing import Telemetry
 from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail, PiiBlockedError
 from pulseflow_agent.workspace.repository import (
     InvestigationConflictError,
@@ -40,12 +44,18 @@ class FollowUpRequest(InvestigationRequest):
     ] = None
 
 
-def create_app(settings: AgentSettings | None = None) -> FastAPI:
+def create_app(
+    settings: AgentSettings | None = None, trace_runtime: Telemetry | None = None
+) -> FastAPI:
+    telemetry = trace_runtime or Telemetry()
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         configured = settings or AgentSettings()  # type: ignore[call-arg]
-        if (configured.pulseflow_agent_internal_token is None
-                or not configured.pulseflow_agent_internal_token.get_secret_value()):
+        if (
+            configured.pulseflow_agent_internal_token is None
+            or not configured.pulseflow_agent_internal_token.get_secret_value()
+        ):
             raise ValueError("Java internal token is required for investigation tools")
         database_url = configured.pulseflow_agent_database_url
         assert database_url is not None  # AgentSettings requires it
@@ -54,6 +64,11 @@ def create_app(settings: AgentSettings | None = None) -> FastAPI:
         except Exception:
             raise ValueError("invalid Agent database configuration") from None
         app.state.settings = configured
+        if configured.pulseflow_agent_otel_endpoint:
+            telemetry.configure_endpoint(str(configured.pulseflow_agent_otel_endpoint))
+        SQLAlchemyInstrumentor().instrument(
+            engine=engine.sync_engine, tracer_provider=telemetry.provider
+        )
         try:
             repository = SqlAlchemyInvestigationRepository(engine)
             try:
@@ -63,18 +78,24 @@ def create_app(settings: AgentSettings | None = None) -> FastAPI:
             except Exception:
                 raise RuntimeError("Agent database unavailable or schema not migrated") from None
             async with httpx.AsyncClient(timeout=10.0) as client:
+                HTTPXClientInstrumentor.instrument_client(
+                    client, tracer_provider=telemetry.provider
+                )
                 guardrail = AzurePiiGuardrail(configured, client)
                 investigator = GrowthInvestigator(
-                    configured, guardrail, PulseFlowApiClient(configured, client)
+                    configured,
+                    guardrail,
+                    PulseFlowApiClient(configured, client, telemetry.metrics),
+                    telemetry=telemetry,
                 )
-                app.state.investigations = InvestigationService(
-                    repository, investigator, guardrail
-                )
+                app.state.investigations = InvestigationService(repository, investigator, guardrail)
                 app.state.ready = True
                 yield
         finally:
             app.state.ready = False
             await engine.dispose()
+            SQLAlchemyInstrumentor().uninstrument(engine=engine.sync_engine)
+            telemetry.shutdown()
 
     app = FastAPI(title="PulseFlow Agent", lifespan=lifespan)
     app.state.ready = False
@@ -85,19 +106,26 @@ def create_app(settings: AgentSettings | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def internal_auth(request: Request, call_next: RequestResponseEndpoint) -> Response:
-        if not request.url.path.startswith("/internal/v1/investigations"):
+        if not request.url.path.startswith("/internal/v1/"):
             return await call_next(request)
         configured: AgentSettings = request.app.state.settings
         expected = configured.pulseflow_agent_internal_token
         supplied = request.headers.get("X-PulseFlow-Agent-Token", "")
-        if (expected is None or len(supplied) > 512
-                or not compare_digest(supplied, expected.get_secret_value())):
+        if (
+            expected is None
+            or len(supplied) > 512
+            or not compare_digest(supplied, expected.get_secret_value())
+        ):
             return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
         return await call_next(request)
 
     @app.get("/health/live")
     async def live() -> dict[str, str]:
         return {"status": "live"}
+
+    @app.get("/internal/v1/agent-quality")
+    async def agent_quality() -> dict[str, float | None]:
+        return telemetry.metrics.snapshot()
 
     @app.get("/health/ready")
     async def ready() -> dict[str, str]:
@@ -141,6 +169,15 @@ def create_app(settings: AgentSettings | None = None) -> FastAPI:
         except Exception:
             raise HTTPException(status_code=503, detail="agent_unavailable") from None
 
+    FastAPIInstrumentor.instrument_app(
+        app,
+        tracer_provider=telemetry.provider,
+        excluded_urls="health/live,health/ready",
+        http_capture_headers_server_request=[],
+        http_capture_headers_server_response=[],
+        http_capture_headers_sanitize_fields=[".*"],
+        exclude_spans=["receive", "send"],
+    )
     return app
 
 

@@ -34,11 +34,19 @@ jobs:
           PULSEFLOW_AGENT_MODEL: test
           PULSEFLOW_JAVA_BASE_URL: http://127.0.0.1:8080
           AGENT_TEST_MYSQL_URL: mysql+asyncmy://pulseflow_agent:agent_test_password@127.0.0.1:3306/pulseflow_agent
+          PULSEFLOW_AGENT_EVAL_REPORT: eval-report.json
         run: |
           uv sync --locked
           uv run ruff check .
           uv run mypy src tests
           uv run pytest -q
+      - name: Upload offline Agent evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-eval-report
+          path: pulseflow-agent/eval-report.json
+          retention-days: 7
 
   backend-java:
     runs-on: ubuntu-latest
