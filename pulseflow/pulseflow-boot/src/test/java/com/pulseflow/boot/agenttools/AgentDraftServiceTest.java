@@ -64,7 +64,9 @@ class AgentDraftServiceTest {
     }
 
     @Test void onlyDraftIsCreatedAfterJavaValidationAndPreview() {
-        stored(grant());
+        Map<String, Object> row = grant();
+        row.put("expires_at", LocalDateTime.now(ZoneOffset.UTC).plusMinutes(10));
+        stored(row);
         var checked = DslValidationResult.ok(List.of());
         var audience = AudiencePreviewResult.builder().estimatedCount(42).dataVersion("profile-v1").build();
         when(validator.validate(any())).thenReturn(checked);
@@ -91,7 +93,7 @@ class AgentDraftServiceTest {
         assertThatThrownBy(() -> service.create(token, new AgentDraftService.Request(
                 UUID.randomUUID().toString(), request.proposal()))).isInstanceOf(CampaignForbiddenException.class);
         Map<String, Object> expired = grant();
-        expired.put("expires_at", Timestamp.valueOf(LocalDateTime.now(ZoneOffset.UTC).minusMinutes(1)));
+        expired.put("expires_at", LocalDateTime.now(ZoneOffset.UTC).minusMinutes(1));
         stored(expired);
         assertThatThrownBy(() -> service.create(token, request)).isInstanceOf(CampaignForbiddenException.class);
         verifyNoInteractions(drafts, validator, preview);

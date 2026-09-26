@@ -156,9 +156,16 @@ public class AgentDraftService {
         if (!MessageDigest.isEqual(expected.getBytes(StandardCharsets.US_ASCII),
                 hash(token).getBytes(StandardCharsets.US_ASCII))
                 || !investigationId.equals(row.get("investigation_id"))
-                || !((Timestamp) row.get("expires_at")).toLocalDateTime()
+                || !grantExpiry(row.get("expires_at"))
                     .isAfter(LocalDateTime.now(ZoneOffset.UTC))) throw forbidden();
         return row;
+    }
+
+    private static LocalDateTime grantExpiry(Object value) {
+        // MySQL Connector/J returns DATETIME as LocalDateTime; other JDBC drivers use Timestamp.
+        if (value instanceof LocalDateTime expiry) return expiry;
+        if (value instanceof Timestamp expiry) return expiry.toLocalDateTime();
+        throw forbidden();
     }
 
     private Response response(CampaignDraft draft) {
