@@ -1,8 +1,11 @@
 """FastAPI application with readiness checked at startup."""
 
+import asyncio
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from hmac import compare_digest
+from time import monotonic
 from typing import Annotated
 
 import httpx
@@ -14,7 +17,7 @@ from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints
 from sqlalchemy.ext.asyncio import create_async_engine
 from starlette.middleware.base import RequestResponseEndpoint
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from pulseflow_agent.agent.growth_investigator import GrowthInvestigator
 from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient
@@ -22,6 +25,7 @@ from pulseflow_agent.config import AgentSettings
 from pulseflow_agent.domain.contracts import PromotionFact
 from pulseflow_agent.domain.investigation import Investigation
 from pulseflow_agent.observability.tracing import Telemetry
+from pulseflow_agent.runtime import AdmissionRejected
 from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail, PiiBlockedError
 from pulseflow_agent.workspace.repository import (
     InvestigationConflictError,
@@ -66,7 +70,16 @@ def create_app(
         database_url = configured.pulseflow_agent_database_url
         assert database_url is not None  # AgentSettings requires it
         try:
-            engine = create_async_engine(database_url.get_secret_value(), pool_pre_ping=True)
+            pool_options: dict[str, int] = {}
+            if database_url.get_secret_value().startswith("mysql+"):
+                pool_options = {
+                    "pool_size": configured.pulseflow_agent_db_pool_size,
+                    "max_overflow": 0,
+                    "pool_timeout": 5,
+                }
+            engine = create_async_engine(
+                database_url.get_secret_value(), pool_pre_ping=True, **pool_options
+            )
         except Exception:
             raise ValueError("invalid Agent database configuration") from None
         app.state.settings = configured
@@ -81,9 +94,16 @@ def create_app(
                 if configured.pulseflow_agent_env == "test":
                     await repository.create_schema_for_tests()
                 await repository.check_ready()
+                await repository.recover_interrupted()
             except Exception:
                 raise RuntimeError("Agent database unavailable or schema not migrated") from None
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(10, connect=3, pool=3),
+                limits=httpx.Limits(
+                    max_connections=configured.pulseflow_agent_http_connections,
+                    max_keepalive_connections=8,
+                ),
+            ) as client:
                 HTTPXClientInstrumentor.instrument_client(
                     client, tracer_provider=telemetry.provider
                 )
@@ -94,9 +114,14 @@ def create_app(
                     PulseFlowApiClient(configured, client, telemetry.metrics),
                     telemetry=telemetry,
                 )
-                app.state.investigations = InvestigationService(repository, investigator, guardrail)
+                service = InvestigationService(repository, investigator, guardrail)
+                app.state.investigations = service
                 app.state.ready = True
-                yield
+                try:
+                    yield
+                finally:
+                    app.state.ready = False
+                    await service.shutdown()
         finally:
             app.state.ready = False
             await engine.dispose()
@@ -105,6 +130,15 @@ def create_app(
 
     app = FastAPI(title="PulseFlow Agent", lifespan=lifespan)
     app.state.ready = False
+    app.state.streams = 0
+
+    @app.exception_handler(AdmissionRejected)
+    async def capacity_error(_request: Request, _error: AdmissionRejected) -> JSONResponse:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "agent_capacity_exceeded"},
+            headers={"Retry-After": "60"},
+        )
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(_request: Request, _error: RequestValidationError) -> JSONResponse:
@@ -137,7 +171,115 @@ def create_app(
     async def ready() -> dict[str, str]:
         if not app.state.ready:
             raise HTTPException(status_code=503, detail="agent not ready")
+        try:
+            await app.state.investigations._repository.check_ready()
+        except Exception:
+            raise HTTPException(status_code=503, detail="agent not ready") from None
         return {"status": "ready"}
+
+    @app.post("/internal/v1/investigations/start", status_code=202)
+    async def start_investigation(body: InvestigationRequest, request: Request) -> Investigation:
+        try:
+            return await request.app.state.investigations.start(body.question)  # type: ignore[no-any-return]
+        except AdmissionRejected:
+            raise
+        except PiiBlockedError as error:
+            raise HTTPException(status_code=422, detail=error.reason) from None
+        except Exception:
+            raise HTTPException(status_code=503, detail="agent_unavailable") from None
+
+    @app.post("/internal/v1/investigations/{investigation_id}/resume", status_code=202)
+    async def resume_investigation(
+        investigation_id: str, body: FollowUpRequest, request: Request
+    ) -> Investigation:
+        try:
+            service: InvestigationService = request.app.state.investigations
+            return await service.start(body.question, investigation_id, body.scope)
+        except AdmissionRejected:
+            raise
+        except InvestigationNotFoundError:
+            raise HTTPException(status_code=404, detail="not_found") from None
+        except InvestigationConflictError:
+            raise HTTPException(status_code=409, detail="investigation_busy") from None
+        except PiiBlockedError as error:
+            raise HTTPException(status_code=422, detail=error.reason) from None
+        except Exception:
+            raise HTTPException(status_code=503, detail="agent_unavailable") from None
+
+    @app.post("/internal/v1/investigations/{investigation_id}/cancel")
+    async def cancel_investigation(investigation_id: str, request: Request) -> Investigation:
+        try:
+            service: InvestigationService = request.app.state.investigations
+            return await service.cancel(investigation_id)
+        except InvestigationNotFoundError:
+            raise HTTPException(status_code=404, detail="not_found") from None
+        except InvestigationConflictError:
+            raise HTTPException(status_code=409, detail="investigation_busy") from None
+        except Exception:
+            raise HTTPException(status_code=503, detail="agent_unavailable") from None
+
+    @app.get("/internal/v1/investigations/{investigation_id}/events")
+    async def events(investigation_id: str, request: Request) -> StreamingResponse:
+        service: InvestigationService = request.app.state.investigations
+        try:
+            await service.get(investigation_id)
+        except InvestigationNotFoundError:
+            raise HTTPException(status_code=404, detail="not_found") from None
+        if app.state.streams >= 16:
+            raise AdmissionRejected()
+        app.state.streams += 1
+
+        def frame(event: str, **data: str) -> str:
+            payload = json.dumps({"investigation_id": investigation_id, **data})
+            return f"event: {event}\ndata: {payload}\n\n"
+
+        async def stream() -> AsyncIterator[str]:
+            seen_tools = 0
+            seen_evidence: set[str] = set()
+            seen_hypotheses: dict[str, str] = {}
+            started = monotonic()
+            try:
+                yield frame("investigation_started")
+                while not await request.is_disconnected() and monotonic() - started < 110:
+                    item = await service.get(investigation_id)
+                    for name in item.tool_trajectory[seen_tools:]:
+                        yield frame("tool_started", tool_name=name)
+                    seen_tools = len(item.tool_trajectory)
+                    for evidence in item.evidence:
+                        if evidence.id not in seen_evidence:
+                            yield frame("tool_completed", tool_name=evidence.tool_name)
+                            yield frame("evidence_added", evidence_id=evidence.id)
+                            seen_evidence.add(evidence.id)
+                    for hypothesis in item.hypotheses:
+                        version = hypothesis.updated_at.isoformat()
+                        if seen_hypotheses.get(hypothesis.id) != version:
+                            yield frame(
+                                "hypothesis_changed",
+                                hypothesis_id=hypothesis.id,
+                                status=hypothesis.status,
+                            )
+                            seen_hypotheses[hypothesis.id] = version
+                    if item.status != "RUNNING":
+                        yield frame(
+                            "error"
+                            if item.status in ("FAILED", "CANCELLED")
+                            else "diagnosis_ready",
+                            status=item.status,
+                        )
+                        return
+                    yield ": heartbeat\n\n"
+                    await asyncio.sleep(1)
+                yield frame("error", status="stream_window_expired")
+            except Exception:
+                yield frame("error", status="agent_unavailable")
+            finally:
+                app.state.streams -= 1
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
 
     @app.post("/internal/v1/investigations")
     async def investigate(body: InvestigationRequest, request: Request) -> Investigation:
@@ -146,6 +288,8 @@ def create_app(
             return await service.create(body.question)
         except PiiBlockedError as error:
             raise HTTPException(status_code=422, detail=error.reason) from None
+        except AdmissionRejected:
+            raise
         except Exception:
             raise HTTPException(status_code=503, detail="agent_unavailable") from None
 
@@ -172,6 +316,8 @@ def create_app(
             raise HTTPException(status_code=409, detail="investigation_busy") from None
         except PiiBlockedError as error:
             raise HTTPException(status_code=422, detail=error.reason) from None
+        except AdmissionRejected:
+            raise
         except Exception:
             raise HTTPException(status_code=503, detail="agent_unavailable") from None
 
@@ -190,6 +336,8 @@ def create_app(
             raise HTTPException(status_code=409, detail="proposal_not_available") from None
         except PiiBlockedError as error:
             raise HTTPException(status_code=422, detail=error.reason) from None
+        except AdmissionRejected:
+            raise
         except Exception:
             raise HTTPException(status_code=503, detail="agent_unavailable") from None
 

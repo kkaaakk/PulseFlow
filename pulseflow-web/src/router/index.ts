@@ -12,6 +12,7 @@ const router = createRouter({
       children: [
         { path: '', redirect: '/dashboard' },
         { path: 'dashboard', name: 'dashboard', component: () => import('@/views/Dashboard.vue'), meta: { title: 'Dashboard' } },
+        { path: 'investigations/:id?', name: 'investigations', component: () => import('@/views/Investigations.vue'), meta: { title: 'Growth Investigation' } },
         { path: 'campaigns', name: 'campaigns', component: () => import('@/views/Campaigns.vue'), meta: { title: 'Campaigns' } },
         { path: 'campaigns/:id', name: 'campaign-detail', component: () => import('@/views/CampaignDetail.vue'), meta: { title: 'Campaign Detail' } },
         { path: 'users', name: 'users', component: () => import('@/views/Users.vue'), meta: { title: 'Users' } },

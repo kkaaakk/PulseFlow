@@ -20,6 +20,10 @@ import java.util.Map;
 @RestControllerAdvice(assignableTypes = {AgentToolController.class, AgentDraftController.class,
         AgentProposalGateway.class})
 public class AgentToolExceptionHandler {
+    @ExceptionHandler(AgentGatewayException.class)
+    public ResponseEntity<Map<String, String>> gateway(AgentGatewayException error) {
+        return ResponseEntity.status(error.status).body(Map.of("error", error.code));
+    }
     @ExceptionHandler(NotLoginException.class)
     public ResponseEntity<Map<String, String>> unauthorized(NotLoginException ignored) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "unauthorized"));

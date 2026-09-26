@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import Field, HttpUrl, SecretStr, model_validator
+from pydantic import Field, HttpUrl, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,10 +22,28 @@ class AgentSettings(BaseSettings):
     pulseflow_agent_max_model_requests: int = Field(default=8, ge=1)
     pulseflow_agent_max_tool_calls: int = Field(default=12, ge=0)
     pulseflow_agent_max_input_tokens: int = Field(default=12000, ge=1)
+    pulseflow_agent_max_output_tokens: int = Field(default=4000, ge=1, le=32000)
+    pulseflow_agent_run_timeout_seconds: float = Field(default=90, gt=0, le=110)
+    pulseflow_agent_max_concurrency: int = Field(default=4, ge=1, le=32)
+    pulseflow_agent_runs_per_minute: int = Field(default=20, ge=1, le=1000)
+    pulseflow_agent_http_connections: int = Field(default=16, ge=1, le=100)
+    pulseflow_agent_db_pool_size: int = Field(default=5, ge=1, le=30)
     pulseflow_agent_max_cost_usd: float = Field(default=0.5, gt=0)
     azure_language_endpoint: HttpUrl | None = None
     azure_language_key: SecretStr | None = None
     azure_language_pii_language: str = "zh-hans"
+
+    @field_validator(
+        "pulseflow_agent_api_key",
+        "pulseflow_agent_base_url",
+        "pulseflow_agent_otel_endpoint",
+        "azure_language_endpoint",
+        "azure_language_key",
+        mode="before",
+    )
+    @classmethod
+    def empty_optional_setting(cls, value: object) -> object:
+        return None if value == "" else value
 
     @property
     def is_test_model(self) -> bool:
@@ -35,7 +53,8 @@ class AgentSettings(BaseSettings):
     def validate_real_model(self) -> "AgentSettings":
         database_url = (
             self.pulseflow_agent_database_url.get_secret_value()
-            if self.pulseflow_agent_database_url else ""
+            if self.pulseflow_agent_database_url
+            else ""
         )
         if not database_url:
             raise ValueError("Agent database URL is required")
@@ -46,9 +65,11 @@ class AgentSettings(BaseSettings):
                 database = make_url(database_url)
             except Exception:
                 raise ValueError("invalid Agent database URL") from None
-            if (database.drivername != "mysql+asyncmy"
-                    or database.database != "pulseflow_agent"
-                    or database.username in (None, "root")):
+            if (
+                database.drivername != "mysql+asyncmy"
+                or database.database != "pulseflow_agent"
+                or database.username in (None, "root")
+            ):
                 raise ValueError("production requires a dedicated Agent MySQL schema and user")
         if self.is_test_model:
             if self.pulseflow_agent_env == "production":

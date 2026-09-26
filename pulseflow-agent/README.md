@@ -30,3 +30,11 @@ CI uses offline TestModel/FunctionModel and mocked Java/Azure responses. It make
 Phase 5 adds 22 fixture evaluation cases, an optional `REAL_AGENT_EVAL=true` suite, official OTel instrumentation and the machine-only `/internal/v1/agent-quality` metrics snapshot. See [evaluation and tracing](../docs/agent/agent-evaluation.md) for measurement limits and collector setup. Prompt, Tool content, credentials and SQL parameters are excluded from exported telemetry.
 
 Phase 6 adds a conditional `create_campaign_draft` Tool and persisted CampaignProposal. Use the Java authenticated Investigation/Proposal gateway to supply operator-owned, short-lived PROPOSE authorization; the Agent never gets a user login Token or execution Tool. After migrations, see [Proposal approval contract](../docs/agent/campaign-proposal-approval.md) for human review/confirmation and authorized promotion facts.
+## Investigation UI and deployment
+
+The Java-authenticated `/api/investigations` frontend now supports asynchronous investigation,
+follow-up, cancellation, business SSE and human draft review. See
+[production operations](../docs/agent/production-investigation.md) for the single-worker contract,
+limits, Docker/Compose startup and recovery. Use `uv sync --locked` and migrate Alembic to head
+before starting. Production requires a real model, Azure PII configuration and the dedicated Agent
+MySQL schema; offline CI uses no paid provider requests.

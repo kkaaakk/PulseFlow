@@ -82,6 +82,8 @@ def create_model(settings: AgentSettings) -> TestModel | OpenAIModel:
             str(settings.pulseflow_agent_base_url) if settings.pulseflow_agent_base_url else None
         ),
     )
+    # Wire retries are otherwise invisible to PydanticAI UsageLimits.
+    provider.client.max_retries = 0
     return OpenAIModel(settings.pulseflow_agent_model.removeprefix("openai:"), provider=provider)
 
 
@@ -90,6 +92,7 @@ def create_usage_limits(settings: AgentSettings) -> UsageLimits:
         request_limit=settings.pulseflow_agent_max_model_requests,
         tool_calls_limit=settings.pulseflow_agent_max_tool_calls,
         input_tokens_limit=settings.pulseflow_agent_max_input_tokens,
+        output_tokens_limit=settings.pulseflow_agent_max_output_tokens,
     )
 
 
@@ -437,7 +440,11 @@ class GrowthInvestigator:
             span.set_attribute("investigation.id", workspace.id or "ephemeral")
             try:
                 result = await self._agent.run(
-                    prompt, deps=deps, usage=usage, usage_limits=create_usage_limits(self._settings)
+                    prompt,
+                    deps=deps,
+                    usage=usage,
+                    usage_limits=create_usage_limits(self._settings),
+                    model_settings={"timeout": 20.0, "max_tokens": 2000},
                 )
                 diagnosis = result.output
                 try:

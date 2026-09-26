@@ -56,7 +56,84 @@ services:
       timeout: 5s
       retries: 30
 
+  agent-mysql:
+    profiles: [agent]
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: pulseflow_agent
+      MYSQL_USER: pulseflow_agent
+      MYSQL_PASSWORD: ${PULSEFLOW_AGENT_DB_PASSWORD:-agent-local-only}
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+    networks: [agent-internal]
+    volumes: [pulseflow-agent-mysql:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD-SHELL", "mysql --protocol=TCP -h127.0.0.1 -u pulseflow_agent -p\"$${MYSQL_PASSWORD}\" -D pulseflow_agent -e 'SELECT 1'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  agent-migrate:
+    profiles: [agent]
+    build: ../pulseflow-agent
+    image: pulseflow-agent:local
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      PULSEFLOW_AGENT_DATABASE_URL: mysql+asyncmy://pulseflow_agent:${PULSEFLOW_AGENT_DB_PASSWORD:-agent-local-only}@agent-mysql:3306/pulseflow_agent
+    networks: [agent-internal]
+    depends_on:
+      agent-mysql: { condition: service_healthy }
+    healthcheck: { disable: true }
+
+  java:
+    profiles: [agent]
+    build: ../pulseflow
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/pulseflow_test?serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: test
+      SPRING_DATASOURCE_PASSWORD: test
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_REDIS_HOST: redis
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      PULSEFLOW_AGENT_SERVICE_URL: http://agent:8001
+      PULSEFLOW_AGENT_INTERNAL_TOKEN: ${PULSEFLOW_AGENT_INTERNAL_TOKEN:?set a dedicated machine token}
+    ports: ["127.0.0.1:8080:8080"]
+    networks: [default, agent-internal]
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    stop_grace_period: 30s
+
+  agent:
+    profiles: [agent]
+    image: pulseflow-agent:local
+    build: ../pulseflow-agent
+    init: true
+    environment:
+      PULSEFLOW_AGENT_ENV: development
+      PULSEFLOW_AGENT_MODEL: ${PULSEFLOW_AGENT_MODEL:-test}
+      PULSEFLOW_AGENT_DATABASE_URL: mysql+asyncmy://pulseflow_agent:${PULSEFLOW_AGENT_DB_PASSWORD:-agent-local-only}@agent-mysql:3306/pulseflow_agent
+      PULSEFLOW_JAVA_BASE_URL: http://java:8080
+      PULSEFLOW_AGENT_INTERNAL_TOKEN: ${PULSEFLOW_AGENT_INTERNAL_TOKEN:?set a dedicated machine token}
+      PULSEFLOW_AGENT_API_KEY: ${PULSEFLOW_AGENT_API_KEY:-}
+      PULSEFLOW_AGENT_BASE_URL: ${PULSEFLOW_AGENT_BASE_URL:-}
+      AZURE_LANGUAGE_ENDPOINT: ${AZURE_LANGUAGE_ENDPOINT:-}
+      AZURE_LANGUAGE_KEY: ${AZURE_LANGUAGE_KEY:-}
+    networks: [agent-internal, agent-egress]
+    depends_on:
+      agent-migrate: { condition: service_completed_successfully }
+    stop_grace_period: 30s
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+networks:
+  agent-internal: { internal: true }
+  agent-egress: {}
+
 volumes:
   pulseflow-test-mysql:
   pulseflow-test-redis:
   pulseflow-test-kafka:
+  pulseflow-agent-mysql:

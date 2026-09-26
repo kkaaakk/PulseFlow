@@ -23,6 +23,7 @@ const collapsed = ref(false)
 
 const navItems = [
   { label: 'Dashboard', to: '/dashboard', icon: markRaw(DataAnalysis) },
+  { label: 'Investigations', to: '/investigations', icon: markRaw(DataLine) },
   { label: 'Campaigns', to: '/campaigns', icon: markRaw(Promotion) },
   { label: 'Users', to: '/users', icon: markRaw(User) },
   { label: 'Events', to: '/events', icon: markRaw(Lightning) },
@@ -37,7 +38,7 @@ const today = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digi
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'is-collapsed': collapsed }">
+  <div class="app-shell" :class="{ 'is-collapsed': collapsed, 'investigation-shell': route.name === 'investigations' }">
     <aside class="sidebar" :class="{ collapsed }">
       <div class="brand">
         <span class="brand-mark"><el-icon><Lightning /></el-icon></span>
