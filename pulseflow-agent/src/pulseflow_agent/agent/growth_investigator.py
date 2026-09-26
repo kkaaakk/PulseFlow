@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 from typing import Literal
 
 from opentelemetry import trace
-from pydantic_ai import Agent, ModelResponse, ModelRetry, RunContext
+from pydantic_ai import Agent, ModelResponse, ModelRetry, RunContext, ToolDefinition
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIModel
@@ -13,7 +13,11 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.usage import RunUsage, UsageLimits
 
-from pulseflow_agent.agent.dependencies import AgentDependencies, OperatorContext
+from pulseflow_agent.agent.dependencies import (
+    AgentDependencies,
+    DraftAuthorization,
+    OperatorContext,
+)
 from pulseflow_agent.agent.instructions import GROWTH_INVESTIGATOR_INSTRUCTIONS
 from pulseflow_agent.agent.observations import (
     attribution_observation,
@@ -24,6 +28,11 @@ from pulseflow_agent.agent.observations import (
 )
 from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient, ToolClientError
 from pulseflow_agent.config import AgentSettings
+from pulseflow_agent.domain.campaign_proposal import (
+    CampaignDraftRequest,
+    CampaignProposal,
+    ProposalRecord,
+)
 from pulseflow_agent.domain.contracts import (
     AttributionArgs,
     BreakdownMetricArgs,
@@ -144,6 +153,13 @@ class GrowthInvestigator:
         @agent.instructions
         async def investigation_context(ctx: RunContext[AgentDependencies]) -> str:
             context = ctx.deps.workspace.context_text()
+            if ctx.deps.draft_authorization is not None:
+                context += "\nOperator-authorized promotion facts (do not add or replace): " + str(
+                    [
+                        item.model_dump(mode="json", by_alias=True)
+                        for item in ctx.deps.draft_authorization.promotion_facts
+                    ]
+                )
             await ctx.deps.guardrail.check(context)
             return context
 
@@ -313,6 +329,52 @@ class GrowthInvestigator:
                 raise ModelRetry("Scope must be a nonempty user-requested description.") from None
             return f"scopeVersion={version}; previous scoped evidence is historical background"
 
+        async def prepare_draft(
+            ctx: RunContext[AgentDependencies], definition: ToolDefinition
+        ) -> ToolDefinition | None:
+            authorization = ctx.deps.draft_authorization
+            if (
+                authorization is None
+                or ctx.deps.draft_created
+                or authorization.investigation_id != ctx.deps.workspace.id
+                or not ctx.deps.workspace.evidence_ids
+            ):
+                return None
+            return definition
+
+        @agent.tool(prepare=prepare_draft, sequential=True)
+        async def create_campaign_draft(
+            ctx: RunContext[AgentDependencies], proposal: CampaignProposal
+        ) -> ProposalRecord:
+            """Create one Java DRAFT; normal Java user confirmation remains required."""
+            authorization = ctx.deps.draft_authorization
+            if (
+                authorization is None
+                or ctx.deps.draft_created
+                or authorization.investigation_id != ctx.deps.workspace.id
+            ):
+                raise ModelRetry("This run has no PROPOSE authorization.")
+            if not set(proposal.supporting_evidence_ids).issubset(ctx.deps.workspace.evidence_ids):
+                raise ModelRetry("Proposal evidence must exist in the current investigation scope.")
+            if proposal.promotion_facts != authorization.promotion_facts:
+                raise ModelRetry("Use only the exact operator-authorized promotion facts, or none.")
+            await ctx.deps.guardrail.check(proposal.free_text())
+            await ctx.deps.workspace.record_tool("create_campaign_draft")
+            try:
+                draft = await ctx.deps.pulseflow.create_campaign_draft(
+                    CampaignDraftRequest(
+                        investigation_id=authorization.investigation_id, proposal=proposal
+                    ),
+                    authorization.grant,
+                )
+            except ToolClientError:
+                raise ModelRetry(
+                    "Java rejected or could not create the draft; do not claim execution."
+                ) from None
+            record = await ctx.deps.workspace.add_proposal(proposal, draft)
+            ctx.deps.draft_created = True
+            return record
+
         @agent.output_validator
         def validate_diagnosis(ctx: RunContext[AgentDependencies], output: Diagnosis) -> Diagnosis:
             known = ctx.deps.workspace.evidence_ids
@@ -342,6 +404,7 @@ class GrowthInvestigator:
         prompt: str,
         operator_context: OperatorContext | None = None,
         workspace_factory: Callable[[str], Awaitable[InvestigationWorkspace]] | None = None,
+        draft_authorization: DraftAuthorization | None = None,
     ) -> InvestigationResult:
         try:
             await self._guardrail.check(prompt)
@@ -354,7 +417,13 @@ class GrowthInvestigator:
             else InvestigationWorkspace(goal=prompt)
         )
         await workspace.add_message("USER", prompt)
-        deps = AgentDependencies(self._pulseflow, workspace, operator_context, self._guardrail)
+        deps = AgentDependencies(
+            self._pulseflow,
+            workspace,
+            operator_context,
+            self._guardrail,
+            draft_authorization=draft_authorization,
+        )
         usage = RunUsage()
         cost: float | None = None
         with trace.get_tracer(
@@ -459,4 +528,5 @@ class GrowthInvestigator:
                 tool_trajectory=workspace.tool_trajectory,
                 investigation_id=workspace.id,
                 hypotheses=workspace.hypotheses,
+                proposals=workspace.proposals,
             )

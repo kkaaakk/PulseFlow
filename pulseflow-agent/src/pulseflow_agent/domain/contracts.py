@@ -140,12 +140,12 @@ class FrequencyCap(WireModel):
 
 
 class PromotionFact(WireModel):
-    type: str
-    threshold: Decimal | None = None
-    discount: Decimal | None = None
-    rate: Decimal | None = None
-    valid_until: str | None = None
-    description: str | None = None
+    type: str = Field(min_length=1, max_length=32)
+    threshold: Decimal | None = Field(default=None, ge=0)
+    discount: Decimal | None = Field(default=None, ge=0)
+    rate: Decimal | None = Field(default=None, gt=0, le=1)
+    valid_until: str | None = Field(default=None, max_length=64)
+    description: str | None = Field(default=None, max_length=1000)
 
 
 class CampaignDsl(WireModel):
@@ -171,11 +171,24 @@ class ToolMetadata(WireModel):
     query_id: UUID
     generated_at: AwareDatetime
     data_version: str | None
-    source: Literal["campaign-facts", "campaign-summary", "attribution-record", "audience-preview"]
-    warnings: list[Literal[
-        "row_limit_reached", "zero_denominator_rate_is_zero", "baseline_zero",
-        "summary_unavailable", "preview_warning", "preview_unavailable", "validation_failed",
-    ]]
+    source: Literal[
+        "campaign-facts",
+        "campaign-summary",
+        "attribution-record",
+        "audience-preview",
+        "campaign-draft",
+    ]
+    warnings: list[
+        Literal[
+            "row_limit_reached",
+            "zero_denominator_rate_is_zero",
+            "baseline_zero",
+            "summary_unavailable",
+            "preview_warning",
+            "preview_unavailable",
+            "validation_failed",
+        ]
+    ]
 
 
 class MetricRow(WireModel):

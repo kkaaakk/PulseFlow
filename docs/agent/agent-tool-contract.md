@@ -1,6 +1,6 @@
 # Agent 内部只读 Tool API（Phase 2）
 
-Java 在 `/internal/v1/agent-tools` 提供六个业务语义端点。Phase 3 的 Python Agent 已通过强类型客户端连接这些端点；请求不能包含 SQL、表名、列名或单用户标识。
+Java 在 `/internal/v1/agent-tools` 提供六个只读业务端点。Phase 6 另加入严格授权的草稿创建端点，权限规则见 [Proposal 与人工确认](campaign-proposal-approval.md)。请求不能包含 SQL、表名、列名或单用户标识。
 
 ## 部署与认证
 
@@ -27,6 +27,7 @@ Java 在 `/internal/v1/agent-tools` 提供六个业务语义端点。Phase 3 的
 | `GET /campaigns/{campaignId}/performance` | 正整数 Campaign ID | 读取 `PerformanceSummaryCalculator` 已生成的 `CampaignPerformanceSummary`；缺失时 `available=false`，不会触发计算器的写入路径。 |
 | `POST /attribution/breakdown` | `timeRange,filters,dimension,rowLimit` | `attributionCount` 与 `uniqueConverters`，只返回聚合结果。 |
 | `POST /audience/preview` | `dsl: CampaignDsl` | 先调用 `CampaignDslValidator`，再调用 `AudiencePreviewService`；无效 DSL 不执行预估。返回 `estimatedCount,dataVersion,validation`，验证错误和预估警告采用安全代码，不回显原值。预估失败时 `estimatedCount=null`，避免把故障误报成零人。 |
+| `POST /campaign-drafts` | `investigationId,proposal` 和独立 `X-PulseFlow-Draft-Grant` | PROPOSE 权限，复用 Java 校验/预估/草稿服务；仅写草稿，没有 confirm/activate 内部端点。 |
 
 指标白名单：`SENT`、`DELIVERED`、`CLICKS`、`CONVERSIONS`、`CTR`、`CONVERSION_RATE`、`ATTRIBUTED_CONVERSIONS`。`SENT` 对应发送记录数，包括失败记录；`DELIVERED` 对应 `status IN ('SENT','DELIVERED')`。`CLICKS` 和 `CONVERSIONS` 是按用户去重的人数；`ATTRIBUTED_CONVERSIONS` 是归因记录数。`CTR=CLICKS/DELIVERED`，`CONVERSION_RATE=CONVERSIONS/CLICKS`，复用 `PerformanceSummaryCalculator.rate` 的四位小数、`HALF_UP`、零分母返回 0 语义；零分母同时警告。`sampleSize` 是该指标的计数来源或比率分母。时间窗按每类事实自己的事件时间过滤，所以跨事实比率是**同窗事件比率**，不表示同一批触达用户的因果转化率。
 

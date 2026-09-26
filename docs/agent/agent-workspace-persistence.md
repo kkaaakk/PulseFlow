@@ -1,6 +1,6 @@
 # Agent Workspace 持久化（Phase 4）
 
-调查现在是独立的业务对象，而非一次模型调用。`InvestigationRepository` 接口隔离存储实现；SQLAlchemy 异步实现只访问独立 Agent schema 的四张表。没有 Pydantic AI Memory、Harness 或业务数据库直连。
+调查现在是独立的业务对象，而非一次模型调用。`InvestigationRepository` 接口隔离存储实现；SQLAlchemy 异步实现只访问独立 Agent schema 的表。没有 Pydantic AI Memory、Harness 或业务数据库直连。
 
 ## 状态与记录
 
@@ -10,6 +10,7 @@
 | `agent_evidence` | Java Tool 生成的 Evidence、Java queryId、scope 版本；无原始用户行 |
 | `agent_hypothesis` | 陈述、`OPEN / SUPPORTED / WEAKENED / REJECTED`、支持/反驳 Evidence ID、文字原因与 low/medium/high 置信度 |
 | `agent_message` | 用户问题和 Agent 可见回复；Agent 回复可附对应 Diagnosis JSON。不保存隐藏推理或完整模型消息序列。 |
+| `agent_campaign_proposal`（Phase 6） | Evidence 支持的 Proposal 与 Java Draft 引用；不保存草稿授权秘密。 |
 
 Evidence 仍只能由 Java Tool 响应自动生成。Agent 本地 Tool `propose_hypothesis`、`update_hypothesis`、`list_hypotheses` 只读写 Workspace；`update_scope` 更新当前调查范围。Hypothesis 引用必须是当前 Scope 的既有 Evidence ID，不能手工创建 Evidence。
 

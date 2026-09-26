@@ -51,16 +51,21 @@ async def test_offline_agent_structured_output_and_usage_limit(
     config = settings()
     async with httpx.AsyncClient() as client:
         agent = GrowthInvestigator(
-            config, AzurePiiGuardrail(config, client), PulseFlowApiClient(config, client),
-            model=TestModel(call_tools=[], custom_output_args={
-                "status": "INSUFFICIENT_EVIDENCE",
-                "summary": "No business evidence yet.",
-                "findings": [],
-                "evidence_ids": [],
-                "unresolved_questions": ["What do the business metrics show?"],
-                "confidence": "low",
-                "recommended_next_action": None,
-            }),
+            config,
+            AzurePiiGuardrail(config, client),
+            PulseFlowApiClient(config, client),
+            model=TestModel(
+                call_tools=[],
+                custom_output_args={
+                    "status": "INSUFFICIENT_EVIDENCE",
+                    "summary": "No business evidence yet.",
+                    "findings": [],
+                    "evidence_ids": [],
+                    "unresolved_questions": ["What do the business metrics show?"],
+                    "confidence": "low",
+                    "recommended_next_action": None,
+                },
+            ),
         )
         assert create_model(config).model_name == "test"
         assert create_usage_limits(config).request_limit == 8
@@ -86,10 +91,23 @@ async def test_local_fields_block_before_azure_or_model() -> None:
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         guardrail = AzurePiiGuardrail(config, client)
         blocked: list[object] = [
-            {field: "secret"} for field in (
-                "userId", "userIds", "mobile", "phone", "email", "address",
-                "idCard", "idNumber", "deviceId", "imei", "rawEvents",
-                "orderDetails", "behaviourLogs", "fullName", "realName",
+            {field: "secret"}
+            for field in (
+                "userId",
+                "userIds",
+                "mobile",
+                "phone",
+                "email",
+                "address",
+                "idCard",
+                "idNumber",
+                "deviceId",
+                "imei",
+                "rawEvents",
+                "orderDetails",
+                "behaviourLogs",
+                "fullName",
+                "realName",
             )
         ] + [
             {"nested": [{"rawEvents": [1]}]},
@@ -195,8 +213,14 @@ def test_internal_investigation_auth_and_pii_are_fail_closed() -> None:
     with TestClient(create_app(settings())) as client:
         path = "/internal/v1/investigations"
         assert client.post(path, content="not-json").status_code == 401
-        assert client.post(path, headers={"X-PulseFlow-Agent-Token": "wrong"},
-                           json={"question": "普通活动问题"}).status_code == 401
+        assert (
+            client.post(
+                path,
+                headers={"X-PulseFlow-Agent-Token": "wrong"},
+                json={"question": "普通活动问题"},
+            ).status_code
+            == 401
+        )
         blocked = client.post(
             path,
             headers={"X-PulseFlow-Agent-Token": "fake-internal-token"},
@@ -241,3 +265,9 @@ def test_internal_investigation_auth_and_pii_are_fail_closed() -> None:
         assert continued.json()["id"] == investigation_id
         assert continued.json()["scope_version"] == 1
         assert len(continued.json()["messages"]) == 4
+        proposal = client.post(
+            f"{path}/{investigation_id}/proposal",
+            headers={"X-PulseFlow-Agent-Token": "fake-internal-token"},
+            json={"question": "设计召回", "draft_grant": "x" * 80, "promotion_facts": []},
+        )
+        assert proposal.status_code == 409  # no supported Diagnosis in offline mode

@@ -11,7 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints
 from sqlalchemy.ext.asyncio import create_async_engine
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response
@@ -19,6 +19,7 @@ from starlette.responses import JSONResponse, Response
 from pulseflow_agent.agent.growth_investigator import GrowthInvestigator
 from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient
 from pulseflow_agent.config import AgentSettings
+from pulseflow_agent.domain.contracts import PromotionFact
 from pulseflow_agent.domain.investigation import Investigation
 from pulseflow_agent.observability.tracing import Telemetry
 from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail, PiiBlockedError
@@ -42,6 +43,11 @@ class FollowUpRequest(InvestigationRequest):
     scope: Annotated[
         str | None, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)
     ] = None
+
+
+class ProposalRequest(InvestigationRequest):
+    draft_grant: SecretStr = Field(min_length=40, max_length=512)
+    promotion_facts: list[PromotionFact] = Field(default_factory=list, max_length=10)
 
 
 def create_app(
@@ -164,6 +170,24 @@ def create_app(
             raise HTTPException(status_code=404, detail="not_found") from None
         except InvestigationConflictError:
             raise HTTPException(status_code=409, detail="investigation_busy") from None
+        except PiiBlockedError as error:
+            raise HTTPException(status_code=422, detail=error.reason) from None
+        except Exception:
+            raise HTTPException(status_code=503, detail="agent_unavailable") from None
+
+    @app.post("/internal/v1/investigations/{investigation_id}/proposal")
+    async def propose(
+        investigation_id: str, body: ProposalRequest, request: Request
+    ) -> Investigation:
+        try:
+            service: InvestigationService = request.app.state.investigations
+            return await service.propose(
+                investigation_id, body.question, body.draft_grant, body.promotion_facts
+            )
+        except InvestigationNotFoundError:
+            raise HTTPException(status_code=404, detail="not_found") from None
+        except InvestigationConflictError:
+            raise HTTPException(status_code=409, detail="proposal_not_available") from None
         except PiiBlockedError as error:
             raise HTTPException(status_code=422, detail=error.reason) from None
         except Exception:

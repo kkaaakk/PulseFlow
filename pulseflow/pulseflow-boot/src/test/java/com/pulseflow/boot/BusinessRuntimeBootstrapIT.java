@@ -35,7 +35,7 @@ class BusinessRuntimeBootstrapIT {
     // ------------------------------------------------------------------
 
     /**
-     * Verifies Flyway V1~V5 migration scripts run cleanly on MySQL 8.0 and
+     * Verifies Flyway V1~V6 migration scripts run cleanly on MySQL 8.0 and
      * that V4/V5's state-machine columns, retry-split columns, rebuilt scan
      * index and campaign ownership column exist.
      *
@@ -49,7 +49,7 @@ class BusinessRuntimeBootstrapIT {
     @EnabledIfEnvironmentVariable(named = "PULSEFLOW_TEST_DOCKER", matches = "true")
     @Testcontainers
     @Nested
-    @DisplayName("Flyway V1~V5 迁移验证 (Testcontainers MySQL 8.0, 需 Docker)")
+    @DisplayName("Flyway V1~V6 迁移验证 (Testcontainers MySQL 8.0, 需 Docker)")
     class FlywayMigrationIT {
 
         @Container
@@ -62,7 +62,7 @@ class BusinessRuntimeBootstrapIT {
                 .withReuse(true);
 
         @Test
-        @DisplayName("V1~V5 迁移成功，campaign_ai_review 含状态机列+重试调度索引，campaign 含 created_by")
+        @DisplayName("V1~V6 迁移成功，review 状态机、重试索引和 campaign 归属存在")
         void flywayMigrationCreatesStateMachineColumns() throws Exception {
             org.flywaydb.core.Flyway flyway = org.flywaydb.core.Flyway.configure()
                     .dataSource(mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword())
@@ -102,7 +102,7 @@ class BusinessRuntimeBootstrapIT {
         }
 
         @Test
-        @DisplayName("V1~V5 迁移成功，核心表与 AI 表全部存在")
+        @DisplayName("V1~V6 迁移成功，核心表、历史 AI 表和 Agent 授权表存在")
         void coreTablesExistAfterMigration() throws Exception {
             org.flywaydb.core.Flyway flyway = org.flywaydb.core.Flyway.configure()
                     .dataSource(mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword())
@@ -121,7 +121,8 @@ class BusinessRuntimeBootstrapIT {
                 assertThat(tables).contains(
                         "campaign", "campaign_rule", "user_event", "user_metric_hourly",
                         "campaign_ai_draft", "campaign_ai_review",
-                        "campaign_performance_summary", "ai_generation_record");
+                        "campaign_performance_summary", "ai_generation_record",
+                        "agent_investigation_owner", "agent_campaign_draft_grant");
             }
         }
     }

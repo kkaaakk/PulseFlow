@@ -16,7 +16,8 @@ from sqlalchemy import (
 metadata = MetaData()
 
 investigation = Table(
-    "agent_investigation", metadata,
+    "agent_investigation",
+    metadata,
     Column("id", String(36), primary_key=True),
     Column("goal", Text, nullable=False),
     Column("status", String(32), nullable=False),
@@ -29,7 +30,8 @@ investigation = Table(
 )
 
 evidence = Table(
-    "agent_evidence", metadata,
+    "agent_evidence",
+    metadata,
     Column("id", String(36), primary_key=True),
     Column("investigation_id", String(36), ForeignKey("agent_investigation.id"), nullable=False),
     Column("tool_name", String(64), nullable=False),
@@ -46,7 +48,8 @@ evidence = Table(
 )
 
 hypothesis = Table(
-    "agent_hypothesis", metadata,
+    "agent_hypothesis",
+    metadata,
     Column("id", String(36), primary_key=True),
     Column("investigation_id", String(36), ForeignKey("agent_investigation.id"), nullable=False),
     Column("statement", Text, nullable=False),
@@ -62,7 +65,8 @@ hypothesis = Table(
 )
 
 message = Table(
-    "agent_message", metadata,
+    "agent_message",
+    metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("investigation_id", String(36), ForeignKey("agent_investigation.id"), nullable=False),
     Column("role", String(16), nullable=False),
@@ -70,4 +74,16 @@ message = Table(
     Column("diagnosis_json", JSON),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Index("idx_agent_message_investigation", "investigation_id", "id"),
+)
+
+proposal = Table(
+    "agent_campaign_proposal",
+    metadata,
+    Column("id", String(36), primary_key=True),
+    Column("investigation_id", String(36), ForeignKey("agent_investigation.id"), nullable=False),
+    Column("proposal_json", JSON, nullable=False),
+    Column("draft_json", JSON, nullable=False),
+    Column("scope_version", Integer, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Index("idx_agent_proposal_investigation", "investigation_id", "created_at"),
 )

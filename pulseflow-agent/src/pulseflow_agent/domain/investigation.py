@@ -10,6 +10,11 @@ from uuid import uuid4
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict, Field
 
+from pulseflow_agent.domain.campaign_proposal import (
+    CampaignDraftResponse,
+    CampaignProposal,
+    ProposalRecord,
+)
 from pulseflow_agent.domain.contracts import ToolMetadata, WireModel, safe_query
 
 if TYPE_CHECKING:
@@ -86,6 +91,7 @@ class InvestigationResult(BaseModel):
     tool_trajectory: list[str]
     investigation_id: str | None = None
     hypotheses: list[Hypothesis] = Field(default_factory=list)
+    proposals: list[ProposalRecord] = Field(default_factory=list)
 
 
 class Investigation(BaseModel):
@@ -101,6 +107,7 @@ class Investigation(BaseModel):
     hypotheses: list[Hypothesis]
     messages: list[AgentMessage]
     tool_trajectory: list[str]
+    proposals: list[ProposalRecord] = Field(default_factory=list)
 
 
 @dataclass
@@ -117,6 +124,23 @@ class InvestigationWorkspace:
     hypotheses: list[Hypothesis] = field(default_factory=list)
     messages: list[AgentMessage] = field(default_factory=list)
     tool_trajectory: list[str] = field(default_factory=list)
+    proposals: list[ProposalRecord] = field(default_factory=list)
+
+    async def add_proposal(
+        self, proposal: CampaignProposal, draft: CampaignDraftResponse
+    ) -> ProposalRecord:
+        self._validate_evidence(proposal.supporting_evidence_ids)
+        item = ProposalRecord(
+            id=str(uuid4()),
+            proposal=proposal,
+            draft=draft,
+            scope_version=self.scope_version,
+            created_at=datetime.now(UTC),
+        )
+        if self.repository is not None and self.id is not None:
+            await self.repository.add_proposal(self.id, item)
+        self.proposals.append(item)
+        return item
 
     async def record_tool(self, name: str) -> None:
         if self.repository is not None and self.id is not None:
@@ -147,7 +171,10 @@ class InvestigationWorkspace:
         return item
 
     async def propose_hypothesis(
-        self, statement: str, supporting: list[str], contradicting: list[str],
+        self,
+        statement: str,
+        supporting: list[str],
+        contradicting: list[str],
         reason: str | None = None,
     ) -> Hypothesis:
         self._validate_evidence(supporting + contradicting)
@@ -155,11 +182,16 @@ class InvestigationWorkspace:
             raise ValueError("same evidence cannot support and contradict a hypothesis")
         now = datetime.now(UTC)
         item = Hypothesis(
-            id=str(uuid4()), statement=statement, status="OPEN",
+            id=str(uuid4()),
+            statement=statement,
+            status="OPEN",
             supporting_evidence_ids=supporting,
             contradicting_evidence_ids=contradicting,
-            reason=reason, confidence=None, scope_version=self.scope_version,
-            created_at=now, updated_at=now,
+            reason=reason,
+            confidence=None,
+            scope_version=self.scope_version,
+            created_at=now,
+            updated_at=now,
         )
         if self.repository is not None and self.id is not None:
             await self.repository.add_hypothesis(self.id, item)
@@ -167,8 +199,12 @@ class InvestigationWorkspace:
         return item
 
     async def update_hypothesis(
-        self, hypothesis_id: str, status: HypothesisStatus,
-        supporting: list[str], contradicting: list[str], reason: str,
+        self,
+        hypothesis_id: str,
+        status: HypothesisStatus,
+        supporting: list[str],
+        contradicting: list[str],
+        reason: str,
         confidence: Literal["low", "medium", "high"] | None = None,
     ) -> Hypothesis:
         self._validate_evidence(supporting + contradicting)
@@ -181,11 +217,17 @@ class InvestigationWorkspace:
         for index, old in enumerate(self.hypotheses):
             if old.id != hypothesis_id or old.scope_version != self.scope_version:
                 continue
-            updated = Hypothesis.model_validate({**old.model_dump(),
-                "status": status, "supporting_evidence_ids": supporting,
-                "contradicting_evidence_ids": contradicting, "reason": reason,
-                "confidence": confidence, "updated_at": datetime.now(UTC),
-            })
+            updated = Hypothesis.model_validate(
+                {
+                    **old.model_dump(),
+                    "status": status,
+                    "supporting_evidence_ids": supporting,
+                    "contradicting_evidence_ids": contradicting,
+                    "reason": reason,
+                    "confidence": confidence,
+                    "updated_at": datetime.now(UTC),
+                }
+            )
             if self.repository is not None and self.id is not None:
                 await self.repository.update_hypothesis(self.id, updated)
             self.hypotheses[index] = updated
@@ -204,15 +246,23 @@ class InvestigationWorkspace:
         self.scope_version += 1
         now = datetime.now(UTC)
         self.hypotheses = [
-            item.model_copy(update={"status": "REJECTED", "reason": "superseded_by_scope_change",
-                                    "updated_at": now})
-            if item.scope_version < self.scope_version and item.status != "REJECTED" else item
+            item.model_copy(
+                update={
+                    "status": "REJECTED",
+                    "reason": "superseded_by_scope_change",
+                    "updated_at": now,
+                }
+            )
+            if item.scope_version < self.scope_version and item.status != "REJECTED"
+            else item
             for item in self.hypotheses
         ]
         return self.scope_version
 
     async def add_message(
-        self, role: Literal["USER", "ASSISTANT"], content: str,
+        self,
+        role: Literal["USER", "ASSISTANT"],
+        content: str,
         diagnosis: Diagnosis | None = None,
     ) -> None:
         item = AgentMessage(
@@ -226,15 +276,20 @@ class InvestigationWorkspace:
         if self.repository is not None and self.id is not None:
             await self.repository.finish(self.id, status, diagnosis)
         self.status = status
-        self.messages.append(AgentMessage(
-            role="ASSISTANT", content=diagnosis.summary,
-            created_at=datetime.now(UTC), diagnosis=diagnosis,
-        ))
+        self.messages.append(
+            AgentMessage(
+                role="ASSISTANT",
+                content=diagnosis.summary,
+                created_at=datetime.now(UTC),
+                diagnosis=diagnosis,
+            )
+        )
 
     def context_text(self) -> str:
         prior = (
             self.messages[:-1]
-            if self.messages and self.messages[-1].role == "USER" else self.messages
+            if self.messages and self.messages[-1].role == "USER"
+            else self.messages
         )
         recent = [f"{item.role}: {item.content}" for item in prior[-4:]]
         facts = [
@@ -244,13 +299,17 @@ class InvestigationWorkspace:
             for item in self.evidence[-12:]
         ]
         hypotheses = [
-            f"{item.id} [{item.status}]: {item.statement}"
-            for item in self.hypotheses[-8:]
+            f"{item.id} [{item.status}]: {item.statement}" for item in self.hypotheses[-8:]
         ]
-        return (f"Investigation goal: {self.goal}\nCurrent scope: {self.scope or 'overall'}\n"
-                + "Prior visible conversation:\n" + "\n".join(recent)
-                + "\nEvidence (BACKGROUND is historical, not proof for current scope):\n"
-                + "\n".join(facts) + "\nHypotheses:\n" + "\n".join(hypotheses))[:6000]
+        return (
+            f"Investigation goal: {self.goal}\nCurrent scope: {self.scope or 'overall'}\n"
+            + "Prior visible conversation:\n"
+            + "\n".join(recent)
+            + "\nEvidence (BACKGROUND is historical, not proof for current scope):\n"
+            + "\n".join(facts)
+            + "\nHypotheses:\n"
+            + "\n".join(hypotheses)
+        )[:6000]
 
     def _validate_evidence(self, ids: list[str]) -> None:
         if not set(ids).issubset(self.evidence_ids):
