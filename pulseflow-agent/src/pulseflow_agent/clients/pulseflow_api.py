@@ -1,5 +1,6 @@
 """Typed Java business client; the sole write capability creates an authorized draft."""
 
+from time import monotonic
 from typing import TypeVar
 
 import httpx
@@ -46,6 +47,16 @@ class PulseFlowApiClient:
         self._token = settings.pulseflow_agent_internal_token
         self._client = client
         self._metrics = metrics
+        self._failures = 0
+        self._open_until = 0.0
+
+    def _unavailable(self) -> ToolClientError:
+        self._failures += 1
+        if self._failures >= 3:
+            self._open_until = monotonic() + 15
+        if self._metrics:
+            self._metrics.java_call(True)
+        return ToolClientError("java_tool_unavailable")
 
     async def _request(
         self,
@@ -55,6 +66,8 @@ class PulseFlowApiClient:
         payload: WireModel | None = None,
         draft_grant: SecretStr | None = None,
     ) -> ResponseT:
+        if monotonic() < self._open_until:
+            raise ToolClientError("java_tool_circuit_open")
         if self._token is None or not self._token.get_secret_value():
             if self._metrics:
                 self._metrics.java_call(True)
@@ -74,17 +87,15 @@ class PulseFlowApiClient:
                 timeout=10.0,
             )
         except httpx.HTTPError:
-            if self._metrics:
-                self._metrics.java_call(True)
-            raise ToolClientError("java_tool_unavailable") from None
+            raise self._unavailable() from None
         if 400 <= response.status_code < 500:
             if self._metrics:
                 self._metrics.java_call(True)
             raise ToolClientError("java_tool_rejected_arguments")
         if response.status_code != 200:
-            if self._metrics:
-                self._metrics.java_call(True)
-            raise ToolClientError("java_tool_unavailable")
+            raise self._unavailable()
+        self._failures = 0
+        self._open_until = 0.0
         try:
             result = response_type.model_validate(response.json())
         except (ValidationError, ValueError, TypeError):

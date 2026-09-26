@@ -7,6 +7,27 @@ on:
     branches: [main, develop]
 
 jobs:
+  agent-compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PULSEFLOW_AGENT_INTERNAL_TOKEN: offline-ci-machine-token
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start offline Agent stack
+        run: docker compose -f testing/docker-compose.test.yml --profile agent up --build -d
+      - name: Verify Agent non-root health and Java authenticated flow
+        run: |
+          for i in $(seq 1 60); do
+            if docker compose -f testing/docker-compose.test.yml --profile agent exec -T agent python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=2)"; then break; fi
+            sleep 2
+          done
+          test "$(docker compose -f testing/docker-compose.test.yml --profile agent exec -T agent id -u)" = "10001"
+          python testing/agent_smoke.py
+      - name: Stop offline stack
+        if: always()
+        run: docker compose -f testing/docker-compose.test.yml --profile agent down -v
+
   agent-python:
     runs-on: ubuntu-latest
     services:

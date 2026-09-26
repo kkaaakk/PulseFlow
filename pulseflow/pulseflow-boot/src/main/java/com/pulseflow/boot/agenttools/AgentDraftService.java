@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.scheduling.annotation.Scheduled;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -38,6 +39,13 @@ public class AgentDraftService {
     private final CampaignDslValidator validator;
     private final AudiencePreviewService preview;
 
+    @Scheduled(fixedDelay = 3600000, initialDelay = 3600000)
+    public void cleanExpiredGrants() {
+        // Delete only authorization records; owned human-review drafts remain recoverable.
+        jdbc.update("DELETE FROM agent_campaign_draft_grant WHERE expires_at < ?",
+                LocalDateTime.now(ZoneOffset.UTC).minusDays(1));
+    }
+
     public record Proposal(String campaignName, String objective, String rationale,
                            AudienceGroup targetAudience, String channel, CampaignSchedule schedule,
                            FrequencyCap frequencyCap, List<PromotionFact> promotionFacts,
@@ -60,12 +68,20 @@ public class AgentDraftService {
     }
 
     public String issue(String investigationId, Long sessionOperatorId, List<PromotionFact> authorizedFacts) {
+        assertOwner(investigationId, sessionOperatorId);
+        return issueOwned(investigationId, sessionOperatorId, authorizedFacts);
+    }
+
+    public void assertOwner(String investigationId, Long sessionOperatorId) {
         validId(investigationId);
         if (sessionOperatorId == null || sessionOperatorId <= 0) throw forbidden();
         List<Long> owners = jdbc.queryForList(
                 "SELECT operator_id FROM agent_investigation_owner WHERE investigation_id=?",
                 Long.class, investigationId);
         if (owners.size() != 1 || !sessionOperatorId.equals(owners.get(0))) throw forbidden();
+    }
+
+    private String issueOwned(String investigationId, Long sessionOperatorId, List<PromotionFact> authorizedFacts) {
         String id = UUID.randomUUID().toString();
         byte[] random = new byte[32];
         new SecureRandom().nextBytes(random);

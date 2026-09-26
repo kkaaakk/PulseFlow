@@ -358,6 +358,18 @@ a { color: inherit; text-decoration: none; }
   .confirm-cell:last-child { grid-column: 1 / -1; min-height: 70px; border-top: 1px solid var(--pf-border); }
 }
 
+@media (max-width: 760px) {
+  .investigation-shell { flex-direction: column; }
+  .investigation-shell .sidebar, .investigation-shell .sidebar.collapsed { position: static; width: 100%; padding: 8px; }
+  .investigation-shell .brand, .investigation-shell .sidebar-footer { display: none; }
+  .investigation-shell .nav-list { flex-direction: row; overflow-x: auto; }
+  .investigation-shell .nav-item { flex-shrink: 0; padding: 0 10px; gap: 6px; font-size: 11px; min-height: 38px; }
+  .investigation-shell .main-column, .investigation-shell .sidebar.collapsed + .main-column { width: 100%; margin-left: 0; }
+  .investigation-shell .topbar { padding: 0 16px; height: 56px; gap: 10px; }
+  .investigation-shell .topbar-date, .investigation-shell .topbar-status, .investigation-shell .topbar-bell { display: none; }
+  .investigation-shell .page-content { padding: 20px 14px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }

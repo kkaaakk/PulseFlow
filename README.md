@@ -64,6 +64,13 @@ npm run build
 npm run test:e2e:demo
 ```
 
-`mvn clean verify` 中的 Docker 集成测试在 `PULSEFLOW_TEST_DOCKER=true` 时运行，CI 强制设置该变量。Flyway V1–V5 迁移保持原样；历史 `campaign_ai_draft` 表仍承载 Campaign 草稿，`campaign_performance_summary` 仍承载绩效，旧生成/复盘表只作为历史 schema 保留。
+`mvn clean verify` 中的 Docker 集成测试在 `PULSEFLOW_TEST_DOCKER=true` 时运行，CI 强制设置该变量。Flyway V1–V5 保持原样，V6 新增调查归属与 Draft 授权表；历史 `campaign_ai_draft` 表仍承载 Campaign 草稿，`campaign_performance_summary` 仍承载绩效，旧生成/复盘表只作为历史 schema 保留。
 
 前端控制台位于 [`pulseflow-web`](pulseflow-web/README.md)。运行设计见 [pulseflow-design.md](pulseflow-design.md)，指标口径见 [Campaign Metrics Glossary](docs/campaign-metrics-glossary.md)，本次迁移见 [Preparation Report](docs/agent/pydantic-ai-preparation-report.md)。
+
+## 调查前端与运行加固
+
+Phase 7 adds the authenticated **Investigations** workspace, safe business SSE, cancellation/recovery,
+draft review with human confirmation, bounded runtime controls and an opt-in development Compose
+stack. See [the operations guide](docs/agent/production-investigation.md) for startup, limits,
+single-process deployment requirements and offline CI coverage.

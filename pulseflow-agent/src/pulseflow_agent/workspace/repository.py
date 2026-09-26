@@ -1,11 +1,14 @@
 """Repository contract and SQLAlchemy implementation for Agent-owned state."""
 
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Protocol
 from uuid import uuid4
 
 from sqlalchemy import insert, select, update
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from pulseflow_agent.domain.campaign_proposal import (
     CampaignDraftResponse,
@@ -55,20 +58,48 @@ def _utc(value: datetime) -> datetime:
 class SqlAlchemyInvestigationRepository:
     def __init__(self, engine: AsyncEngine) -> None:
         self._engine = engine
+        # In-memory SQLite shares one connection; concurrent readers must not roll back writers.
+        self._memory_lock = (
+            asyncio.Lock()
+            if engine.url.drivername.startswith("sqlite")
+            and engine.url.database in (None, "", ":memory:")
+            else None
+        )
+
+    @asynccontextmanager
+    async def _connection(self, transaction: bool) -> AsyncIterator[AsyncConnection]:
+        if self._memory_lock:
+            await self._memory_lock.acquire()
+        try:
+            context = self._engine.begin() if transaction else self._engine.connect()
+            async with context as connection:
+                yield connection
+        finally:
+            if self._memory_lock:
+                self._memory_lock.release()
 
     async def create_schema_for_tests(self) -> None:
-        async with self._engine.begin() as connection:
+        async with self._connection(True) as connection:
             await connection.run_sync(metadata.create_all)
 
     async def check_ready(self) -> None:
-        async with self._engine.connect() as connection:
+        async with self._connection(False) as connection:
             await connection.execute(select(investigation.c.id).limit(1))
             await connection.execute(select(proposal_table.c.id).limit(1))
+
+    async def recover_interrupted(self) -> None:
+        # Deployment contract: one Agent process/replica per schema until distributed leases exist.
+        async with self._connection(True) as connection:
+            await connection.execute(
+                update(investigation)
+                .where(investigation.c.status == "RUNNING")
+                .values(status="FAILED", updated_at=datetime.now(UTC))
+            )
 
     async def create(self, goal: str) -> Investigation:
         now = datetime.now(UTC)
         investigation_id = str(uuid4())
-        async with self._engine.begin() as connection:
+        async with self._connection(True) as connection:
             await connection.execute(
                 insert(investigation).values(
                     id=investigation_id,
@@ -85,7 +116,7 @@ class SqlAlchemyInvestigationRepository:
         return await self.load(investigation_id)
 
     async def load(self, investigation_id: str) -> Investigation:
-        async with self._engine.connect() as connection:
+        async with self._connection(False) as connection:
             row = (
                 (
                     await connection.execute(
@@ -212,7 +243,7 @@ class SqlAlchemyInvestigationRepository:
         )
 
     async def add_proposal(self, investigation_id: str, item: ProposalRecord) -> None:
-        async with self._engine.begin() as connection:
+        async with self._connection(True) as connection:
             await connection.execute(
                 insert(proposal_table).values(
                     id=item.id,
@@ -230,13 +261,19 @@ class SqlAlchemyInvestigationRepository:
             )
 
     async def begin_followup(self, investigation_id: str) -> Investigation:
-        async with self._engine.begin() as connection:
+        async with self._connection(True) as connection:
             result = await connection.execute(
                 update(investigation)
                 .where(
                     investigation.c.id == investigation_id,
                     investigation.c.status.in_(
-                        ["COMPLETED", "INSUFFICIENT_EVIDENCE", "BUDGET_EXHAUSTED", "FAILED"]
+                        [
+                            "COMPLETED",
+                            "INSUFFICIENT_EVIDENCE",
+                            "BUDGET_EXHAUSTED",
+                            "FAILED",
+                            "CANCELLED",
+                        ]
                     ),
                 )
                 .values(status="RUNNING", updated_at=datetime.now(UTC))
@@ -253,7 +290,7 @@ class SqlAlchemyInvestigationRepository:
         return await self.load(investigation_id)
 
     async def append_tool(self, investigation_id: str, name: str) -> None:
-        async with self._engine.begin() as connection:
+        async with self._connection(True) as connection:
             row = (
                 await connection.execute(
                     select(investigation.c.tool_trajectory)
@@ -270,7 +307,7 @@ class SqlAlchemyInvestigationRepository:
             )
 
     async def add_evidence(self, investigation_id: str, item: Evidence) -> None:
-        async with self._engine.begin() as connection:
+        async with self._connection(True) as connection:
             await connection.execute(
                 insert(evidence).values(
                     id=item.id,
@@ -294,7 +331,7 @@ class SqlAlchemyInvestigationRepository:
             )
 
     async def add_hypothesis(self, investigation_id: str, item: Hypothesis) -> None:
-        async with self._engine.begin() as connection:
+        async with self._connection(True) as connection:
             await connection.execute(
                 insert(hypothesis).values(
                     id=item.id,
@@ -317,7 +354,7 @@ class SqlAlchemyInvestigationRepository:
             )
 
     async def update_hypothesis(self, investigation_id: str, item: Hypothesis) -> None:
-        async with self._engine.begin() as connection:
+        async with self._connection(True) as connection:
             result = await connection.execute(
                 update(hypothesis)
                 .where(
@@ -344,7 +381,7 @@ class SqlAlchemyInvestigationRepository:
 
     async def change_scope(self, investigation_id: str, scope: str, old_version: int) -> None:
         now = datetime.now(UTC)
-        async with self._engine.begin() as connection:
+        async with self._connection(True) as connection:
             result = await connection.execute(
                 update(investigation)
                 .where(
@@ -367,7 +404,7 @@ class SqlAlchemyInvestigationRepository:
             )
 
     async def add_message(self, investigation_id: str, item: AgentMessage) -> None:
-        async with self._engine.begin() as connection:
+        async with self._connection(True) as connection:
             await connection.execute(
                 insert(message).values(
                     investigation_id=investigation_id,
@@ -391,7 +428,7 @@ class SqlAlchemyInvestigationRepository:
         self, investigation_id: str, status: InvestigationStatus, diagnosis: Diagnosis
     ) -> None:
         now = datetime.now(UTC)
-        async with self._engine.begin() as connection:
+        async with self._connection(True) as connection:
             result = await connection.execute(
                 update(investigation)
                 .where(
