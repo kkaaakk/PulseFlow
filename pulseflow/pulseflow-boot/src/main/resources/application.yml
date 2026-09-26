@@ -1,6 +1,23 @@
 server:
   port: 8080
 
+otel:
+  service:
+    name: pulseflow-java
+  sdk:
+    disabled: ${PULSEFLOW_OTEL_DISABLED:true}
+  traces:
+    exporter: ${OTEL_TRACES_EXPORTER:none}
+  metrics:
+    exporter: none
+  logs:
+    exporter: none
+  propagators: tracecontext
+  instrumentation:
+    jdbc:
+      query-sanitization:
+        enabled: true
+
 spring:
   application:
     name: pulseflow

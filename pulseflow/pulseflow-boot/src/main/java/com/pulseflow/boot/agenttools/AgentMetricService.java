@@ -3,6 +3,7 @@ package com.pulseflow.boot.agenttools;
 import com.pulseflow.boot.agenttools.AgentToolDtos.*;
 import com.pulseflow.campaign.analytics.PerformanceSummaryCalculator;
 import com.pulseflow.common.enums.ChannelType;
+import io.opentelemetry.instrumentation.annotations.WithSpan;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -36,6 +37,7 @@ public class AgentMetricService {
     private static final String NO_DIMENSION = "";
     private final NamedParameterJdbcTemplate jdbc;
 
+    @WithSpan("agent-tools.metric-query")
     public QueryResponse query(QueryRequest request) {
         if (request == null) throw invalid("invalid_tool_request");
         requireMetric(request.metric());
@@ -55,6 +57,7 @@ public class AgentMetricService {
                 rows.stream().mapToLong(MetricRow::sampleSize).sum());
     }
 
+    @WithSpan("agent-tools.metric-breakdown")
     public QueryResponse breakdown(BreakdownRequest request) {
         if (request == null) throw invalid("invalid_tool_request");
         if (request.dimension() == null) throw invalid("invalid_dimension");
@@ -62,6 +65,7 @@ public class AgentMetricService {
                 List.of(request.dimension()), request.rowLimit()));
     }
 
+    @WithSpan("agent-tools.metric-compare")
     public CompareResponse compare(CompareRequest request) {
         if (request == null) throw invalid("invalid_tool_request");
         requireMetric(request.metric());
@@ -96,6 +100,7 @@ public class AgentMetricService {
                 rows.stream().mapToLong(CompareRow::currentSampleSize).sum());
     }
 
+    @WithSpan("agent-tools.attribution")
     public AttributionResponse attribution(AttributionRequest request) {
         if (request == null) throw invalid("invalid_tool_request");
         if (request.dimension() == null) throw invalid("invalid_dimension");

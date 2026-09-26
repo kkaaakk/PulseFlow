@@ -15,6 +15,7 @@ import com.pulseflow.campaign.preview.AudiencePreviewService;
 import com.pulseflow.campaign.validation.CampaignDslValidator;
 import com.pulseflow.entity.Campaign;
 import com.pulseflow.mapper.CampaignMapper;
+import io.opentelemetry.instrumentation.annotations.WithSpan;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +36,7 @@ public class AgentToolService {
     private final CampaignDslValidator validator;
     private final AudiencePreviewService previewService;
 
+    @WithSpan("agent-tools.performance")
     public PerformanceResponse performance(Long campaignId) {
         if (campaignId == null || campaignId <= 0) throw new IllegalArgumentException("invalid_campaign_id");
         Campaign campaign = campaigns.selectById(campaignId);
@@ -60,6 +62,7 @@ public class AgentToolService {
                 summary.getConversionRate(), calculatedAt);
     }
 
+    @WithSpan("agent-tools.audience-preview")
     public AudienceResponse audience(AudienceRequest request) {
         if (request == null || request.dsl() == null) throw new IllegalArgumentException("invalid_campaign_dsl");
         DslValidationResult checked = validator.validate(request.dsl());

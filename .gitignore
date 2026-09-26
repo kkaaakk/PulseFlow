@@ -57,3 +57,4 @@ runtime/
 *.pyc
 *.db
 *.sqlite3
+pulseflow-agent/eval-report.json

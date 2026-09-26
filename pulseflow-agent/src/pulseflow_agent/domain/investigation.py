@@ -85,6 +85,7 @@ class InvestigationResult(BaseModel):
     evidence: list[Evidence]
     tool_trajectory: list[str]
     investigation_id: str | None = None
+    hypotheses: list[Hypothesis] = Field(default_factory=list)
 
 
 class Investigation(BaseModel):

@@ -18,6 +18,7 @@ class AgentSettings(BaseSettings):
     pulseflow_java_base_url: HttpUrl
     pulseflow_agent_internal_token: SecretStr | None = None
     pulseflow_agent_database_url: SecretStr | None = None
+    pulseflow_agent_otel_endpoint: HttpUrl | None = None
     pulseflow_agent_max_model_requests: int = Field(default=8, ge=1)
     pulseflow_agent_max_tool_calls: int = Field(default=12, ge=0)
     pulseflow_agent_max_input_tokens: int = Field(default=12000, ge=1)
