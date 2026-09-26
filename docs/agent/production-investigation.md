@@ -127,6 +127,11 @@ owned read/follow-up/SSE path, checks non-root health, rejects another operator 
 up its isolated test volumes. No real LLM or paid Azure calls are made. Real model quality/latency,
 deployment credentials and production traffic are not certified by these offline checks.
 
+The Compose gate also caught a pre-existing broad MyBatis scan that registered business service
+interfaces as database mappers. Application scanning now requires `@Mapper`; a registration probe
+uses the actual application configuration to verify real mapper beans and exclude the preview
+service interface before opening external resources.
+
 References: [PydanticAI retries](https://github.com/pydantic/pydantic-ai/blob/main/docs/retries.md),
 [UsageLimits](https://pydantic.dev/docs/ai/api/pydantic-ai/usage/),
 [Compose services](https://docs.docker.com/reference/compose-file/services/),

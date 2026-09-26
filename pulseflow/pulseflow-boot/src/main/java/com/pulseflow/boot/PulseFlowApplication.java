@@ -1,6 +1,7 @@
 package com.pulseflow.boot;
 
 import org.mybatis.spring.annotation.MapperScan;
+import org.apache.ibatis.annotations.Mapper;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -16,7 +17,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.pulseflow.profile",
         "com.pulseflow.simulator"
 })
-@MapperScan({"com.pulseflow.mapper", "com.pulseflow.campaign"})
+@MapperScan(basePackages = {"com.pulseflow.mapper", "com.pulseflow.campaign"}, annotationClass = Mapper.class)
 @EnableScheduling
 public class PulseFlowApplication {
     public static void main(String[] args) {
