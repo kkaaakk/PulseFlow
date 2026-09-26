@@ -23,7 +23,9 @@ def settings(real: bool = False, **overrides: object) -> AgentSettings:
     values: dict[str, object] = {
         "pulseflow_java_base_url": "http://localhost:8080",
         "pulseflow_agent_model": "openai:sample-model" if real else "test",
+        "pulseflow_agent_env": "test",
         "pulseflow_agent_internal_token": SecretStr("fake-internal-token"),
+        "pulseflow_agent_database_url": SecretStr("sqlite+aiosqlite:///:memory:"),
     }
     if real:
         values.update(
@@ -221,5 +223,21 @@ def test_internal_investigation_auth_and_pii_are_fail_closed() -> None:
             json={"question": "调查增长"},
         )
         assert offline.status_code == 200
-        assert offline.json()["diagnosis"]["status"] == "INSUFFICIENT_EVIDENCE"
+        assert offline.json()["final_diagnosis"]["status"] == "INSUFFICIENT_EVIDENCE"
         assert offline.json()["tool_trajectory"] == []
+        investigation_id = offline.json()["id"]
+        loaded = client.get(
+            f"{path}/{investigation_id}",
+            headers={"X-PulseFlow-Agent-Token": "fake-internal-token"},
+        )
+        assert loaded.status_code == 200
+        assert loaded.json()["id"] == investigation_id
+        continued = client.post(
+            f"{path}/{investigation_id}/follow-up",
+            headers={"X-PulseFlow-Agent-Token": "fake-internal-token"},
+            json={"question": "只看沉默30天以上用户", "scope": "沉默30天以上用户"},
+        )
+        assert continued.status_code == 200
+        assert continued.json()["id"] == investigation_id
+        assert continued.json()["scope_version"] == 1
+        assert len(continued.json()["messages"]) == 4

@@ -55,3 +55,5 @@ runtime/
 **/.ruff_cache/
 .uv-cache/
 *.pyc
+*.db
+*.sqlite3

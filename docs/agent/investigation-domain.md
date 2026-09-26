@@ -1,10 +1,10 @@
 # Growth Investigation Agent（Phase 3）
 
-Phase 3 使用一个 Pydantic AI Agent。它根据现有 Evidence 自主决定是否继续，以及下一步调用哪一个 Java 只读 Tool；生产代码没有固定的 Tool 顺序。当前 workspace 仅在一次调查的内存中存在，尚不支持跨请求续查或持久化。
+Phase 3 使用一个 Pydantic AI Agent。它根据现有 Evidence 自主决定是否继续，以及下一步调用哪一个 Java 只读 Tool；生产代码没有固定的 Tool 顺序。Phase 4 已加入独立 Agent schema 的 [Workspace 持久化](agent-workspace-persistence.md)与同 ID 续查。
 
 ## 内部调用
 
-`POST /internal/v1/investigations` 接收 `{ "question": "..." }`，要求 `X-PulseFlow-Agent-Token`。鉴权在请求体解析前执行；浏览器不能持有此机器 Token，也不能提交 `operatorId`。响应只包含 `diagnosis`、`evidence` 和 `tool_trajectory`，不包含隐藏推理、系统 Prompt 或模型原始消息。健康端点保持 `/health/live` 与 `/health/ready`；readiness 现在要求 Java Tool Token 已配置，不调用真实模型或 Java 服务。
+`POST /internal/v1/investigations` 接收 `{ "question": "..." }`，要求 `X-PulseFlow-Agent-Token`。鉴权在请求体解析前执行；浏览器不能持有此机器 Token，也不能提交 `operatorId`。响应现为持久化的 Investigation 对象，包含 `final_diagnosis`、`evidence`、`hypotheses`、可见消息和 `tool_trajectory`，不包含隐藏推理、系统 Prompt 或模型原始消息。健康端点保持 `/health/live` 与 `/health/ready`；readiness 现在也检查 Agent DB schema，不调用真实模型或 Java 服务。
 
 ## 调查与证据
 
@@ -28,4 +28,4 @@ Phase 3 使用一个 Pydantic AI Agent。它根据现有 Evidence 自主决定�
 
 ## 当前边界
 
-Agent 不持有业务 DB/Redis 凭证，不提供 SQL、写 Campaign、确认或触达 Tool。Java 保持指标与公式权威。调查状态尚未持久化，用户改变范围后的续查属于 Phase 4。生产 ingress 仍需阻断公网访问内部端点，网络部署规则见 [Java Tool 契约](agent-tool-contract.md)。
+Agent 只持有独立 Agent schema 的凭证，不持有业务 DB/Redis 凭证，也不提供 SQL、写 Campaign、确认或触达 Tool。Java 保持指标与公式权威。生产 ingress 仍需阻断公网访问内部端点，网络部署规则见 [Java Tool 契约](agent-tool-contract.md)。

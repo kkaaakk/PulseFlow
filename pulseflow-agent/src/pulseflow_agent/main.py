@@ -9,14 +9,21 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ConfigDict, StringConstraints
+from sqlalchemy.ext.asyncio import create_async_engine
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response
 
 from pulseflow_agent.agent.growth_investigator import GrowthInvestigator
 from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient
 from pulseflow_agent.config import AgentSettings
-from pulseflow_agent.domain.investigation import InvestigationResult
+from pulseflow_agent.domain.investigation import Investigation
 from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail, PiiBlockedError
+from pulseflow_agent.workspace.repository import (
+    InvestigationConflictError,
+    InvestigationNotFoundError,
+    SqlAlchemyInvestigationRepository,
+)
+from pulseflow_agent.workspace.service import InvestigationService
 
 
 class InvestigationRequest(BaseModel):
@@ -27,6 +34,12 @@ class InvestigationRequest(BaseModel):
     ]
 
 
+class FollowUpRequest(InvestigationRequest):
+    scope: Annotated[
+        str | None, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)
+    ] = None
+
+
 def create_app(settings: AgentSettings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -34,17 +47,34 @@ def create_app(settings: AgentSettings | None = None) -> FastAPI:
         if (configured.pulseflow_agent_internal_token is None
                 or not configured.pulseflow_agent_internal_token.get_secret_value()):
             raise ValueError("Java internal token is required for investigation tools")
+        database_url = configured.pulseflow_agent_database_url
+        assert database_url is not None  # AgentSettings requires it
+        try:
+            engine = create_async_engine(database_url.get_secret_value(), pool_pre_ping=True)
+        except Exception:
+            raise ValueError("invalid Agent database configuration") from None
         app.state.settings = configured
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            app.state.investigator = GrowthInvestigator(
-                configured, AzurePiiGuardrail(configured, client),
-                PulseFlowApiClient(configured, client),
-            )
-            app.state.ready = True
+        try:
+            repository = SqlAlchemyInvestigationRepository(engine)
             try:
+                if configured.pulseflow_agent_env == "test":
+                    await repository.create_schema_for_tests()
+                await repository.check_ready()
+            except Exception:
+                raise RuntimeError("Agent database unavailable or schema not migrated") from None
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                guardrail = AzurePiiGuardrail(configured, client)
+                investigator = GrowthInvestigator(
+                    configured, guardrail, PulseFlowApiClient(configured, client)
+                )
+                app.state.investigations = InvestigationService(
+                    repository, investigator, guardrail
+                )
+                app.state.ready = True
                 yield
-            finally:
-                app.state.ready = False
+        finally:
+            app.state.ready = False
+            await engine.dispose()
 
     app = FastAPI(title="PulseFlow Agent", lifespan=lifespan)
     app.state.ready = False
@@ -55,7 +85,7 @@ def create_app(settings: AgentSettings | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def internal_auth(request: Request, call_next: RequestResponseEndpoint) -> Response:
-        if request.url.path != "/internal/v1/investigations":
+        if not request.url.path.startswith("/internal/v1/investigations"):
             return await call_next(request)
         configured: AgentSettings = request.app.state.settings
         expected = configured.pulseflow_agent_internal_token
@@ -76,10 +106,36 @@ def create_app(settings: AgentSettings | None = None) -> FastAPI:
         return {"status": "ready"}
 
     @app.post("/internal/v1/investigations")
-    async def investigate(body: InvestigationRequest, request: Request) -> InvestigationResult:
+    async def investigate(body: InvestigationRequest, request: Request) -> Investigation:
         try:
-            investigator: GrowthInvestigator = request.app.state.investigator
-            return await investigator.run(body.question)
+            service: InvestigationService = request.app.state.investigations
+            return await service.create(body.question)
+        except PiiBlockedError as error:
+            raise HTTPException(status_code=422, detail=error.reason) from None
+        except Exception:
+            raise HTTPException(status_code=503, detail="agent_unavailable") from None
+
+    @app.get("/internal/v1/investigations/{investigation_id}")
+    async def get_investigation(investigation_id: str, request: Request) -> Investigation:
+        try:
+            service: InvestigationService = request.app.state.investigations
+            return await service.get(investigation_id)
+        except InvestigationNotFoundError:
+            raise HTTPException(status_code=404, detail="not_found") from None
+        except Exception:
+            raise HTTPException(status_code=503, detail="agent_unavailable") from None
+
+    @app.post("/internal/v1/investigations/{investigation_id}/follow-up")
+    async def follow_up(
+        investigation_id: str, body: FollowUpRequest, request: Request
+    ) -> Investigation:
+        try:
+            service: InvestigationService = request.app.state.investigations
+            return await service.follow_up(investigation_id, body.question, body.scope)
+        except InvestigationNotFoundError:
+            raise HTTPException(status_code=404, detail="not_found") from None
+        except InvestigationConflictError:
+            raise HTTPException(status_code=409, detail="investigation_busy") from None
         except PiiBlockedError as error:
             raise HTTPException(status_code=422, detail=error.reason) from None
         except Exception:

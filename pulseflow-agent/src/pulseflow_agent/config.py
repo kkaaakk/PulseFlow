@@ -17,6 +17,7 @@ class AgentSettings(BaseSettings):
     pulseflow_agent_base_url: HttpUrl | None = None
     pulseflow_java_base_url: HttpUrl
     pulseflow_agent_internal_token: SecretStr | None = None
+    pulseflow_agent_database_url: SecretStr | None = None
     pulseflow_agent_max_model_requests: int = Field(default=8, ge=1)
     pulseflow_agent_max_tool_calls: int = Field(default=12, ge=0)
     pulseflow_agent_max_input_tokens: int = Field(default=12000, ge=1)
@@ -31,6 +32,23 @@ class AgentSettings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_real_model(self) -> "AgentSettings":
+        database_url = (
+            self.pulseflow_agent_database_url.get_secret_value()
+            if self.pulseflow_agent_database_url else ""
+        )
+        if not database_url:
+            raise ValueError("Agent database URL is required")
+        if self.pulseflow_agent_env == "production":
+            from sqlalchemy.engine import make_url
+
+            try:
+                database = make_url(database_url)
+            except Exception:
+                raise ValueError("invalid Agent database URL") from None
+            if (database.drivername != "mysql+asyncmy"
+                    or database.database != "pulseflow_agent"
+                    or database.username in (None, "root")):
+                raise ValueError("production requires a dedicated Agent MySQL schema and user")
         if self.is_test_model:
             if self.pulseflow_agent_env == "production":
                 raise ValueError("production requires a real model")

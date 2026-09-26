@@ -58,6 +58,7 @@ class EvidenceResponsiveModel:
         assert {tool.name for tool in info.function_tools} == {
             "query_metric", "compare_metric", "breakdown_metric",
             "get_campaign_performance", "get_attribution_breakdown", "preview_audience",
+            "propose_hypothesis", "update_hypothesis", "list_hypotheses", "update_scope",
         }
         returns = tool_returns(messages)
         if not returns:
@@ -154,6 +155,7 @@ async def test_same_question_uses_different_tool_paths(scenario: str) -> None:
         "pulseflow_agent_model": "test",
         "pulseflow_java_base_url": "http://java.internal:8080",
         "pulseflow_agent_internal_token": SecretStr("test-internal-token"),
+        "pulseflow_agent_database_url": SecretStr("sqlite+aiosqlite:///:memory:"),
     })
     requests: list[str] = []
     async with httpx.AsyncClient(transport=java_handler(scenario, requests)) as client:

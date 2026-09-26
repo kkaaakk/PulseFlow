@@ -9,6 +9,19 @@ on:
 jobs:
   agent-python:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: pulseflow_agent
+          MYSQL_USER: pulseflow_agent
+          MYSQL_PASSWORD: agent_test_password
+          MYSQL_ROOT_PASSWORD: root_test_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u pulseflow_agent -pagent_test_password"
+          --health-interval=10s --health-timeout=5s --health-retries=12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,6 +33,7 @@ jobs:
         env:
           PULSEFLOW_AGENT_MODEL: test
           PULSEFLOW_JAVA_BASE_URL: http://127.0.0.1:8080
+          AGENT_TEST_MYSQL_URL: mysql+asyncmy://pulseflow_agent:agent_test_password@127.0.0.1:3306/pulseflow_agent
         run: |
           uv sync --locked
           uv run ruff check .

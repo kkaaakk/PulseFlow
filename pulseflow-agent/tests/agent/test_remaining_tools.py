@@ -74,6 +74,7 @@ async def test_query_performance_and_preview_create_sanitized_evidence() -> None
     config = AgentSettings.model_validate({
         "pulseflow_java_base_url": "http://java.internal:8080",
         "pulseflow_agent_internal_token": SecretStr("test-internal-token"),
+        "pulseflow_agent_database_url": SecretStr("sqlite+aiosqlite:///:memory:"),
     })
     paths: list[str] = []
 
