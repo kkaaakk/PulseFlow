@@ -1,14 +1,13 @@
-"""Typed Java business client; the sole write capability creates an authorized draft."""
+"""Typed read-only Java business client for investigation tools."""
 
 from time import monotonic
 from typing import TypeVar
 
 import httpx
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-from pydantic import SecretStr, ValidationError
+from pydantic import ValidationError
 
 from pulseflow_agent.config import AgentSettings
-from pulseflow_agent.domain.campaign_proposal import CampaignDraftRequest, CampaignDraftResponse
 from pulseflow_agent.domain.contracts import (
     AttributionArgs,
     AttributionResponse,
@@ -64,7 +63,6 @@ class PulseFlowApiClient:
         path: str,
         response_type: type[ResponseT],
         payload: WireModel | None = None,
-        draft_grant: SecretStr | None = None,
     ) -> ResponseT:
         if monotonic() < self._open_until:
             raise ToolClientError("java_tool_circuit_open")
@@ -73,8 +71,6 @@ class PulseFlowApiClient:
                 self._metrics.java_call(True)
             raise ToolClientError("java_tool_unavailable")
         headers = {"X-PulseFlow-Agent-Token": self._token.get_secret_value()}
-        if draft_grant is not None:
-            headers["X-PulseFlow-Draft-Grant"] = draft_grant.get_secret_value()
         TraceContextTextMapPropagator().inject(headers)
         try:
             response = await self._client.request(
@@ -164,10 +160,3 @@ class PulseFlowApiClient:
 
     async def preview_audience(self, args: PreviewAudienceArgs) -> AudienceResponse:
         return await self._request("POST", "/audience/preview", AudienceResponse, args)
-
-    async def create_campaign_draft(
-        self, request: CampaignDraftRequest, grant: SecretStr
-    ) -> CampaignDraftResponse:
-        return await self._request(
-            "POST", "/campaign-drafts", CampaignDraftResponse, request, draft_grant=grant
-        )

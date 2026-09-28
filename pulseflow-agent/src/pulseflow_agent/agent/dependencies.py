@@ -2,8 +2,6 @@
 
 from dataclasses import dataclass, field
 
-from pydantic import SecretStr
-
 from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient
 from pulseflow_agent.domain.contracts import PromotionFact
 from pulseflow_agent.domain.investigation import InvestigationWorkspace
@@ -17,9 +15,9 @@ class OperatorContext:
 
 
 @dataclass(frozen=True)
-class DraftAuthorization:
+class ProposalContext:
     investigation_id: str
-    grant: SecretStr
+    owner_id: int
     promotion_facts: list[PromotionFact] = field(default_factory=list)
 
 
@@ -29,5 +27,5 @@ class AgentDependencies:
     workspace: InvestigationWorkspace
     operator_context: OperatorContext | None
     guardrail: AzurePiiGuardrail
-    draft_authorization: DraftAuthorization | None = None
-    draft_created: bool = False
+    proposal_context: ProposalContext | None = None
+    proposal_created: bool = False

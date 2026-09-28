@@ -2,6 +2,7 @@
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Column,
     DateTime,
     ForeignKey,
@@ -82,8 +83,11 @@ proposal = Table(
     Column("id", String(36), primary_key=True),
     Column("investigation_id", String(36), ForeignKey("agent_investigation.id"), nullable=False),
     Column("proposal_json", JSON, nullable=False),
-    Column("draft_json", JSON, nullable=False),
+    Column("owner_id", BigInteger),
+    Column("status", String(24), nullable=False),
+    Column("draft_id", BigInteger),
     Column("scope_version", Integer, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
     Index("idx_agent_proposal_investigation", "investigation_id", "created_at"),
 )

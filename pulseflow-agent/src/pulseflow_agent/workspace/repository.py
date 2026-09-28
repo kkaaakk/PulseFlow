@@ -11,8 +11,8 @@ from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from pulseflow_agent.domain.campaign_proposal import (
-    CampaignDraftResponse,
     CampaignProposal,
+    ProposalRead,
     ProposalRecord,
 )
 from pulseflow_agent.domain.investigation import (
@@ -37,6 +37,8 @@ class InvestigationConflictError(Exception):
 
 class InvestigationRepository(Protocol):
     async def add_proposal(self, investigation_id: str, item: ProposalRecord) -> None: ...
+    async def load_proposal(self, proposal_id: str) -> ProposalRead: ...
+    async def mark_draft_created(self, proposal_id: str, draft_id: int) -> ProposalRecord: ...
     async def create(self, goal: str) -> Investigation: ...
     async def load(self, investigation_id: str) -> Investigation: ...
     async def begin_followup(self, investigation_id: str) -> Investigation: ...
@@ -233,10 +235,14 @@ class SqlAlchemyInvestigationRepository:
             proposals=[
                 ProposalRecord(
                     id=item["id"],
+                    investigation_id=investigation_id,
+                    owner_id=item["owner_id"],
                     proposal=CampaignProposal.model_validate(item["proposal_json"]),
-                    draft=CampaignDraftResponse.model_validate(item["draft_json"]),
+                    status=item["status"],
+                    draft_id=item["draft_id"],
                     scope_version=item["scope_version"],
                     created_at=_utc(item["created_at"]),
+                    updated_at=_utc(item["updated_at"]),
                 )
                 for item in proposal_rows
             ],
@@ -248,10 +254,13 @@ class SqlAlchemyInvestigationRepository:
                 insert(proposal_table).values(
                     id=item.id,
                     investigation_id=investigation_id,
+                    owner_id=item.owner_id,
                     proposal_json=item.proposal.model_dump(mode="json"),
-                    draft_json=item.draft.model_dump(mode="json"),
+                    status=item.status,
+                    draft_id=item.draft_id,
                     scope_version=item.scope_version,
                     created_at=item.created_at,
+                    updated_at=item.updated_at,
                 )
             )
             await connection.execute(
@@ -259,6 +268,45 @@ class SqlAlchemyInvestigationRepository:
                 .where(investigation.c.id == investigation_id)
                 .values(updated_at=datetime.now(UTC))
             )
+
+    async def load_proposal(self, proposal_id: str) -> ProposalRead:
+        async with self._connection(False) as connection:
+            row = (await connection.execute(
+                select(proposal_table).where(proposal_table.c.id == proposal_id)
+            )).mappings().one_or_none()
+            if row is None:
+                raise InvestigationNotFoundError()
+            evidence_rows = (await connection.execute(
+                select(evidence.c.id).where(
+                    evidence.c.investigation_id == row["investigation_id"],
+                    evidence.c.scope_version == row["scope_version"],
+                )
+            )).scalars().all()
+        record = ProposalRecord(
+            id=row["id"], investigation_id=row["investigation_id"],
+            owner_id=row["owner_id"],
+            proposal=CampaignProposal.model_validate(row["proposal_json"]),
+            status=row["status"], draft_id=row["draft_id"],
+            scope_version=row["scope_version"],
+            created_at=_utc(row["created_at"]), updated_at=_utc(row["updated_at"]),
+        )
+        return ProposalRead(record=record, evidence_ids=list(evidence_rows))
+
+    async def mark_draft_created(self, proposal_id: str, draft_id: int) -> ProposalRecord:
+        async with self._connection(True) as connection:
+            row = (await connection.execute(
+                select(proposal_table).where(proposal_table.c.id == proposal_id).with_for_update()
+            )).mappings().one_or_none()
+            if row is None:
+                raise InvestigationNotFoundError()
+            if row["status"] not in ("GENERATED", "DRAFT_CREATED") or (
+                row["draft_id"] is not None and row["draft_id"] != draft_id
+            ):
+                raise InvestigationConflictError("proposal_status_conflict")
+            await connection.execute(update(proposal_table).where(
+                proposal_table.c.id == proposal_id
+            ).values(status="DRAFT_CREATED", draft_id=draft_id, updated_at=datetime.now(UTC)))
+        return (await self.load_proposal(proposal_id)).record
 
     async def begin_followup(self, investigation_id: str) -> Investigation:
         async with self._connection(True) as connection:

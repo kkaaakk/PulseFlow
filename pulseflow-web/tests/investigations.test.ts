@@ -5,7 +5,7 @@ import Investigations from '@/views/Investigations.vue'
 import * as api from '@/api/investigations'
 import type { CampaignDraft, Investigation } from '@/types/investigation'
 
-vi.mock('@/api/investigations', () => ({ getInvestigation: vi.fn(), startInvestigation: vi.fn(), followUpInvestigation: vi.fn(), cancelInvestigation: vi.fn(), watchInvestigation: vi.fn(), proposeCampaign: vi.fn(), getDraft: vi.fn(), refreshDraft: vi.fn(), confirmDraft: vi.fn() }))
+vi.mock('@/api/investigations', () => ({ getInvestigation: vi.fn(), startInvestigation: vi.fn(), followUpInvestigation: vi.fn(), cancelInvestigation: vi.fn(), watchInvestigation: vi.fn(), proposeCampaign: vi.fn(), createDraft: vi.fn(), getDraft: vi.fn(), refreshDraft: vi.fn(), confirmDraft: vi.fn() }))
 vi.mock('@/api/demo', () => ({ isDemoMode: false }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: 'investigation-1' } }), useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }))
 const sample: Investigation = {
@@ -16,9 +16,10 @@ const sample: Investigation = {
   final_diagnosis: { status: 'DIAGNOSED', summary: '当前范围存在渠道差异。', confidence: 'medium', findings: [{ claim: '观察到渠道差异', evidence_ids: ['evidence-1'] }], evidence_ids: ['evidence-1'], unresolved_questions: ['需要进一步拆分时间窗口。'], recommended_next_action: null },
 }
 const draft: CampaignDraft = { draftId: 77, status: 'VALIDATED', dsl: { campaignName: '召回测试', objective: 'RETENTION', channel: 'PUSH', audience: { logic: 'AND', conditions: [{ field: 'activeDays7d', operator: 'GTE', value: 5 }] }, schedule: { type: 'ONCE', sendAt: '2026-10-01T10:00:00+08:00', timezone: 'Asia/Shanghai' }, frequencyCap: { maxTimes: 1, windowHours: 24 }, promotionFacts: [] }, errors: [], warnings: ['请人工检查计划时间'], estimatedAudienceCount: 42, dataVersion: 'v1' }
+const proposed: Investigation = { ...sample, proposals: [{ id: 'proposal-1', investigationId: sample.id, scopeVersion: 1, status: 'GENERATED', draftId: null, proposal: { campaignName: '召回测试', objective: 'RETENTION', rationale: '聚合数据支持召回方案', targetAudience: draft.dsl.audience, channel: 'PUSH', schedule: draft.dsl.schedule, frequencyCap: draft.dsl.frequencyCap, promotionFacts: [], supportingEvidenceIds: ['evidence-1'] } }] }
 const wrappers: ReturnType<typeof mount>[] = []
 const open = () => { const wrapper = mount(Investigations, { global: { plugins: [ElementPlus], stubs: { teleport: true, RouterLink: { template: '<a><slot /></a>' } } } }); wrappers.push(wrapper); return wrapper }
-beforeEach(() => { vi.clearAllMocks(); vi.mocked(api.getInvestigation).mockResolvedValue(structuredClone(sample)); vi.mocked(api.proposeCampaign).mockResolvedValue({ draftId: 77 }); vi.mocked(api.getDraft).mockResolvedValue(structuredClone(draft)); vi.mocked(api.confirmDraft).mockResolvedValue({ campaignId: 99 }) })
+beforeEach(() => { vi.clearAllMocks(); vi.mocked(api.getInvestigation).mockResolvedValue(structuredClone(sample)); vi.mocked(api.proposeCampaign).mockResolvedValue(structuredClone(proposed)); vi.mocked(api.createDraft).mockResolvedValue({ draftId: 77 }); vi.mocked(api.getDraft).mockResolvedValue(structuredClone(draft)); vi.mocked(api.confirmDraft).mockResolvedValue({ campaignId: 99 }) })
 afterEach(() => { wrappers.splice(0).forEach(wrapper => wrapper.unmount()); vi.restoreAllMocks() })
 describe('Investigation workspace', () => {
   it('shows visible evidence, hypotheses and diagnosis, and preserves scope in follow-up', async () => {
@@ -39,12 +40,18 @@ describe('Investigation workspace', () => {
     expect(button.attributes('disabled')).toBeDefined()
     expect(api.proposeCampaign).not.toHaveBeenCalled()
   })
-  it('creates only a draft until the user accepts the confirmation dialog', async () => {
+  it('shows a persisted proposal and creates a draft only after a separate click', async () => {
     const wrapper = open(); await flushPromises()
     await wrapper.findAll('button').find(button => button.text() === '生成 Campaign Proposal')!.trigger('click')
     await flushPromises()
     await wrapper.findAll('form').find(form => form.find('#proposal-question').exists())!.trigger('submit')
     await flushPromises()
+    expect(wrapper.text()).toContain('聚合数据支持召回方案')
+    expect(api.createDraft).not.toHaveBeenCalled()
+    expect(api.confirmDraft).not.toHaveBeenCalled()
+    await wrapper.findAll('button').find(button => button.text() === '生成 Campaign Draft')!.trigger('click')
+    await flushPromises()
+    expect(api.createDraft).toHaveBeenCalledExactlyOnceWith('proposal-1')
     expect(wrapper.text()).toContain('草稿审核 · #77')
     expect(wrapper.text()).toContain('请人工检查计划时间')
     expect(api.confirmDraft).not.toHaveBeenCalled()

@@ -12,7 +12,6 @@ from pulseflow_agent.domain.contracts import (
     CampaignSchedule,
     FrequencyCap,
     PromotionFact,
-    ToolMetadata,
     WireModel,
 )
 
@@ -59,25 +58,18 @@ class CampaignProposal(WireModel):
         )
 
 
-class CampaignDraftRequest(WireModel):
-    investigation_id: str
-    proposal: CampaignProposal
-
-
-class CampaignDraftResponse(WireModel):
-    metadata: ToolMetadata
-    draft_id: int = Field(gt=0)
-    state: Literal["DRAFT"]
-    validation_status: Literal["VALIDATED", "NEEDS_CONFIRMATION"]
-    estimated_count: int | None = Field(ge=0)
-    data_version: str | None
-    requires_human_confirmation: Literal[True]
-    approval_level: Literal["PROPOSE"]
-
-
 class ProposalRecord(WireModel):
     id: str
+    investigation_id: str
+    owner_id: int | None = Field(default=None, gt=0)
     proposal: CampaignProposal
-    draft: CampaignDraftResponse
+    status: Literal["GENERATED", "DRAFT_CREATED", "SUPERSEDED", "CANCELLED"]
+    draft_id: int | None = None
     scope_version: int
     created_at: datetime
+    updated_at: datetime
+
+
+class ProposalRead(WireModel):
+    record: ProposalRecord
+    evidence_ids: list[str]

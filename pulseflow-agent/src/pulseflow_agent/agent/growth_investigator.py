@@ -15,8 +15,8 @@ from pydantic_ai.usage import RunUsage, UsageLimits
 
 from pulseflow_agent.agent.dependencies import (
     AgentDependencies,
-    DraftAuthorization,
     OperatorContext,
+    ProposalContext,
 )
 from pulseflow_agent.agent.instructions import GROWTH_INVESTIGATOR_INSTRUCTIONS
 from pulseflow_agent.agent.observations import (
@@ -28,11 +28,7 @@ from pulseflow_agent.agent.observations import (
 )
 from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient, ToolClientError
 from pulseflow_agent.config import AgentSettings
-from pulseflow_agent.domain.campaign_proposal import (
-    CampaignDraftRequest,
-    CampaignProposal,
-    ProposalRecord,
-)
+from pulseflow_agent.domain.campaign_proposal import CampaignProposal
 from pulseflow_agent.domain.contracts import (
     AttributionArgs,
     BreakdownMetricArgs,
@@ -156,11 +152,11 @@ class GrowthInvestigator:
         @agent.instructions
         async def investigation_context(ctx: RunContext[AgentDependencies]) -> str:
             context = ctx.deps.workspace.context_text()
-            if ctx.deps.draft_authorization is not None:
+            if ctx.deps.proposal_context is not None:
                 context += "\nOperator-authorized promotion facts (do not add or replace): " + str(
                     [
                         item.model_dump(mode="json", by_alias=True)
-                        for item in ctx.deps.draft_authorization.promotion_facts
+                        for item in ctx.deps.proposal_context.promotion_facts
                     ]
                 )
             await ctx.deps.guardrail.check(context)
@@ -332,51 +328,39 @@ class GrowthInvestigator:
                 raise ModelRetry("Scope must be a nonempty user-requested description.") from None
             return f"scopeVersion={version}; previous scoped evidence is historical background"
 
-        async def prepare_draft(
+        async def prepare_proposal(
             ctx: RunContext[AgentDependencies], definition: ToolDefinition
         ) -> ToolDefinition | None:
-            authorization = ctx.deps.draft_authorization
+            authorization = ctx.deps.proposal_context
             if (
                 authorization is None
-                or ctx.deps.draft_created
+                or ctx.deps.proposal_created
                 or authorization.investigation_id != ctx.deps.workspace.id
                 or not ctx.deps.workspace.evidence_ids
             ):
                 return None
             return definition
 
-        @agent.tool(prepare=prepare_draft, sequential=True)
-        async def create_campaign_draft(
+        @agent.tool(prepare=prepare_proposal, sequential=True)
+        async def persist_campaign_proposal(
             ctx: RunContext[AgentDependencies], proposal: CampaignProposal
-        ) -> ProposalRecord:
-            """Create one Java DRAFT; normal Java user confirmation remains required."""
-            authorization = ctx.deps.draft_authorization
+        ) -> str:
+            """Persist one evidence-backed proposal; Java handles draft creation later."""
+            authorization = ctx.deps.proposal_context
             if (
                 authorization is None
-                or ctx.deps.draft_created
+                or ctx.deps.proposal_created
                 or authorization.investigation_id != ctx.deps.workspace.id
             ):
-                raise ModelRetry("This run has no PROPOSE authorization.")
+                raise ModelRetry("This run cannot persist a proposal.")
             if not set(proposal.supporting_evidence_ids).issubset(ctx.deps.workspace.evidence_ids):
                 raise ModelRetry("Proposal evidence must exist in the current investigation scope.")
             if proposal.promotion_facts != authorization.promotion_facts:
                 raise ModelRetry("Use only the exact operator-authorized promotion facts, or none.")
             await ctx.deps.guardrail.check(proposal.free_text())
-            await ctx.deps.workspace.record_tool("create_campaign_draft")
-            try:
-                draft = await ctx.deps.pulseflow.create_campaign_draft(
-                    CampaignDraftRequest(
-                        investigation_id=authorization.investigation_id, proposal=proposal
-                    ),
-                    authorization.grant,
-                )
-            except ToolClientError:
-                raise ModelRetry(
-                    "Java rejected or could not create the draft; do not claim execution."
-                ) from None
-            record = await ctx.deps.workspace.add_proposal(proposal, draft)
-            ctx.deps.draft_created = True
-            return record
+            record = await ctx.deps.workspace.add_proposal(proposal, authorization.owner_id)
+            ctx.deps.proposal_created = True
+            return f"proposalId={record.id}; status=GENERATED"
 
         @agent.output_validator
         def validate_diagnosis(ctx: RunContext[AgentDependencies], output: Diagnosis) -> Diagnosis:
@@ -407,7 +391,7 @@ class GrowthInvestigator:
         prompt: str,
         operator_context: OperatorContext | None = None,
         workspace_factory: Callable[[str], Awaitable[InvestigationWorkspace]] | None = None,
-        draft_authorization: DraftAuthorization | None = None,
+        proposal_context: ProposalContext | None = None,
     ) -> InvestigationResult:
         try:
             await self._guardrail.check(prompt)
@@ -425,7 +409,7 @@ class GrowthInvestigator:
             workspace,
             operator_context,
             self._guardrail,
-            draft_authorization=draft_authorization,
+            proposal_context=proposal_context,
         )
         usage = RunUsage()
         cost: float | None = None

@@ -11,7 +11,6 @@ from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict, Field
 
 from pulseflow_agent.domain.campaign_proposal import (
-    CampaignDraftResponse,
     CampaignProposal,
     ProposalRecord,
 )
@@ -127,18 +126,22 @@ class InvestigationWorkspace:
     proposals: list[ProposalRecord] = field(default_factory=list)
 
     async def add_proposal(
-        self, proposal: CampaignProposal, draft: CampaignDraftResponse
+        self, proposal: CampaignProposal, owner_id: int
     ) -> ProposalRecord:
+        if self.id is None or self.repository is None:
+            raise ValueError("proposal requires a persisted investigation")
         self._validate_evidence(proposal.supporting_evidence_ids)
         item = ProposalRecord(
             id=str(uuid4()),
+            investigation_id=self.id,
+            owner_id=owner_id,
             proposal=proposal,
-            draft=draft,
+            status="GENERATED",
             scope_version=self.scope_version,
             created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
-        if self.repository is not None and self.id is not None:
-            await self.repository.add_proposal(self.id, item)
+        await self.repository.add_proposal(self.id, item)
         self.proposals.append(item)
         return item
 

@@ -33,5 +33,13 @@ export interface Investigation {
   messages: { role: 'USER' | 'ASSISTANT'; content: string }[]
   evidence: Evidence[]; hypotheses: Hypothesis[]; tool_trajectory: string[]
   final_diagnosis: Diagnosis | null
-  proposals: { id: string; scope_version: number; proposal: { rationale: string; supporting_evidence_ids: string[] }; draft: { draftId: number } }[]
+  proposals: {
+    id: string; investigationId: string; scopeVersion: number
+    status: 'GENERATED' | 'DRAFT_CREATED' | 'SUPERSEDED' | 'CANCELLED'; draftId: number | null
+    proposal: {
+      campaignName: string; objective: string; rationale: string; targetAudience: CampaignDsl['audience']
+      channel: string; schedule: CampaignDsl['schedule']; frequencyCap: CampaignDsl['frequencyCap']
+      promotionFacts: PromotionFact[]; supportingEvidenceIds: string[]
+    }
+  }[]
 }

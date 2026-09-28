@@ -52,7 +52,7 @@ Branch: `codex/pydantic-agent-preparation`
 
 ## Future Agent Integration Points
 
-下一阶段独立 Python + Pydantic AI Agent Service 可以经鉴权 Tool API 调用 Campaign Metrics、Audience Metrics、Audience Preview、Campaign Performance、Attribution、Campaign Draft 和 Campaign Confirm。Java 仍负责验证、归属和人工确认。本阶段没有实现 Agent Tool、LLM、Agent Loop 或 Pydantic AI。出站 PII 行为要求见 [PII Guardrail Contract](pii-guardrail-contract.md)。
+后续独立 Python + Pydantic AI Agent Service 经鉴权只读 Tool API 调用 Campaign Metrics、Audience Metrics、Audience Preview、Campaign Performance 和 Attribution，并持久化 CampaignProposal。Java 用户 API 负责从持久化 Proposal 创建 Draft、验证归属与人工确认。本准备阶段没有实现 Agent Tool、LLM、Agent Loop 或 Pydantic AI。出站 PII 行为要求见 [PII Guardrail Contract](pii-guardrail-contract.md)。
 
 ## Verification
 

@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { cancelInvestigation, confirmDraft, followUpInvestigation, getDraft, getInvestigation, proposeCampaign, refreshDraft, startInvestigation, watchInvestigation } from '@/api/investigations'
+import { cancelInvestigation, confirmDraft, createDraft, followUpInvestigation, getDraft, getInvestigation, proposeCampaign, refreshDraft, startInvestigation, watchInvestigation } from '@/api/investigations'
 import { isDemoMode } from '@/api/demo'
 import type { CampaignDraft, Investigation, PromotionFact } from '@/types/investigation'
 
@@ -16,7 +16,7 @@ const error = ref('')
 const streamNotice = ref('')
 const draft = ref<CampaignDraft | null>(null)
 const proposalDialog = ref(false)
-const proposalQuestion = ref('根据当前证据，为调查目标生成一个改进活动草稿。')
+const proposalQuestion = ref('根据当前证据，为调查目标生成一个改进活动方案。')
 const offerDescription = ref('')
 const offerAmount = ref<number | undefined>()
 const campaignId = ref<number | null>(null)
@@ -107,9 +107,17 @@ async function propose() {
   error.value = ''
   try {
     const facts: PromotionFact[] = offerDescription.value.trim() ? [{ type: 'COUPON', description: offerDescription.value.trim(), ...(typeof offerAmount.value === 'number' && Number.isFinite(offerAmount.value) ? { discount: offerAmount.value } : {}) }] : []
-    const result = await proposeCampaign(investigation.value.id, proposalQuestion.value.trim(), facts)
-    draft.value = await getDraft(result.draftId)
+    investigation.value = await proposeCampaign(investigation.value.id, proposalQuestion.value.trim(), facts)
     proposalDialog.value = false
+  } catch (cause) { reportError(cause) }
+  finally { busy.value = false }
+}
+async function generateDraft(proposalId: string) {
+  busy.value = true
+  error.value = ''
+  try {
+    const result = await createDraft(proposalId)
+    draft.value = await getDraft(result.draftId)
     campaignId.value = null
     await refresh()
   } catch (cause) { reportError(cause) }
@@ -185,8 +193,8 @@ async function confirm() {
       <p v-if="!diagnosis" class="muted">调查完成后，展示证据支持的结论与尚未解决的问题。</p>
       <template v-else><p v-if="running" class="muted">上一轮诊断，当前追问尚未完成。</p><p class="diagnosis-summary">{{ diagnosis.summary }}</p><article v-for="finding in diagnosis.findings" :key="finding.claim" class="finding"><p>{{ finding.claim }}</p><a v-for="id in finding.evidence_ids" :key="id" :href="`#evidence-${id}`" class="evidence-link">{{ evidenceLabel(id) }}</a></article><p v-if="diagnosis.recommended_next_action"><strong>建议下一步：</strong>{{ diagnosis.recommended_next_action }}</p></template>
       <div class="form-actions"><el-button :disabled="!diagnosis || running || busy" @click="improve">生成改进方案</el-button><el-button type="primary" :disabled="!canPropose" @click="proposalDialog = true">生成 Campaign Proposal</el-button></div>
-      <p v-if="!canPropose" class="muted">形成有当前范围证据支持的诊断后，可生成活动草稿。</p>
-      <div v-if="investigation?.proposals.length" class="proposal-list"><h3>已有方案与草稿</h3><article v-for="item in investigation.proposals" :key="item.id"><p>{{ item.proposal.rationale }}</p><span v-if="item.scope_version !== investigation.scope_version" class="muted">历史范围方案</span><el-button :disabled="busy" @click="review(item.draft.draftId)">检查 Draft #{{ item.draft.draftId }}</el-button></article></div>
+      <p v-if="!canPropose" class="muted">形成有当前范围证据支持的诊断后，可生成活动方案。</p>
+      <div v-if="investigation?.proposals.length" class="proposal-list"><h3>Campaign Proposals</h3><article v-for="item in investigation.proposals" :key="item.id"><h3>{{ item.proposal.campaignName }}</h3><p>{{ item.proposal.rationale }}</p><p>目标 {{ item.proposal.objective }} · 渠道 {{ item.proposal.channel }} · 状态 {{ item.status }}</p><p>计划 {{ item.proposal.schedule.sendAt }} · 每 {{ item.proposal.frequencyCap.windowHours }} 小时最多 {{ item.proposal.frequencyCap.maxTimes }} 次</p><p>目标人群：{{ item.proposal.targetAudience.conditions.map(c => `${c.field} ${c.operator} ${c.value}`).join('、') }}</p><p>优惠事实：{{ item.proposal.promotionFacts.length ? item.proposal.promotionFacts.map(f => f.description || f.type).join('、') : '无' }}</p><div><a v-for="id in item.proposal.supportingEvidenceIds" :key="id" :href="`#evidence-${id}`" class="evidence-link">{{ evidenceLabel(id) }}</a></div><span v-if="item.scopeVersion !== investigation.scope_version" class="muted">历史范围方案</span><el-button v-if="item.status === 'GENERATED'" :disabled="busy" type="primary" @click="generateDraft(item.id)">生成 Campaign Draft</el-button><el-button v-if="item.draftId" :disabled="busy" @click="review(item.draftId)">检查 Draft #{{ item.draftId }}</el-button></article></div>
     </section>
     <section v-if="draft" class="workspace-card draft-card" aria-label="草稿审核">
       <div class="card-heading"><h2>草稿审核 · #{{ draft.draftId }}</h2><el-tag>{{ draft.status }}</el-tag></div>
@@ -194,7 +202,7 @@ async function confirm() {
       <h3>目标人群 · {{ draft.dsl.audience.logic }}</h3><ul><li v-for="(condition, index) in draft.dsl.audience.conditions" :key="index">{{ condition.field }} {{ condition.operator }} {{ condition.value }}</li></ul><h3>优惠事实</h3><p v-if="!draft.dsl.promotionFacts?.length">无优惠承诺</p><p v-for="(fact, index) in draft.dsl.promotionFacts" :key="index">{{ fact.type }} · {{ fact.description }} {{ fact.discount }}</p><el-alert v-for="warning in draft.warnings" :key="warning" :title="warning" type="warning" :closable="false" /><el-alert v-for="item in draft.errors" :key="item" :title="item" type="error" :closable="false" />
       <p class="muted">检查后由你确认创建 Campaign。创建后的状态为 DRAFT，可在活动页面继续审核。</p><div class="form-actions"><el-button :disabled="busy || draft.status === 'CONFIRMED'" @click="rePreview">刷新人群预览</el-button><el-button type="primary" :disabled="busy || !!draft.errors.length || draft.status === 'CONFIRMED'" @click="confirm">确认创建 Campaign</el-button><router-link v-if="campaignId" :to="`/campaigns/${campaignId}`">查看 Campaign #{{ campaignId }} →</router-link></div>
     </section>
-    <el-dialog v-model="proposalDialog" title="生成活动方案" width="min(560px, 94vw)"><form @submit.prevent="propose"><label for="proposal-question">方案要求</label><textarea id="proposal-question" v-model="proposalQuestion" rows="3" maxlength="4000" /><p class="muted">仅提供已批准的优惠事实；留空表示没有优惠承诺。</p><label for="offer-description">已批准的优惠说明（可选）</label><input id="offer-description" v-model="offerDescription" maxlength="1000" placeholder="如：活动期间可使用的已批准优惠券" /><label for="offer-amount">优惠金额（可选）</label><input id="offer-amount" v-model.number="offerAmount" type="number" min="0" step="0.01" /><div class="form-actions"><el-button :disabled="busy" @click="proposalDialog = false">返回</el-button><el-button type="primary" native-type="submit" :loading="busy" :disabled="!proposalQuestion.trim()" @click.prevent="propose">生成草稿</el-button></div></form></el-dialog>
+    <el-dialog v-model="proposalDialog" title="生成活动方案" width="min(560px, 94vw)"><form @submit.prevent="propose"><label for="proposal-question">方案要求</label><textarea id="proposal-question" v-model="proposalQuestion" rows="3" maxlength="4000" /><p class="muted">仅提供已批准的优惠事实；留空表示没有优惠承诺。</p><label for="offer-description">已批准的优惠说明（可选）</label><input id="offer-description" v-model="offerDescription" maxlength="1000" placeholder="如：活动期间可使用的已批准优惠券" /><label for="offer-amount">优惠金额（可选）</label><input id="offer-amount" v-model.number="offerAmount" type="number" min="0" step="0.01" /><div class="form-actions"><el-button :disabled="busy" @click="proposalDialog = false">返回</el-button><el-button type="primary" native-type="submit" :loading="busy" :disabled="!proposalQuestion.trim()" @click.prevent="propose">生成 Proposal</el-button></div></form></el-dialog>
   </section>
 </template>
 

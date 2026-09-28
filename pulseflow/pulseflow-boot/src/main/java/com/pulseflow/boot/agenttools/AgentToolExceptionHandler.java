@@ -17,8 +17,8 @@ import java.util.Map;
 
 /** Error codes only; never echo request bodies, SQL, credentials or raw exceptions. */
 @Order(Ordered.HIGHEST_PRECEDENCE)
-@RestControllerAdvice(assignableTypes = {AgentToolController.class, AgentDraftController.class,
-        AgentProposalGateway.class})
+@RestControllerAdvice(assignableTypes = {AgentToolController.class, AgentProposalGateway.class,
+        CampaignProposalDraftController.class})
 public class AgentToolExceptionHandler {
     @ExceptionHandler(AgentGatewayException.class)
     public ResponseEntity<Map<String, String>> gateway(AgentGatewayException error) {
@@ -30,7 +30,7 @@ public class AgentToolExceptionHandler {
     }
     @ExceptionHandler(CampaignForbiddenException.class)
     public ResponseEntity<Map<String, String>> forbidden(CampaignForbiddenException ignored) {
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "draft_grant_denied"));
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
     }
     @ExceptionHandler(CampaignConflictException.class)
     public ResponseEntity<Map<String, String>> conflict(CampaignConflictException ignored) {
