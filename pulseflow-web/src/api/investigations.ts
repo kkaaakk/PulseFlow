@@ -37,7 +37,8 @@ export const followUpInvestigation = async (id: string, question: string, scope?
   return request('POST', `/investigations/${encodeURIComponent(id)}/follow-up`, { question, scope })
 }
 export const cancelInvestigation = (id: string): Promise<Investigation> => request('POST', `/investigations/${encodeURIComponent(id)}/cancel`)
-export const proposeCampaign = (id: string, question: string, promotionFacts: PromotionFact[]): Promise<{ draftId: number }> => request('POST', `/investigations/${encodeURIComponent(id)}/proposal`, { question, promotionFacts })
+export const proposeCampaign = (id: string, question: string, promotionFacts: PromotionFact[]): Promise<Investigation> => request('POST', `/investigations/${encodeURIComponent(id)}/proposal`, { question, promotionFacts })
+export const createDraft = (proposalId: string): Promise<{ draftId: number }> => request('POST', `/campaign-proposals/${encodeURIComponent(proposalId)}/draft`)
 export const getDraft = (id: number): Promise<CampaignDraft> => request('GET', `/campaign-drafts/${id}`)
 export const refreshDraft = (id: number): Promise<CampaignDraft> => request('POST', `/campaign-drafts/${id}/refresh-preview`)
 export const confirmDraft = (id: number): Promise<{ campaignId: number }> => request('POST', `/campaign-drafts/${id}/confirm`)
@@ -61,7 +62,7 @@ export async function watchInvestigation(id: string, signal: AbortSignal, change
       while ((end = buffer.indexOf('\n\n')) >= 0) {
         const frame = buffer.slice(0, end)
         buffer = buffer.slice(end + 2)
-        if (/^event: (investigation_started|tool_started|tool_completed|evidence_added|hypothesis_changed|diagnosis_ready|error)$/m.test(frame)) changed()
+        if (/^event: (investigation_started|tool_started|tool_completed|evidence_added|hypothesis_changed|proposal_ready|diagnosis_ready|error)$/m.test(frame)) changed()
       }
     }
     changed()

@@ -19,7 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AgentGatewaySecurityTest {
     @Test void everyReadWriteAndStreamChecksJavaOwnershipBeforeUpstreamAccess() throws Exception {
         String id = UUID.randomUUID().toString();
-        AgentDraftService drafts = mock(AgentDraftService.class);
+        AgentInvestigationOwnership drafts = mock(AgentInvestigationOwnership.class);
         doThrow(new CampaignForbiddenException("denied")).when(drafts).assertOwner(id, 2048L);
         try (var auth = mockStatic(StpUtil.class)) {
             auth.when(StpUtil::getLoginIdAsLong).thenReturn(2048L);
@@ -29,7 +29,6 @@ class AgentGatewaySecurityTest {
             assertThatThrownBy(() -> gateway.cancel(id)).isInstanceOf(CampaignForbiddenException.class);
             assertThatThrownBy(() -> gateway.events(id)).isInstanceOf(CampaignForbiddenException.class);
             assertThatThrownBy(() -> gateway.propose(id, new AgentProposalGateway.ProposalRequest("Draft", null))).isInstanceOf(CampaignForbiddenException.class);
-            verify(drafts, never()).issue(anyString(), anyLong(), anyList());
             gateway.shutdown();
         }
     }
@@ -50,7 +49,7 @@ class AgentGatewaySecurityTest {
         var projected = AgentProposalGateway.publicView(JsonUtil.fromJson("""
                 {"id":"ok", "system_prompt":"PRIVATE_PROMPT", "model_messages":["PRIVATE_MODEL"],
                  "messages":[{"role":"ASSISTANT","content":"Safe summary","reasoning":"PRIVATE_REASON"}],
-                 "proposals":[{"draft_grant":"PRIVATE_GRANT"}]}
+                 "proposals":[{"token":"PRIVATE_GRANT"}]}
                 """, com.fasterxml.jackson.databind.JsonNode.class));
         assertThat(projected.toString()).contains("Safe summary").doesNotContain("PRIVATE_");
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -66,7 +65,7 @@ class AgentGatewaySecurityTest {
             exchange.close();
         });
         server.start();
-        AgentProposalGateway gateway = new AgentProposalGateway(mock(AgentDraftService.class), RestClient.builder(),
+        AgentProposalGateway gateway = new AgentProposalGateway(mock(AgentInvestigationOwnership.class), RestClient.builder(),
                 "http://127.0.0.1:" + server.getAddress().getPort(), "PRIVATE_MACHINE");
         try (var auth = mockStatic(StpUtil.class)) {
             auth.when(StpUtil::getLoginIdAsLong).thenReturn(1024L);

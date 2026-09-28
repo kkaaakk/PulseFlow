@@ -127,7 +127,7 @@ def test_async_api_sse_auth_pii_and_readiness(monkeypatch: pytest.MonkeyPatch) -
         assert "event: diagnosis_ready" in events.text
         assert not any(
             secret in events.text
-            for secret in ["system_prompt", "draft_grant", "reasoning", "fake-internal-token"]
+            for secret in ["system_prompt", "ownerId", "reasoning", "fake-internal-token"]
         )
         assert (
             client.get(f"{path}/{id}", headers=headers).json()["status"] == "INSUFFICIENT_EVIDENCE"

@@ -29,7 +29,7 @@ CI uses offline TestModel/FunctionModel and mocked Java/Azure responses. It make
 
 Phase 5 adds 22 fixture evaluation cases, an optional `REAL_AGENT_EVAL=true` suite, official OTel instrumentation and the machine-only `/internal/v1/agent-quality` metrics snapshot. See [evaluation and tracing](../docs/agent/agent-evaluation.md) for measurement limits and collector setup. Prompt, Tool content, credentials and SQL parameters are excluded from exported telemetry.
 
-Phase 6 adds a conditional `create_campaign_draft` Tool and persisted CampaignProposal. Use the Java authenticated Investigation/Proposal gateway to supply operator-owned, short-lived PROPOSE authorization; the Agent never gets a user login Token or execution Tool. After migrations, see [Proposal approval contract](../docs/agent/campaign-proposal-approval.md) for human review/confirmation and authorized promotion facts.
+Phase 6 persists an evidence-backed CampaignProposal with Investigation and operator ownership. Agent tools stop at investigation and Proposal persistence. Java's authenticated `POST /api/campaign-proposals/{proposalId}/draft` reads the stored Proposal, validates ownership, Evidence, DSL and audience, then creates the Draft. The user confirms it separately. See [Proposal approval contract](../docs/agent/campaign-proposal-approval.md).
 ## Investigation UI and deployment
 
 The Java-authenticated `/api/investigations` frontend now supports asynchronous investigation,

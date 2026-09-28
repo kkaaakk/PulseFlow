@@ -8,7 +8,9 @@ keep the same investigation ID. Changing scope makes older evidence historical b
 investigation can be cancelled and later resumed.
 
 An evidence-supported completed Diagnosis enables **生成 Campaign Proposal**. The operator provides
-only approved promotion facts. Java validates the DSL and previews the audience, then saves a Draft.
+only approved promotion facts. Agent persists the evidence-backed Proposal and stops. A separate
+**生成 Campaign Draft** click asks Java to load that stored Proposal, validate ownership, Evidence and
+DSL, preview the audience, then save a Draft.
 The review panel shows audience conditions, channel, schedule, frequency cap, facts, warnings and data
 version. **确认创建 Campaign** opens a separate confirmation dialog. Cancelling that dialog performs
 no confirm request. Confirming uses the existing Java user-authenticated draft endpoint and creates a
@@ -27,16 +29,17 @@ Browser → Java Sa-Token gateway → Agent → Java internal tools.
 | `POST /api/investigations/{id}/follow-up` | Resume owned investigation, optional scope change |
 | `POST /api/investigations/{id}/cancel` | Cancel owned active run |
 | `GET /api/investigations/{id}/events` | Owned SSE business events |
-| `POST /api/investigations/{id}/proposal` | Create a Java-owned draft with a short-lived PROPOSE grant |
+| `POST /api/investigations/{id}/proposal` | Persist an owned Agent Proposal; no Java Draft write |
+| `POST /api/campaign-proposals/{proposalId}/draft` | User-authenticated Java Draft transition from stored Proposal |
 | `/api/campaign-drafts/{id}` and existing confirm/preview routes | Authoritative human review |
 
 Every ID-based gateway route checks Java ownership **before** contacting Agent. Browser-supplied
-operator IDs are never used for ownership. Machine secrets and draft grants remain server-side.
+operator IDs are never used for ownership. The internal machine token remains server-side.
 The public projection omits model messages, system prompts and hidden reasoning. SSE carries only
 business IDs, tool names and status, never raw model tokens or reasoning.
 
 The event names are `investigation_started`, `tool_started`, `tool_completed`, `evidence_added`,
-`hypothesis_changed`, `diagnosis_ready`, `error`. Events are reconstructed from persisted workspace
+`hypothesis_changed`, `proposal_ready`, `diagnosis_ready`, `error`. Events are reconstructed from persisted workspace
 changes with a one-second polling interval. A completed Java observation produces `tool_completed`.
 They are progress hints; the owned GET is the authoritative snapshot. Reconnection may replay hints,
 so clients refresh snapshots instead of appending duplicate evidence. There is no token stream.
@@ -61,7 +64,7 @@ manual refresh after disconnection. A stream is bounded to 110 seconds, and Java
 
 Provider SDK transport retries are disabled so wire retries cannot silently multiply model usage.
 PydanticAI output/tool argument correction remains bounded by the existing retry and UsageLimits
-policy. Draft writes are not automatically retried. Unknown provider pricing remains `null`; the
+policy. Draft creation is idempotent by Proposal ID. Unknown provider pricing remains `null`; the
 legacy `MAX_COST_USD` setting is advisory, **not a hard billing cap**. Token/request limits and the
 overall deadline are the enforced usage controls. Real provider pricing and billing alerts need
 deployment-specific configuration.
@@ -82,11 +85,10 @@ Graceful shutdown stops admission and cancels active background runs, persisting
 before closing HTTP/DB resources. Uvicorn gets 15 seconds; Compose allows 30. Abrupt kill is recovered
 by the next startup. In-memory SQLite serializes its shared connection; MySQL uses bounded pooling.
 
-Expired Java grant rows older than 24 hours are removed hourly. Drafts and ownership records are
-retained. If Java saved a draft but the Agent response/persistence fails, the gateway tries to recover
-that same owned draft before returning an error. A new explicit proposal request may still create a
-second draft. This is not a distributed transaction. Review existing drafts before resubmitting after
-an ambiguous failure; database backup/retention and reconciliation policies remain operator duties.
+Drafts and ownership records are retained. `campaign_ai_draft.request_id` is the Proposal ID and is
+unique. If Java saved a Draft but Agent Proposal status update fails, the next request returns the same
+owned Draft and retries the status update. Java and Agent DBs do not use a distributed transaction.
+Database backup/retention and reconciliation policies remain operator duties.
 
 ## Development Compose
 

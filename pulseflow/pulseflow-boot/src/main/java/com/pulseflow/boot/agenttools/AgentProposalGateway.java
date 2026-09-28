@@ -2,8 +2,6 @@ package com.pulseflow.boot.agenttools;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.pulseflow.campaign.draft.CampaignDraft;
-import com.pulseflow.campaign.dsl.CampaignDsl;
 import com.pulseflow.campaign.dsl.PromotionFact;
 import com.pulseflow.common.model.ApiResponse;
 import com.pulseflow.common.util.JsonUtil;
@@ -25,11 +23,11 @@ import java.util.concurrent.*;
 import java.util.Map;
 import java.util.List;
 
-/** The Java login session, not a browser-supplied operatorId, owns every proposed draft. */
+/** Java session gateway for Agent investigations and persisted proposals. */
 @RestController
 @RequestMapping("/api/investigations")
 public class AgentProposalGateway {
-    private final AgentDraftService drafts;
+    private final AgentInvestigationOwnership ownership;
     private final String agentUrl;
     private final String internalToken;
     private final RestClient client;
@@ -37,10 +35,10 @@ public class AgentProposalGateway {
     private final ThreadPoolExecutor streams = new ThreadPoolExecutor(0, 8, 30, TimeUnit.SECONDS,
             new SynchronousQueue<>(), runnable -> { Thread t = new Thread(runnable, "agent-sse"); t.setDaemon(true); return t; });
 
-    public AgentProposalGateway(AgentDraftService drafts, RestClient.Builder builder,
+    public AgentProposalGateway(AgentInvestigationOwnership ownership, RestClient.Builder builder,
             @Value("${pulseflow.agent.service-url:}") String agentUrl,
             @Value("${pulseflow.agent.internal-token:}") String internalToken) {
-        this.drafts = drafts;
+        this.ownership = ownership;
         this.agentUrl = agentUrl;
         this.internalToken = internalToken;
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
@@ -52,9 +50,6 @@ public class AgentProposalGateway {
     public record Request(String question) {}
     public record FollowUpRequest(String question, String scope) {}
     public record ProposalRequest(String question, List<PromotionFact> promotionFacts) {}
-    public record Response(String investigationId, Long draftId, String state,
-                           String validationStatus, CampaignDsl dsl, Long estimatedCount,
-                           String dataVersion, boolean requiresHumanConfirmation) {}
 
     @PostMapping
     public ApiResponse<JsonNode> investigate(@RequestBody Request body) {
@@ -68,8 +63,8 @@ public class AgentProposalGateway {
         catch (Exception ignored) { throw new AgentGatewayException(503, "agent_unavailable"); }
         if (result == null || !result.hasNonNull("id")) throw new IllegalStateException("agent_unavailable");
         String id = result.get("id").asText();
-        AgentDraftService.validId(id);
-        drafts.registerOwner(id, operator);
+        AgentInvestigationOwnership.validId(id);
+        ownership.register(id, operator);
         return ApiResponse.success(publicView(result));
     }
 
@@ -125,7 +120,7 @@ public class AgentProposalGateway {
                                         if (line.startsWith("data: ") && event != null && EVENTS.contains(event)) {
                                             JsonNode data = JsonUtil.fromJson(line.substring(6), JsonNode.class);
                                             ObjectNode safe = JsonUtil.fromJson("{}", ObjectNode.class);
-                                            for (String key : List.of("investigation_id", "tool_name", "evidence_id", "hypothesis_id", "status"))
+                                            for (String key : List.of("investigation_id", "tool_name", "evidence_id", "hypothesis_id", "proposal_id", "status"))
                                                 if (data.has(key) && data.get(key).isTextual()) safe.set(key, data.get(key));
                                             emitter.send(SseEmitter.event().name(event).data(safe));
                                             event = null;
@@ -146,14 +141,14 @@ public class AgentProposalGateway {
     }
 
     private static final Set<String> EVENTS = Set.of("investigation_started", "tool_started", "tool_completed",
-            "evidence_added", "hypothesis_changed", "diagnosis_ready", "error");
+            "evidence_added", "hypothesis_changed", "proposal_ready", "diagnosis_ready", "error");
 
     @PreDestroy public void shutdown() { streams.shutdownNow(); }
 
     private Long owned(String id) {
         StpUtil.checkLogin();
         Long operator = StpUtil.getLoginIdAsLong();
-        drafts.assertOwner(id, operator);
+        ownership.assertOwner(id, operator);
         if (agentUrl.isBlank() || internalToken.isBlank()) throw new AgentGatewayException(503, "agent_unavailable");
         return operator;
     }
@@ -190,36 +185,25 @@ public class AgentProposalGateway {
 
     private static void removePrivate(JsonNode node) {
         if (node.isObject()) {
-            ((ObjectNode) node).remove(List.of("draft_grant", "system_prompt", "prompt", "model_messages",
-                    "reasoning", "chain_of_thought", "operator_id", "operatorId", "token", "api_key"));
+            ((ObjectNode) node).remove(List.of("system_prompt", "prompt", "model_messages",
+                    "reasoning", "chain_of_thought", "operator_id", "operatorId",
+                    "owner_id", "ownerId", "token", "api_key"));
         }
         node.elements().forEachRemaining(AgentProposalGateway::removePrivate);
     }
 
     @PostMapping("/{investigationId}/proposal")
-    public ApiResponse<Response> propose(@PathVariable String investigationId, @RequestBody ProposalRequest body) {
+    public ApiResponse<JsonNode> propose(@PathVariable String investigationId, @RequestBody ProposalRequest body) {
         Long operator = owned(investigationId);
-        AgentDraftService.validId(investigationId);
+        AgentInvestigationOwnership.validId(investigationId);
         validate(body == null ? null : new Request(body.question()));
         List<PromotionFact> facts = body.promotionFacts() == null ? List.of() : body.promotionFacts();
         if (facts.size() > 10) throw new IllegalArgumentException("invalid_promotion_facts");
-        String grant;
         try (AutoCloseable ignored = limits.acquire(operator)) {
-            grant = drafts.issue(investigationId, operator, facts);
-            try {
-                call("POST", "/" + investigationId + "/proposal",
-                        Map.of("question", body.question(), "draft_grant", grant, "promotion_facts", facts));
-            } catch (AgentGatewayException upstream) {
-                // Recover the authoritative Java draft when Agent persistence/response failed afterwards.
-                try { drafts.review(grant, investigationId, operator); }
-                catch (Exception noDraft) { throw upstream; }
-            }
+            return ApiResponse.success(publicView(call("POST", "/" + investigationId + "/proposal",
+                    Map.of("question", body.question(), "owner_id", operator, "promotion_facts", facts))));
         } catch (AgentGatewayException error) { throw error; }
         catch (Exception ignored) { throw new AgentGatewayException(503, "agent_proposal_unavailable"); }
-        CampaignDraft draft = drafts.review(grant, investigationId, operator);
-        return ApiResponse.success(new Response(investigationId, draft.getId(), "DRAFT",
-                draft.getValidationStatus(), JsonUtil.fromJson(draft.getDslJson(), CampaignDsl.class),
-                draft.getEstimatedAudienceCount(), draft.getProfileDataVersion(), true));
     }
 
     private void validate(Request body) {

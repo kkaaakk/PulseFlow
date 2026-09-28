@@ -4,9 +4,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from time import monotonic
 
-from pydantic import SecretStr
-
-from pulseflow_agent.agent.dependencies import DraftAuthorization
+from pulseflow_agent.agent.dependencies import ProposalContext
 from pulseflow_agent.agent.growth_investigator import GrowthInvestigator
 from pulseflow_agent.domain.contracts import PromotionFact
 from pulseflow_agent.domain.investigation import (
@@ -37,7 +35,7 @@ class InvestigationService:
         self,
         question: str,
         factory: Callable[[str], Awaitable[InvestigationWorkspace]],
-        authorization: DraftAuthorization | None = None,
+        authorization: ProposalContext | None = None,
         admitted: bool = False,
     ) -> InvestigationResult:
         if not admitted:
@@ -47,7 +45,7 @@ class InvestigationService:
         try:
             async with asyncio.timeout(self.admission.settings.pulseflow_agent_run_timeout_seconds):
                 result = await self._investigator.run(
-                    question, workspace_factory=factory, draft_authorization=authorization
+                    question, workspace_factory=factory, proposal_context=authorization
                 )
             status = result.diagnosis.status
             return result
@@ -190,7 +188,7 @@ class InvestigationService:
         self,
         investigation_id: str,
         question: str,
-        grant: SecretStr,
+        owner_id: int,
         promotion_facts: list[PromotionFact] | None = None,
     ) -> Investigation:
         facts = list(promotion_facts or [])
@@ -207,7 +205,7 @@ class InvestigationService:
         async def factory(_question: str) -> InvestigationWorkspace:
             return self._workspace(await self._repository.begin_followup(investigation_id))
 
-        await self._run(question, factory, DraftAuthorization(investigation_id, grant, facts))
+        await self._run(question, factory, ProposalContext(investigation_id, owner_id, facts))
         result = await self._repository.load(investigation_id)
         if len(result.proposals) == len(existing.proposals):
             raise InvestigationConflictError("proposal_not_created")

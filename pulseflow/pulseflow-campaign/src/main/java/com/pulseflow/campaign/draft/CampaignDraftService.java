@@ -83,7 +83,7 @@ public class CampaignDraftService {
         CampaignDraft draft = CampaignDraft.builder()
                 .requestId(requestId)
                 .operatorId(operatorId)
-                .sourceText(sourceText)
+                .sourceText(sourceText == null ? "" : sourceText)
                 .schemaVersion(dsl.getSchemaVersion() == null ? 1 : dsl.getSchemaVersion())
                 .dslJson(JsonUtil.toJson(dsl))
                 .validationStatus(status.name())

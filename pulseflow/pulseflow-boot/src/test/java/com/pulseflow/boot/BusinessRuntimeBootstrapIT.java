@@ -102,7 +102,7 @@ class BusinessRuntimeBootstrapIT {
         }
 
         @Test
-        @DisplayName("V1~V6 迁移成功，核心表、历史 AI 表和 Agent 授权表存在")
+        @DisplayName("V1~V7 迁移成功，核心表和 Proposal Draft 关联存在")
         void coreTablesExistAfterMigration() throws Exception {
             org.flywaydb.core.Flyway flyway = org.flywaydb.core.Flyway.configure()
                     .dataSource(mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword())
@@ -122,7 +122,12 @@ class BusinessRuntimeBootstrapIT {
                         "campaign", "campaign_rule", "user_event", "user_metric_hourly",
                         "campaign_ai_draft", "campaign_ai_review",
                         "campaign_performance_summary", "ai_generation_record",
-                        "agent_investigation_owner", "agent_campaign_draft_grant");
+                        "agent_investigation_owner");
+                assertThat(tables).doesNotContain("agent_campaign_draft_grant");
+                try (java.sql.ResultSet column = stmt.executeQuery(
+                        "SELECT investigation_id FROM campaign_ai_draft LIMIT 0")) {
+                    assertThat(column.getMetaData().getColumnCount()).isEqualTo(1);
+                }
             }
         }
     }

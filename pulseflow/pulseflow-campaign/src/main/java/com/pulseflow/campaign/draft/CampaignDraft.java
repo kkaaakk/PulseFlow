@@ -27,6 +27,8 @@ public class CampaignDraft {
 
     private String requestId;
 
+    private String investigationId;
+
     private Long operatorId;
 
     private String sourceText;

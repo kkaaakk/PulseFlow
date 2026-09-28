@@ -45,7 +45,7 @@ for _ in range(30):
     time.sleep(1)
 assert result["data"]["status"] == "INSUFFICIENT_EVIDENCE"
 assert "system_prompt" not in json.dumps(result)
-assert "draft_grant" not in json.dumps(result)
+assert "ownerId" not in json.dumps(result)
 request = urllib.request.Request(BASE + path + "/events", headers={"token": token})
 with urllib.request.urlopen(request, timeout=15) as response:
     events = response.read().decode()

@@ -15,9 +15,9 @@ Event API → Kafka → MySQL 事件事实 → Profile (Redis / MySQL)
 
 ## Agent 接入边界
 
-Python + Pydantic AI Agent Service 已在 Java 服务外建立基础，并通过 [内部业务 Tool API](docs/agent/agent-tool-contract.md) 自主调查、记录 Evidence 和生成 Diagnosis。调查与 Workspace 持久化已接入；[类型化 Campaign Proposal 与人工确认](docs/agent/campaign-proposal-approval.md)由 Java 的登录归属、短时授权、DSL 校验和草稿服务控制。
+Python + Pydantic AI Agent Service 已在 Java 服务外建立基础，并通过 [内部业务 Tool API](docs/agent/agent-tool-contract.md) 自主调查、记录 Evidence、Hypothesis、Diagnosis 并持久化 CampaignProposal。[类型化 Campaign Proposal 与人工确认](docs/agent/campaign-proposal-approval.md)由 Java 的登录归属、DSL 校验和草稿服务控制。Agent owns reasoning. Java owns deterministic business writes.
 
-**Phase 6 已支持 Evidence-backed Proposal → Java Draft → 人工确认。** 当前提供 Java 登录用户的调查创建/Proposal 网关，尚未连接新调查前端。评测边界见 [Agent Evaluation](docs/agent/agent-evaluation.md)，运行方法见 [Agent README](pulseflow-agent/README.md)。Java 不包含 LLM Provider、Prompt Runtime、模型输出解析器或 AI Review。PII 要求见 [PII Guardrail Contract](docs/agent/pii-guardrail-contract.md)。
+**Phase 6/7 链路为 Evidence-backed Proposal → 用户点击生成 Java Draft → 人工确认。** 评测边界见 [Agent Evaluation](docs/agent/agent-evaluation.md)，运行方法见 [Agent README](pulseflow-agent/README.md)。Java 不包含 LLM Provider、Prompt Runtime、模型输出解析器或 AI Review。PII 要求见 [PII Guardrail Contract](docs/agent/pii-guardrail-contract.md)。
 
 ```text
 Python Growth Investigation Agent
@@ -27,10 +27,10 @@ PulseFlow Java Internal Agent Tool API
   ├─ 指标查询 / 对比 / 拆解
   ├─ Campaign Performance Summary
   ├─ Attribution Breakdown
-  ├─ Campaign DSL Validation / Audience Preview
-  └─ Campaign Draft（额外的 PROPOSE 授权）
+  └─ Campaign DSL Validation / Audience Preview
 
-Java 登录用户 → 人工确认草稿 → Campaign / CampaignRule（DRAFT）
+Agent → 持久化 CampaignProposal → 停止
+Java 登录用户 → 生成 Draft → 人工确认草稿 → Campaign / CampaignRule（DRAFT）
 ```
 
 ## 模块

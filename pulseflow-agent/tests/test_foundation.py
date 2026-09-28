@@ -268,6 +268,6 @@ def test_internal_investigation_auth_and_pii_are_fail_closed() -> None:
         proposal = client.post(
             f"{path}/{investigation_id}/proposal",
             headers={"X-PulseFlow-Agent-Token": "fake-internal-token"},
-            json={"question": "设计召回", "draft_grant": "x" * 80, "promotion_facts": []},
+            json={"question": "设计召回", "owner_id": 1024, "promotion_facts": []},
         )
         assert proposal.status_code == 409  # no supported Diagnosis in offline mode

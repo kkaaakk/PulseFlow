@@ -14,7 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy.ext.asyncio import create_async_engine
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response, StreamingResponse
@@ -22,6 +22,7 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 from pulseflow_agent.agent.growth_investigator import GrowthInvestigator
 from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient
 from pulseflow_agent.config import AgentSettings
+from pulseflow_agent.domain.campaign_proposal import ProposalRead, ProposalRecord
 from pulseflow_agent.domain.contracts import PromotionFact
 from pulseflow_agent.domain.investigation import Investigation
 from pulseflow_agent.observability.tracing import Telemetry
@@ -50,8 +51,13 @@ class FollowUpRequest(InvestigationRequest):
 
 
 class ProposalRequest(InvestigationRequest):
-    draft_grant: SecretStr = Field(min_length=40, max_length=512)
+    owner_id: int = Field(gt=0)
     promotion_facts: list[PromotionFact] = Field(default_factory=list, max_length=10)
+
+
+class DraftCreatedRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    draft_id: int = Field(gt=0)
 
 
 def create_app(
@@ -237,6 +243,7 @@ def create_app(
             seen_tools = 0
             seen_evidence: set[str] = set()
             seen_hypotheses: dict[str, str] = {}
+            seen_proposals: set[str] = set()
             started = monotonic()
             try:
                 yield frame("investigation_started")
@@ -259,6 +266,10 @@ def create_app(
                                 status=hypothesis.status,
                             )
                             seen_hypotheses[hypothesis.id] = version
+                    for proposal in item.proposals:
+                        if proposal.id not in seen_proposals:
+                            yield frame("proposal_ready", proposal_id=proposal.id)
+                            seen_proposals.add(proposal.id)
                     if item.status != "RUNNING":
                         yield frame(
                             "error"
@@ -328,7 +339,7 @@ def create_app(
         try:
             service: InvestigationService = request.app.state.investigations
             return await service.propose(
-                investigation_id, body.question, body.draft_grant, body.promotion_facts
+                investigation_id, body.question, body.owner_id, body.promotion_facts
             )
         except InvestigationNotFoundError:
             raise HTTPException(status_code=404, detail="not_found") from None
@@ -338,6 +349,30 @@ def create_app(
             raise HTTPException(status_code=422, detail=error.reason) from None
         except AdmissionRejected:
             raise
+        except Exception:
+            raise HTTPException(status_code=503, detail="agent_unavailable") from None
+
+    @app.get("/internal/v1/proposals/{proposal_id}")
+    async def get_proposal(proposal_id: str, request: Request) -> ProposalRead:
+        try:
+            service: InvestigationService = request.app.state.investigations
+            return await service._repository.load_proposal(proposal_id)
+        except InvestigationNotFoundError:
+            raise HTTPException(status_code=404, detail="not_found") from None
+        except Exception:
+            raise HTTPException(status_code=503, detail="agent_unavailable") from None
+
+    @app.put("/internal/v1/proposals/{proposal_id}/draft")
+    async def mark_proposal_draft(
+        proposal_id: str, body: DraftCreatedRequest, request: Request
+    ) -> ProposalRecord:
+        try:
+            service: InvestigationService = request.app.state.investigations
+            return await service._repository.mark_draft_created(proposal_id, body.draft_id)
+        except InvestigationNotFoundError:
+            raise HTTPException(status_code=404, detail="not_found") from None
+        except InvestigationConflictError:
+            raise HTTPException(status_code=409, detail="proposal_status_conflict") from None
         except Exception:
             raise HTTPException(status_code=503, detail="agent_unavailable") from None
 
