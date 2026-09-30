@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      PULSEFLOW_AGENT_PII_CACHE_DIR: ${{ runner.temp }}/pulseflow-openmed-cache
+      PULSEFLOW_AGENT_PII_CACHE_DIR: /tmp/pulseflow-openmed-cache
       PULSEFLOW_AGENT_MODEL: openai:synthetic-smoke
       PULSEFLOW_AGENT_API_KEY: synthetic-smoke-key
       PULSEFLOW_AGENT_INTERNAL_TOKEN: synthetic-smoke-token
