@@ -91,8 +91,9 @@ def test_real_openmed_chinese_smoke(caplog: pytest.LogCaptureFixture) -> None:
         print(f"result_entities_type={type(result.entities).__name__}")
         raw_labels = {str(entity.label).upper() for entity in result.entities}
         families = {
-            "PERSON": "NAME", "LOCATION": "ADDRESS", "PHONE_NUMBER": "PHONE",
-            "EMAIL_ADDRESS": "EMAIL", "IDENTIFIER": "ID", "NATIONAL_ID": "ID",
+            "PERSON": "NAME", "FIRSTNAME": "NAME", "LASTNAME": "NAME",
+            "LOCATION": "ADDRESS", "PHONE_NUMBER": "PHONE", "EMAIL_ADDRESS": "EMAIL",
+            "IDENTIFIER": "ID", "NATIONAL_ID": "ID", "SOCIAL_CREDIT_CODE": "ID",
         }
         actual = {families.get(label, label) for label in raw_labels}
         expected = set(case["expected"])

@@ -12,7 +12,8 @@ def main() -> None:
         "PULSEFLOW_AGENT_PII_MODEL", "OpenMed/OpenMed-PII-Chinese-BigMed-Large-560M-v1"
     )
     cache = os.getenv("PULSEFLOW_AGENT_PII_CACHE_DIR", "~/.cache/openmed")
-    loader = ModelLoader(OpenMedConfig(cache_dir=os.path.expanduser(cache)))
+    offline = os.getenv("OPENMED_OFFLINE") == "1" or os.getenv("HF_HUB_OFFLINE") == "1"
+    loader = ModelLoader(OpenMedConfig(cache_dir=os.path.expanduser(cache), local_only=offline))
     loader.load_model(model)
 
 
