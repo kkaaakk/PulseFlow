@@ -27,7 +27,7 @@ from pulseflow_agent.domain.contracts import PromotionFact
 from pulseflow_agent.domain.investigation import Investigation
 from pulseflow_agent.observability.tracing import Telemetry
 from pulseflow_agent.runtime import AdmissionRejected
-from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail, PiiBlockedError
+from pulseflow_agent.security.pii_guardrail import OpenMedPiiGuardrail, PiiBlockedError
 from pulseflow_agent.workspace.repository import (
     InvestigationConflictError,
     InvestigationNotFoundError,
@@ -103,6 +103,8 @@ def create_app(
                 await repository.recover_interrupted()
             except Exception:
                 raise RuntimeError("Agent database unavailable or schema not migrated") from None
+            guardrail = OpenMedPiiGuardrail(configured)
+            await guardrail.warm()
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(10, connect=3, pool=3),
                 limits=httpx.Limits(
@@ -113,7 +115,6 @@ def create_app(
                 HTTPXClientInstrumentor.instrument_client(
                     client, tracer_provider=telemetry.provider
                 )
-                guardrail = AzurePiiGuardrail(configured, client)
                 investigator = GrowthInvestigator(
                     configured,
                     guardrail,

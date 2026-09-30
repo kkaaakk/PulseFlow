@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient
 from pulseflow_agent.domain.contracts import PromotionFact
 from pulseflow_agent.domain.investigation import InvestigationWorkspace
-from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail
+from pulseflow_agent.security.pii_guardrail import PiiGuardrail
 
 
 @dataclass(frozen=True)
@@ -26,6 +26,6 @@ class AgentDependencies:
     pulseflow: PulseFlowApiClient
     workspace: InvestigationWorkspace
     operator_context: OperatorContext | None
-    guardrail: AzurePiiGuardrail
+    guardrail: PiiGuardrail
     proposal_context: ProposalContext | None = None
     proposal_created: bool = False

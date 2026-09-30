@@ -49,7 +49,7 @@ from pulseflow_agent.domain.investigation import (
     ToolObservation,
 )
 from pulseflow_agent.observability.tracing import Telemetry
-from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail, PiiBlockedError
+from pulseflow_agent.security.pii_guardrail import PiiBlockedError, PiiGuardrail
 
 
 def create_model(settings: AgentSettings) -> TestModel | OpenAIModel:
@@ -96,7 +96,7 @@ class GrowthInvestigator:
     def __init__(
         self,
         settings: AgentSettings,
-        guardrail: AzurePiiGuardrail,
+        guardrail: PiiGuardrail,
         pulseflow: PulseFlowApiClient,
         model: Model | None = None,
         telemetry: Telemetry | None = None,

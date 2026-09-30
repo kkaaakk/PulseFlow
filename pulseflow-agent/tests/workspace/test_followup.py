@@ -20,7 +20,7 @@ from pulseflow_agent.domain.investigation import (
     InvestigationWorkspace,
     ToolObservation,
 )
-from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail
+from pulseflow_agent.security.pii_guardrail import OpenMedPiiGuardrail
 from pulseflow_agent.workspace.repository import SqlAlchemyInvestigationRepository
 from pulseflow_agent.workspace.service import InvestigationService
 
@@ -127,7 +127,7 @@ async def test_hypotheses_and_scope_followup_persist_without_fake_evidence(
         })
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(java)) as http:
-        guardrail = AzurePiiGuardrail(config, http)
+        guardrail = OpenMedPiiGuardrail(config)
         first = InvestigationService(repo, GrowthInvestigator(
             config, guardrail, PulseFlowApiClient(config, http), model=FunctionModel(first_model)
         ), guardrail)
@@ -180,7 +180,7 @@ async def test_cancelled_model_run_records_cancelled_status(database_url: str) -
 
     async with httpx.AsyncClient() as http:
         investigator = GrowthInvestigator(
-            config, AzurePiiGuardrail(config, http), PulseFlowApiClient(config, http),
+            config, OpenMedPiiGuardrail(config), PulseFlowApiClient(config, http),
             model=FunctionModel(cancel),
         )
         with pytest.raises(CancelledError):

@@ -15,7 +15,7 @@ from pulseflow_agent.agent.growth_investigator import GrowthInvestigator
 from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient
 from pulseflow_agent.config import AgentSettings
 from pulseflow_agent.domain.investigation import ToolObservation
-from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail
+from pulseflow_agent.security.pii_guardrail import OpenMedPiiGuardrail
 
 CURRENT = {
     "fromInclusive": "2026-09-01T00:00:00+08:00",
@@ -160,7 +160,7 @@ async def test_same_question_uses_different_tool_paths(scenario: str) -> None:
     requests: list[str] = []
     async with httpx.AsyncClient(transport=java_handler(scenario, requests)) as client:
         investigator = GrowthInvestigator(
-            settings, AzurePiiGuardrail(settings, client), PulseFlowApiClient(settings, client),
+            settings, OpenMedPiiGuardrail(settings), PulseFlowApiClient(settings, client),
             model=FunctionModel(EvidenceResponsiveModel().__call__),
         )
         result = await investigator.run(QUESTION)

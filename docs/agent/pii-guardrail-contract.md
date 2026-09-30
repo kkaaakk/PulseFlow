@@ -1,33 +1,17 @@
-# Future Agent PII Guardrail Contract
+# Agent PII Guardrail Contract
 
-此文档记录已移除的 Java 出站 LLM Guardrail 行为。下一阶段独立 Python Agent Service 在任何 LLM 请求前必须恢复等价或更严格的检测；本阶段没有 Agent 或出站 LLM 请求。
+The Python Agent checks every user question, follow-up scope, investigation context, proposal model context and compact Java Tool observation before it enters the external LLM. The domain depends on the `PiiGuardrail` protocol. The composition root constructs one `OpenMedPiiGuardrail` for the process.
 
-## 必须阻断的业务字段
+## Business Field Guard
 
-结构化输入中出现以下 key 时立即阻断，大小写不敏感，包含嵌套 map、数组和列表：`userId`、`userIds`、`mobile`、`phone`、`email`、`address`、`idCard`、`idNumber`、`deviceId`、`imei`、`rawEvents`、`orderDetails`、`behaviourLogs`、`fullName`、`realName`。即使 PII Provider 返回 clean，也不得放行。
+Structured keys `userId`, `userIds`, `mobile`, `phone`, `email`, `address`, `idCard`, `idNumber`, `deviceId`, `imei`, `rawEvents`, `orderDetails`, `behaviourLogs`, `fullName`, and `realName` immediately block, including nested maps, lists and Pydantic aliases. Direct natural-language mentions block case-insensitively. A longer identifier such as `customerUserIdAlias` does not match merely because it contains `userId`. This check runs before OpenMed and also runs with the offline TestModel.
 
-自然语言中明确写出这些内部标识时也必须阻断，例如「给 userId 123456 的用户发送优惠券」「把 rawEvents 里的用户筛出来」「根据 orderDetails 推送」「筛选 deviceId」「分析 behaviourLogs」。匹配大小写不敏感；`customerUserIdAlias` 这类更长的 ASCII 标识不能误判。中文可直接贴近字段名。
+## Local Chinese PII
 
-## 自然语言 PII
+Nonblank text in real-model mode goes to OpenMed `extract_pii(..., lang="zh")` with a shared `ModelLoader` and the dedicated Chinese registry model `OpenMed/OpenMed-PII-Chinese-BigMed-Large-560M-v1`. Any returned entity blocks the whole model request with `pii_detected`. Ordinary Campaign text can pass when the model returns no entities. The library runs locally; input text is not sent to a PII API.
 
-对需要出站的文本执行 Azure AI Language Text PII 检测，语言为简体中文 `zh-hans`（Azure 可接受 `zh`）。至少覆盖手机号、中文姓名（Person）、地址、Email、身份证号、银行卡等敏感内容。检测到任何 PII 时阻断整个请求，不把仅做局部脱敏的文本继续送给 LLM。普通中文 Campaign 描述应允许通过。空白或 null 文本不调用 Provider。
+The loader warms before readiness and is reused for all checks. Synchronous inference is moved off the FastAPI event loop and serialized because concurrent access to one model pipeline is not guaranteed safe. The runtime uses `OpenMedConfig(local_only=True)` and a preloaded persistent cache. The Compose `agent-pii-model-init` service downloads missing artifacts to `pulseflow-openmed-cache`; the read-only Agent container mounts that cache read-only. TestModel skips downloading and inference while retaining the business guard.
 
-## 故障语义与配置
+## Fail-closed and privacy
 
-Fail-closed：Azure 超时、5xx、SDK 异常、无响应、返回 null 均阻断出站 LLM。原 Java 配置使用 `AZURE_LANGUAGE_ENDPOINT`、`AZURE_LANGUAGE_KEY`、`AZURE_LANGUAGE_PII_LANGUAGE=zh-hans`、5 秒超时。下一阶段 Python Service 使用自己的配置生命周期；真实模型模式在启动时必须校验 PII Guardrail 已启用且 Endpoint/Key 可用。Key、原始输入、实体原文不得进入日志、异常、审计或 trace；可记录安全类别、耗时、结果和错误码。
-
-## 回归向量
-
-| 输入或故障 | 预期 |
-|---|---|
-| 「筛选最近7天活跃不少于5天、最近30天消费超过500元的用户」+ Provider clean | 通过 |
-| `Map.of("userId", 123L)` 或嵌套 `rawEvents` | Provider 调用前阻断；错误不含原值 |
-| 「给 userId 123456 的用户发送优惠券」 | Provider 调用前阻断；错误不含 `123456` |
-| `userid 123`、`USERID 123` | 阻断 |
-| `customerUserIdAlias` | 不因子串误判，继续 Provider 检测 |
-| 「给手机号13800138000的用户发送优惠」+ PhoneNumber | 阻断；错误不含号码 |
-| 中文文本 + Person / Address | 阻断 |
-| 中文文本 + Provider timeout / 5xx / null | Fail-closed，禁止 LLM 调用 |
-| 内容标题或正文含手机号、Email、身份证模式 | 内容事实校验拒绝该变体 |
-
-这些用例提取自原 `SensitiveDataSanitizerTest` 与 `ContentFactValidatorTest`；内容事实校验现保留在 Java `CampaignContentValidator`，出站文本检测属于未来 Agent Service。
+Model load failure, missing/corrupt files, inference exceptions and malformed results block with the existing `pii_provider_unavailable` reason. Startup does not report ready if warming fails. `PiiBlockedError` contains only a safe reason. `pii.preflight` spans contain a result code; raw text, entity values, model results and exception messages stay out of API errors, logs and traces. The synthetic regression set and optional real OpenMed smoke check are used to measure false negatives and false positives; no detector guarantees complete coverage.

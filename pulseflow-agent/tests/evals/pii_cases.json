@@ -1,0 +1,9 @@
+[
+  {"id": "pii_phone_zh", "text": "患者王芳，电话 13800138000", "expected": ["NAME", "PHONE"]},
+  {"id": "pii_name_zh", "text": "患者王芳今日复诊", "expected": ["NAME"]},
+  {"id": "pii_email", "text": "请联系 synthetic.person@example.com", "expected": ["EMAIL"]},
+  {"id": "pii_address_zh", "text": "住址是北京市朝阳区虚构路18号", "expected": ["ADDRESS"]},
+  {"id": "pii_id_zh", "text": "虚构病历编号 MRN-TEST-123456", "expected": ["ID"]},
+  {"id": "normal_campaign_no_pii", "text": "筛选最近7天活跃不少于5天、最近30天消费超过500元的用户", "expected": []},
+  {"id": "normal_campaign_growth", "text": "分析本周活动点击率和转化率的渠道差异", "expected": []}
+]

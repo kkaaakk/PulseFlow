@@ -40,4 +40,4 @@ GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX
 
 密码由部署密钥管理器提供，不写入仓库。迁移时用迁移账号设置 `PULSEFLOW_AGENT_DATABASE_URL=mysql+asyncmy://.../pulseflow_agent`，运行 `uv run alembic upgrade head`；运行服务时改用应用账号。生产配置拒绝非 MySQL URL、非 `pulseflow_agent` 数据库或 root 用户。实际 grants 仍须由部署方核验。
 
-本地可使用 `.env.example` 中的 SQLite URL；先执行 Alembic 迁移。`PULSEFLOW_AGENT_ENV=test` 仅为离线测试自动建表。CI 使用 MySQL 8 临时 service 运行迁移与存取测试；普通测试无真实模型和 Azure 请求。
+本地可使用 `.env.example` 中的 SQLite URL；先执行 Alembic 迁移。`PULSEFLOW_AGENT_ENV=test` 仅为离线测试自动建表。CI 使用 MySQL 8 临时 service 运行迁移与存取测试；普通测试无真实 LLM 请求，也不加载 OpenMed 权重。

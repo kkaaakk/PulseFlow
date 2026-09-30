@@ -29,16 +29,13 @@ class AgentSettings(BaseSettings):
     pulseflow_agent_http_connections: int = Field(default=16, ge=1, le=100)
     pulseflow_agent_db_pool_size: int = Field(default=5, ge=1, le=30)
     pulseflow_agent_max_cost_usd: float = Field(default=0.5, gt=0)
-    azure_language_endpoint: HttpUrl | None = None
-    azure_language_key: SecretStr | None = None
-    azure_language_pii_language: str = "zh-hans"
+    pulseflow_agent_pii_model: str = "OpenMed/OpenMed-PII-Chinese-BigMed-Large-560M-v1"
+    pulseflow_agent_pii_cache_dir: str = "~/.cache/openmed"
 
     @field_validator(
         "pulseflow_agent_api_key",
         "pulseflow_agent_base_url",
         "pulseflow_agent_otel_endpoint",
-        "azure_language_endpoint",
-        "azure_language_key",
         mode="before",
     )
     @classmethod
@@ -79,12 +76,6 @@ class AgentSettings(BaseSettings):
             raise ValueError("unsupported model provider")
         if not self.pulseflow_agent_api_key or not self.pulseflow_agent_api_key.get_secret_value():
             raise ValueError("real model API key is required")
-        if not self.azure_language_endpoint or not self.azure_language_key:
-            raise ValueError("real model requires Azure PII configuration")
-        if not self.azure_language_key.get_secret_value():
-            raise ValueError("real model requires Azure PII configuration")
-        if self.azure_language_endpoint.scheme != "https":
-            raise ValueError("Azure PII endpoint requires HTTPS")
         if self.pulseflow_agent_env == "production" and (
             not self.pulseflow_agent_internal_token
             or not self.pulseflow_agent_internal_token.get_secret_value()
