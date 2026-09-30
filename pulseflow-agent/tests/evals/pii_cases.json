@@ -1,9 +1,20 @@
 [
-  {"id": "pii_phone_zh", "text": "患者王芳，电话 13800138000", "expected": ["NAME", "PHONE"]},
-  {"id": "pii_name_zh", "text": "患者王芳今日复诊", "expected": ["NAME"]},
-  {"id": "pii_email", "text": "请联系 synthetic.person@example.com", "expected": ["EMAIL"]},
-  {"id": "pii_address_zh", "text": "住址是北京市朝阳区虚构路18号", "expected": ["ADDRESS"]},
-  {"id": "pii_id_zh", "text": "虚构病历编号 MRN-TEST-123456", "expected": ["ID"]},
+  {"id": "pii_phone_zh", "text": "客户联系电话为13800138000", "expected": ["PHONE"]},
+  {"id": "pii_name_zh", "text": "客户王芳希望了解活动详情", "expected": ["NAME"]},
+  {"id": "pii_email", "text": "客户邮箱为test@example.com", "expected": ["EMAIL"]},
+  {"id": "pii_address_zh", "text": "客户地址为广东省广州市天河区虚构街100号", "expected": ["ADDRESS"]},
+  {"id": "pii_id_zh", "text": "测试用身份证号110101199001010015", "expected": ["ID"]},
   {"id": "normal_campaign_no_pii", "text": "筛选最近7天活跃不少于5天、最近30天消费超过500元的用户", "expected": []},
-  {"id": "normal_campaign_growth", "text": "分析本周活动点击率和转化率的渠道差异", "expected": []}
+  {"id": "normal_campaign_growth", "text": "分析本周活动点击率和转化率的渠道差异", "expected": []},
+  {"id": "normal_campaign_ctr", "text": "比较本周和上周召回 Campaign CTR", "expected": []},
+  {"id": "normal_conversion_drop", "text": "分析最近30天转化率下降原因", "expected": []},
+  {"id": "normal_channel_ctr", "text": "查看不同渠道 CTR 差异", "expected": []},
+  {"id": "normal_silent_users", "text": "为沉默30天以上用户设计召回活动", "expected": []},
+  {"id": "normal_attribution", "text": "查看 Campaign 转化归因", "expected": []},
+  {"id": "normal_baseline", "text": "比较当前周期和基准周期转化率", "expected": []},
+  {"id": "normal_retention", "text": "分析新客与老客次日留存的变化", "expected": []},
+  {"id": "normal_order_value", "text": "统计各渠道的平均客单价和订单量", "expected": []},
+  {"id": "normal_segment", "text": "评估高活跃人群对活动的响应率", "expected": []},
+  {"id": "normal_budget", "text": "比较不同预算方案的预计转化成本", "expected": []},
+  {"id": "normal_business_alias", "text": "customerUserIdAlias", "expected": []}
 ]
