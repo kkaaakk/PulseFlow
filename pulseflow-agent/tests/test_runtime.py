@@ -11,7 +11,7 @@ from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient, ToolClient
 from pulseflow_agent.domain.contracts import CampaignPerformanceArgs
 from pulseflow_agent.main import create_app
 from pulseflow_agent.runtime import AdmissionRejected, RunAdmission
-from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail
+from pulseflow_agent.security.pii_guardrail import OpenMedPiiGuardrail
 from pulseflow_agent.workspace.repository import SqlAlchemyInvestigationRepository
 from pulseflow_agent.workspace.service import InvestigationService
 from tests.test_foundation import settings
@@ -45,7 +45,7 @@ async def test_background_cancel_timeout_and_shutdown_release_capacity(
     repo = SqlAlchemyInvestigationRepository(engine)
     await repo.create_schema_for_tests()
     async with httpx.AsyncClient() as client:
-        guard = AzurePiiGuardrail(config, client)
+        guard = OpenMedPiiGuardrail(config)
         investigator = GrowthInvestigator(config, guard, PulseFlowApiClient(config, client))
         entered = asyncio.Event()
 

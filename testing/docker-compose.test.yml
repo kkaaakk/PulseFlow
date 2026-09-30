@@ -84,6 +84,21 @@ services:
       agent-mysql: { condition: service_healthy }
     healthcheck: { disable: true }
 
+  agent-pii-model-init:
+    profiles: [agent]
+    image: pulseflow-agent:local
+    build: ../pulseflow-agent
+    user: "0:0"
+    command: ["python", "-m", "pulseflow_agent.security.preload_openmed"]
+    environment:
+      PULSEFLOW_AGENT_MODEL: ${PULSEFLOW_AGENT_MODEL:-test}
+      PULSEFLOW_AGENT_PII_MODEL: ${PULSEFLOW_AGENT_PII_MODEL:-OpenMed/OpenMed-PII-Chinese-BigMed-Large-560M-v1}
+      PULSEFLOW_AGENT_PII_CACHE_DIR: /models/openmed
+    volumes:
+      - pulseflow-openmed-cache:/models/openmed
+    networks: [agent-egress]
+    healthcheck: { disable: true }
+
   java:
     profiles: [agent]
     build: ../pulseflow
@@ -117,11 +132,15 @@ services:
       PULSEFLOW_AGENT_INTERNAL_TOKEN: ${PULSEFLOW_AGENT_INTERNAL_TOKEN:?set a dedicated machine token}
       PULSEFLOW_AGENT_API_KEY: ${PULSEFLOW_AGENT_API_KEY:-}
       PULSEFLOW_AGENT_BASE_URL: ${PULSEFLOW_AGENT_BASE_URL:-}
-      AZURE_LANGUAGE_ENDPOINT: ${AZURE_LANGUAGE_ENDPOINT:-}
-      AZURE_LANGUAGE_KEY: ${AZURE_LANGUAGE_KEY:-}
+      PULSEFLOW_AGENT_PII_MODEL: ${PULSEFLOW_AGENT_PII_MODEL:-OpenMed/OpenMed-PII-Chinese-BigMed-Large-560M-v1}
+      PULSEFLOW_AGENT_PII_CACHE_DIR: /models/openmed
+      OPENMED_OFFLINE: "1"
     networks: [agent-internal, agent-egress]
     depends_on:
       agent-migrate: { condition: service_completed_successfully }
+      agent-pii-model-init: { condition: service_completed_successfully }
+    volumes:
+      - pulseflow-openmed-cache:/models/openmed:ro
     stop_grace_period: 30s
     read_only: true
     tmpfs: [/tmp]
@@ -137,3 +156,4 @@ volumes:
   pulseflow-test-redis:
   pulseflow-test-kafka:
   pulseflow-agent-mysql:
+  pulseflow-openmed-cache:

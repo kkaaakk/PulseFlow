@@ -15,7 +15,7 @@ from pulseflow_agent.agent.growth_investigator import GrowthInvestigator
 from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient
 from pulseflow_agent.config import AgentSettings
 from pulseflow_agent.observability.tracing import Telemetry
-from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail, PiiBlockedError
+from pulseflow_agent.security.pii_guardrail import OpenMedPiiGuardrail, PiiBlockedError
 from tests.evals.harness import (
     FAMILIES,
     EvalCase,
@@ -37,7 +37,7 @@ async def evaluate(real: bool) -> dict[str, Any]:
             settings = AgentSettings()  # type: ignore[call-arg]
             if settings.is_test_model:
                 raise ValueError(
-                    "REAL_AGENT_EVAL requires a real configured provider and Azure PII"
+                    "REAL_AGENT_EVAL requires a real configured provider and preloaded OpenMed PII"
                 )
             settings = settings.model_copy(
                 update={
@@ -59,32 +59,34 @@ async def evaluate(real: bool) -> dict[str, Any]:
             )
         telemetry = Telemetry()
         server = FixtureServer(case)
+        guardrail = OpenMedPiiGuardrail(settings)
+        if real:
+            await guardrail.warm()
         async with httpx.AsyncClient(transport=httpx.MockTransport(server)) as java:
-            async with httpx.AsyncClient() as azure:
-                investigator = GrowthInvestigator(
-                    settings,
-                    AzurePiiGuardrail(settings, azure),
-                    PulseFlowApiClient(settings, java, telemetry.metrics),
-                    model=None if real else FunctionModel(OfflinePolicy(case).respond),
-                    telemetry=telemetry,
+            investigator = GrowthInvestigator(
+                settings,
+                guardrail,
+                PulseFlowApiClient(settings, java, telemetry.metrics),
+                model=None if real else FunctionModel(OfflinePolicy(case).respond),
+                telemetry=telemetry,
+            )
+            try:
+                result = await investigator.run(case.user_goal)
+            except PiiBlockedError:
+                assert case.expected_status == "PII_BLOCKED", case.id
+                assert server.calls == 0, case.id
+                records.append(
+                    {
+                        "id": case.id,
+                        "status": "PII_BLOCKED",
+                        "reference_valid": True,
+                        "unsupported_claims": 0,
+                        "tool_trajectory": [],
+                        "quality": telemetry.metrics.snapshot(),
+                    }
                 )
-                try:
-                    result = await investigator.run(case.user_goal)
-                except PiiBlockedError:
-                    assert case.expected_status == "PII_BLOCKED", case.id
-                    assert server.calls == 0, case.id
-                    records.append(
-                        {
-                            "id": case.id,
-                            "status": "PII_BLOCKED",
-                            "reference_valid": True,
-                            "unsupported_claims": 0,
-                            "tool_trajectory": [],
-                            "quality": telemetry.metrics.snapshot(),
-                        }
-                    )
-                    telemetry.shutdown()
-                    continue
+                telemetry.shutdown()
+                continue
         quality = telemetry.metrics.snapshot()
         status = (
             "BUDGET_EXHAUSTED" if quality["budget_exhausted_rate"] == 1 else result.diagnosis.status

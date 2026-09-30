@@ -18,7 +18,7 @@ from pulseflow_agent.config import AgentSettings
 from pulseflow_agent.domain.investigation import ToolObservation
 from pulseflow_agent.main import create_app
 from pulseflow_agent.observability.tracing import Telemetry
-from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail
+from pulseflow_agent.security.pii_guardrail import OpenMedPiiGuardrail
 
 
 def settings() -> AgentSettings:
@@ -140,7 +140,7 @@ async def test_tool_and_http_client_propagate_the_same_trace_to_java() -> None:
         HTTPXClientInstrumentor.instrument_client(http, tracer_provider=telemetry.provider)
         result = await GrowthInvestigator(
             config,
-            AzurePiiGuardrail(config, http),
+            OpenMedPiiGuardrail(config),
             PulseFlowApiClient(config, http, telemetry.metrics),
             model=FunctionModel(model),
             telemetry=telemetry,

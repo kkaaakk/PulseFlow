@@ -1,6 +1,7 @@
 """A diagnosis cannot invent evidence; PII never reaches a subsequent model call."""
 
 import json
+from types import SimpleNamespace
 from uuid import uuid4
 
 import httpx
@@ -13,7 +14,8 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pulseflow_agent.agent.growth_investigator import GrowthInvestigator
 from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient
 from pulseflow_agent.config import AgentSettings
-from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail, PiiBlockedError
+from pulseflow_agent.security.pii_guardrail import OpenMedPiiGuardrail, PiiBlockedError
+from tests.test_foundation import settings as foundation_settings
 
 
 def settings() -> AgentSettings:
@@ -49,7 +51,7 @@ async def test_invalid_evidence_reference_is_not_accepted() -> None:
     async with httpx.AsyncClient(transport=httpx.MockTransport(
         lambda _: pytest.fail("Java should not be called")
     )) as http:
-        investigator = GrowthInvestigator(config, AzurePiiGuardrail(config, http),
+        investigator = GrowthInvestigator(config, OpenMedPiiGuardrail(config),
                                           PulseFlowApiClient(config, http),
                                           model=FunctionModel(invented))
         with pytest.raises(UnexpectedModelBehavior):
@@ -58,7 +60,13 @@ async def test_invalid_evidence_reference_is_not_accepted() -> None:
 
 
 @pytest.mark.asyncio
-async def test_malicious_java_dimension_is_blocked_before_next_model_request() -> None:
+@pytest.mark.parametrize(
+    ("dimension", "expected_reason"),
+    [("userId 123456", "blocked_business_field"), ("13800138000", "pii_detected")],
+)
+async def test_malicious_java_dimension_is_blocked_before_next_model_request(
+    dimension: str, expected_reason: str
+) -> None:
     model_calls = 0
 
     async def query_once(_: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
@@ -83,20 +91,24 @@ async def test_malicious_java_dimension_is_blocked_before_next_model_request() -
             "timeRange": {"fromInclusive": "2026-09-01T00:00:00+08:00",
                           "toExclusive": "2026-09-08T00:00:00+08:00"},
             "dimensions": ["CHANNEL"],
-            "rows": [{"dimensions": {"CHANNEL": "userId 123456"},
+            "rows": [{"dimensions": {"CHANNEL": dimension},
                       "value": "0.1000", "sampleSize": 10}],
             "sampleSize": 10,
         })
 
-    config = settings()
+    config = foundation_settings(real=True)
     async with httpx.AsyncClient(transport=httpx.MockTransport(java)) as http:
-        investigator = GrowthInvestigator(config, AzurePiiGuardrail(config, http),
+        def detector(text: str) -> SimpleNamespace:
+            entities = [SimpleNamespace(label="PHONE")] if "13800138000" in text else []
+            return SimpleNamespace(entities=entities)
+        investigator = GrowthInvestigator(config, OpenMedPiiGuardrail(config, detector),
                                           PulseFlowApiClient(config, http),
                                           model=FunctionModel(query_once))
         with pytest.raises(PiiBlockedError) as error:
             await investigator.run("调查 Campaign 点击率")
     assert model_calls == 1
-    assert "123456" not in str(error.value)
+    assert error.value.reason == expected_reason
+    assert dimension not in str(error.value)
 
 
 @pytest.mark.asyncio
@@ -124,7 +136,7 @@ async def test_unavailable_java_tool_can_end_with_insufficient_evidence() -> Non
         lambda _: httpx.Response(503, text="internal SQL should stay private")
     )) as http:
         result = await GrowthInvestigator(
-            config, AzurePiiGuardrail(config, http), PulseFlowApiClient(config, http),
+            config, OpenMedPiiGuardrail(config), PulseFlowApiClient(config, http),
             model=FunctionModel(stop_on_failure),
         ).run("调查 Campaign 点击率")
     assert result.diagnosis.status == "INSUFFICIENT_EVIDENCE"

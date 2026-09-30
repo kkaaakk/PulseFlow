@@ -24,7 +24,7 @@ Phase 3 使用一个 Pydantic AI Agent。它根据现有 Evidence 自主决定�
 | CTR 稳定、点击后转化下降 | 查看归因拆解 |
 | 两者稳定 | 停止，不继续调用 Tool |
 
-这些场景使用官方 `FunctionModel` 和 HTTPX MockTransport，CI 不请求真实模型或 Azure。它们验证动态 Tool 选择、证据流和输出校验；真实模型的诊断质量评测属于 Phase 5。
+这些场景使用官方 `FunctionModel` 和 HTTPX MockTransport，CI 不请求真实模型，也不加载 OpenMed 权重。它们验证动态 Tool 选择、证据流和输出校验；真实模型的诊断质量评测属于 Phase 5。
 
 ## 当前边界
 

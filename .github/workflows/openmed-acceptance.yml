@@ -1,0 +1,107 @@
+name: OpenMed real acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/openmed-acceptance.yml
+      - pulseflow-agent/tests/evals/pii_cases.json
+
+jobs:
+  openmed-chinese:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      PULSEFLOW_AGENT_PII_CACHE_DIR: /tmp/pulseflow-openmed-cache
+      PULSEFLOW_AGENT_MODEL: openai:synthetic-smoke
+      PULSEFLOW_AGENT_API_KEY: synthetic-smoke-key
+      PULSEFLOW_AGENT_INTERNAL_TOKEN: synthetic-smoke-token
+      HF_HUB_DISABLE_XET: "1"
+      HF_HUB_DISABLE_SYMLINKS_WARNING: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v6
+      - name: Install locked Agent dependencies
+        working-directory: pulseflow-agent
+        run: uv sync --locked
+      - name: Download dedicated Chinese PII model
+        working-directory: pulseflow-agent
+        run: |
+          uv run python - <<'PY'
+          import os
+          from huggingface_hub import snapshot_download
+
+          snapshot_download(
+              repo_id="OpenMed/OpenMed-PII-Chinese-BigMed-Large-560M-v1",
+              cache_dir=os.environ["PULSEFLOW_AGENT_PII_CACHE_DIR"],
+              allow_patterns=[
+                  "config.json", "tokenizer.json", "tokenizer_config.json",
+                  "model.safetensors",
+              ],
+          )
+          PY
+      - name: Real synthetic Chinese smoke and resource measurement
+        id: smoke
+        continue-on-error: true
+        working-directory: pulseflow-agent
+        env:
+          REAL_OPENMED_PII_EVAL: "true"
+        run: uv run pytest tests/evals/test_openmed_chinese.py -k real_openmed -s -q
+      - name: Build Agent image
+        run: docker compose -f testing/docker-compose.test.yml --profile agent build agent
+      - name: Prepare persistent Compose model volume
+        run: |
+          cat > "$RUNNER_TEMP/openmed-offline.yml" <<'YAML'
+          services:
+            agent-pii-model-init:
+              environment:
+                HF_HUB_OFFLINE: "1"
+                TRANSFORMERS_OFFLINE: "1"
+          YAML
+          docker compose -f testing/docker-compose.test.yml -f "$RUNNER_TEMP/openmed-offline.yml" --profile agent create agent-pii-model-init
+          docker run --rm \
+            -v "$PULSEFLOW_AGENT_PII_CACHE_DIR:/from:ro" \
+            -v pulseflow-test_pulseflow-openmed-cache:/to \
+            alpine:3.20 sh -c 'cp -a /from/. /to/'
+      - name: Real-model Compose startup, readiness and offline restart
+        run: |
+          set -euo pipefail
+          compose=(docker compose -f testing/docker-compose.test.yml -f "$RUNNER_TEMP/openmed-offline.yml" --profile agent)
+          "${compose[@]}" up -d agent
+          for i in $(seq 1 90); do
+            if "${compose[@]}" exec -T agent python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=2)"; then break; fi
+            sleep 2
+          done
+          cid=$("${compose[@]}" ps -q agent)
+          test "$(docker inspect "$cid" --format '{{.HostConfig.ReadonlyRootfs}}')" = "true"
+          test "$(docker inspect "$cid" --format '{{range .Mounts}}{{if eq .Destination "/models/openmed"}}{{.RW}}{{end}}{{end}}')" = "false"
+          docker image inspect pulseflow-agent:local --format 'agent_image_bytes={{.Size}}'
+          "${compose[@]}" exec -T agent python - <<'PY'
+          import urllib.request
+          for route in ("live", "ready"):
+              with urllib.request.urlopen(f"http://127.0.0.1:8001/health/{route}", timeout=5) as response:
+                  print(f"health_{route}={response.status}:{response.read().decode()}")
+          PY
+          docker network disconnect pulseflow-test_agent-egress "$cid"
+          "${compose[@]}" stop agent
+          "${compose[@]}" start agent
+          for i in $(seq 1 90); do
+            if "${compose[@]}" exec -T agent python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=2)"; then break; fi
+            sleep 2
+          done
+          "${compose[@]}" exec -T agent python -c "import urllib.request; print('offline_restart_ready='+str(urllib.request.urlopen('http://127.0.0.1:8001/health/ready',timeout=5).status))"
+      - name: Diagnose Compose failure
+        if: failure()
+        run: |
+          docker compose -f testing/docker-compose.test.yml -f "$RUNNER_TEMP/openmed-offline.yml" --profile agent ps --all || true
+          docker compose -f testing/docker-compose.test.yml -f "$RUNNER_TEMP/openmed-offline.yml" --profile agent logs --no-color --tail 100 agent agent-pii-model-init || true
+      - name: Remove temporary Compose resources
+        if: always()
+        run: docker compose -f testing/docker-compose.test.yml -f "$RUNNER_TEMP/openmed-offline.yml" --profile agent down -v || true
+      - name: Enforce real smoke result
+        if: always()
+        run: test "${{ steps.smoke.outcome }}" = "success"

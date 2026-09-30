@@ -97,6 +97,4 @@ def test_production_settings_require_dedicated_agent_schema() -> None:
             "pulseflow_agent_model": "openai:sample-model",
             "pulseflow_agent_api_key": SecretStr("fake-model-key"),
             "pulseflow_agent_internal_token": SecretStr("fake-internal-token"),
-            "azure_language_endpoint": "https://example.cognitiveservices.azure.com",
-            "azure_language_key": SecretStr("fake-azure-key"),
         })

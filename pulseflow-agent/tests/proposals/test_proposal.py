@@ -16,7 +16,7 @@ from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient
 from pulseflow_agent.config import AgentSettings
 from pulseflow_agent.domain.contracts import CampaignPerformanceArgs, PromotionFact, ToolMetadata
 from pulseflow_agent.domain.investigation import Diagnosis, InvestigationWorkspace
-from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail
+from pulseflow_agent.security.pii_guardrail import OpenMedPiiGuardrail
 from pulseflow_agent.workspace.repository import SqlAlchemyInvestigationRepository
 from pulseflow_agent.workspace.service import InvestigationService
 
@@ -110,7 +110,7 @@ async def test_proposal_is_durable_and_java_write_is_absent(database_url: str) -
         return httpx.Response(500)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(java)) as http:
-        guardrail = AzurePiiGuardrail(config, http)
+        guardrail = OpenMedPiiGuardrail(config)
         investigator = GrowthInvestigator(
             config, guardrail, PulseFlowApiClient(config, http),
             model=FunctionModel(ProposalModel(evidence_id).respond),
@@ -144,7 +144,7 @@ async def test_agent_cannot_invent_promotion_facts(database_url: str) -> None:
     investigation_id, evidence_id = await seed(repo)
     config = settings(database_url)
     async with httpx.AsyncClient() as http:
-        guardrail = AzurePiiGuardrail(config, http)
+        guardrail = OpenMedPiiGuardrail(config)
         investigator = GrowthInvestigator(
             config, guardrail, PulseFlowApiClient(config, http),
             model=FunctionModel(ProposalModel(evidence_id).respond),

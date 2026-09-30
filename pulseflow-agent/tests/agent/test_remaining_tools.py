@@ -13,7 +13,7 @@ from pulseflow_agent.agent.growth_investigator import GrowthInvestigator
 from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient
 from pulseflow_agent.config import AgentSettings
 from pulseflow_agent.domain.investigation import ToolObservation
-from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail
+from pulseflow_agent.security.pii_guardrail import OpenMedPiiGuardrail
 
 RANGE = {"fromInclusive": "2026-09-01T00:00:00+08:00",
          "toExclusive": "2026-09-08T00:00:00+08:00"}
@@ -105,7 +105,7 @@ async def test_query_performance_and_preview_create_sanitized_evidence() -> None
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(java)) as http:
         result = await GrowthInvestigator(
-            config, AzurePiiGuardrail(config, http), PulseFlowApiClient(config, http),
+            config, OpenMedPiiGuardrail(config), PulseFlowApiClient(config, http),
             model=FunctionModel(sequence),
         ).run("调查安全的聚合指标")
     assert result.tool_trajectory == [

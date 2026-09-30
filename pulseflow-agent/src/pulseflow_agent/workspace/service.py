@@ -14,7 +14,7 @@ from pulseflow_agent.domain.investigation import (
     InvestigationWorkspace,
 )
 from pulseflow_agent.runtime import RunAdmission
-from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail
+from pulseflow_agent.security.pii_guardrail import PiiGuardrail
 from pulseflow_agent.workspace.repository import InvestigationConflictError, InvestigationRepository
 
 
@@ -23,7 +23,7 @@ class InvestigationService:
         self,
         repository: InvestigationRepository,
         investigator: GrowthInvestigator,
-        guardrail: AzurePiiGuardrail,
+        guardrail: PiiGuardrail,
     ) -> None:
         self._repository = repository
         self._investigator = investigator

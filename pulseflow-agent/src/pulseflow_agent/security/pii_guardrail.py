@@ -1,10 +1,12 @@
 """Fail-closed checks before any content is sent to a model."""
 
+import asyncio
+import os
 import re
-from collections.abc import Mapping
-from typing import Any
+import threading
+from collections.abc import Callable, Mapping
+from typing import Any, Protocol
 
-import httpx
 from opentelemetry import trace
 from pydantic import BaseModel
 
@@ -54,67 +56,80 @@ def _texts(value: Any) -> list[str]:
     return []
 
 
-class AzurePiiGuardrail:
-    def __init__(self, settings: AgentSettings, client: httpx.AsyncClient) -> None:
+class PiiGuardrail(Protocol):
+    async def check(self, content: Any) -> None: ...
+
+
+class OpenMedPiiGuardrail:
+    """One serialized, local OpenMed runtime shared by all agent runs."""
+
+    def __init__(
+        self, settings: AgentSettings, detector: Callable[[str], object] | None = None
+    ) -> None:
         self._settings = settings
-        self._client = client
+        self._detector = detector
+        self._lock = asyncio.Lock()
+        self._thread_lock = threading.Lock()
+
+    def _load(self) -> None:
+        from openmed import ModelLoader, OpenMedConfig, extract_pii
+
+        config = OpenMedConfig(
+            cache_dir=os.path.expanduser(self._settings.pulseflow_agent_pii_cache_dir),
+            local_only=True,
+        )
+        loader = ModelLoader(config)
+        model = self._settings.pulseflow_agent_pii_model
+        loader.load_model(model)
+
+        def detect(value: str) -> object:
+            return extract_pii(value, lang="zh", model_name=model, loader=loader)
+
+        self._detector = detect
+
+    async def warm(self) -> None:
+        """Fail startup before readiness if the real local PII model cannot load."""
+        if self._settings.is_test_model or self._detector is not None:
+            return
+        async with self._lock:
+            try:
+                await asyncio.to_thread(self._load)
+                await asyncio.to_thread(self._detect, "测试文本")
+            except Exception:
+                self._detector = None
+                raise PiiBlockedError("pii_provider_unavailable") from None
+
+    def _detect(self, value: str) -> bool:
+        detector = self._detector
+        if detector is None:
+            raise RuntimeError("PII runtime unavailable")
+        # Cancellation does not stop a running to_thread call. Keep model access
+        # serialized even after its awaiting coroutine releases the asyncio lock.
+        with self._thread_lock:
+            result = detector(value)
+        entities = getattr(result, "entities", None)
+        if not isinstance(entities, list):
+            raise ValueError("invalid PII result")
+        return bool(entities)
 
     async def check(self, content: Any) -> None:
         with trace.get_tracer(__name__).start_as_current_span(
             "pii.preflight", record_exception=False, set_status_on_exception=False
         ) as span:
             try:
-                texts = list(dict.fromkeys(_texts(content)))  # local check before Azure
+                texts = list(dict.fromkeys(_texts(content)))
                 if not texts or self._settings.is_test_model:
                     span.set_attribute("pii.result", "local_pass")
                     return
-                await self._check_azure(texts)
+                async with self._lock:
+                    for value in texts:
+                        try:
+                            detected = await asyncio.to_thread(self._detect, value)
+                        except Exception:
+                            raise PiiBlockedError("pii_provider_unavailable") from None
+                        if detected:
+                            raise PiiBlockedError("pii_detected")
                 span.set_attribute("pii.result", "pass")
             except PiiBlockedError as error:
                 span.set_attribute("pii.result", error.reason)
                 raise
-
-    async def _check_azure(self, texts: list[str]) -> None:
-        endpoint = self._settings.azure_language_endpoint
-        key = self._settings.azure_language_key
-        if endpoint is None or key is None:
-            raise PiiBlockedError("pii_provider_unavailable")
-        for value in texts:
-            try:
-                response = await self._client.post(
-                    f"{str(endpoint).rstrip('/')}/language/:analyze-text",
-                    params={"api-version": "2024-11-01"},
-                    headers={"Ocp-Apim-Subscription-Key": key.get_secret_value()},
-                    json={
-                        "kind": "PiiEntityRecognition",
-                        "parameters": {"modelVersion": "latest"},
-                        "analysisInput": {"documents": [
-                            {"id": "1", "language": self._settings.azure_language_pii_language,
-                             "text": value}
-                        ]},
-                    },
-                    timeout=5.0,
-                )
-                if response.status_code != 200:
-                    raise PiiBlockedError("pii_provider_unavailable")
-                data = response.json()
-                if not isinstance(data, dict) or data.get("kind") != "PiiEntityRecognitionResults":
-                    raise PiiBlockedError("pii_provider_unavailable")
-                results = data.get("results")
-                if not isinstance(results, dict) or results.get("errors") != []:
-                    raise PiiBlockedError("pii_provider_unavailable")
-                documents = results.get("documents")
-                if not isinstance(documents, list) or len(documents) != 1:
-                    raise PiiBlockedError("pii_provider_unavailable")
-                document = documents[0]
-                if not isinstance(document, dict) or document.get("id") != "1":
-                    raise PiiBlockedError("pii_provider_unavailable")
-                entities = document.get("entities")
-                if not isinstance(entities, list):
-                    raise PiiBlockedError("pii_provider_unavailable")
-                if entities:
-                    raise PiiBlockedError("pii_detected")
-            except PiiBlockedError:
-                raise
-            except Exception:
-                raise PiiBlockedError("pii_provider_unavailable") from None

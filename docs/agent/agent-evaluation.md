@@ -8,7 +8,9 @@
 
 离线 fake policy 位于测试 harness，生产 Agent 没有该流程。离线评测验证控制流和安全边界，不能证明真实模型的语义质量。`unsupported_claim_rate` 由每个 Case 的禁止结论和新数值检查计算；比率转换成百分比允许通过。它仍不是完整的语义、因果或数值幻觉检测器。
 
-真实模型评测需显式配置真实 Provider、Azure PII 和内部测试 Token，然后设置 `REAL_AGENT_EVAL=true` 执行 `uv run pytest tests/evals/test_dataset.py -k real_provider -q`。它使用 fixture Java 数据，可能产生模型与 Azure 费用，默认跳过，不阻塞普通 CI。Phase 5 本次没有运行真实模型评测。
+真实模型评测需显式配置真实 Provider、已预加载的 OpenMed 中文 PII 模型和内部测试 Token，然后设置 `REAL_AGENT_EVAL=true` 执行 `uv run pytest tests/evals/test_dataset.py -k real_provider -q`。它使用 fixture Java 数据，可能产生 LLM Provider 费用和本地 OpenMed 推理资源开销，默认跳过，不阻塞普通 CI。Phase 5 本次没有运行真实模型评测。
+
+独立中文 PII 回归集位于 `tests/evals/pii_cases.json`。普通 CI 使用固定 fake detector 验证阻断语义；`REAL_OPENMED_PII_EVAL=true uv run pytest tests/evals/test_openmed_chinese.py -k real_openmed -s` 才使用已预加载的真实中文模型，逐 Case 输出预期与实际实体类别及通过状态。样本均为合成文本，覆盖姓名、电话、邮箱、地址、身份标识与正常 Campaign 文本。结果不能外推为生产召回率。
 
 工具扩展必须由真实 Eval 的信息缺口证明。现有六个业务 Tool 覆盖当前已确认能力；本阶段未增加 audience/funnel/frequency Tool，也未增加没有权威事实的维度。漏斗的事件映射、窗口和去重契约尚未建立，不能把现有同窗比率冒充漏斗。
 
@@ -18,7 +20,7 @@
 
 `investigation_success_rate`、`evidence_reference_valid_rate`、`unsupported_claim_rate`、`avg_tool_calls`、`avg_model_requests`、`avg_latency`、`avg_tokens`、`avg_cost`、`budget_exhausted_rate`、`java_tool_error_rate`、`pii_block_rate`。
 
-请求/Tool/token 数来自 Pydantic AI `RunUsage`，模型成本使用官方 `ModelResponse.cost()` 定价结果；无法定价时为 null，不假定为零。延迟取官方 Agent span 的时间。成功率表示完成 Diagnosis 的比例，不等同于评测通过率。运行时无法自动标注语义是否 unsupported，所以该项为 null；评测报告给出 Case 约束下的测量值。指标目前只在进程内聚合，重启归零，评测报告可持续留存。成本只计算模型费用，不含 Azure。
+请求/Tool/token 数来自 Pydantic AI `RunUsage`，模型成本使用官方 `ModelResponse.cost()` 定价结果；无法定价时为 null，不假定为零。延迟取官方 Agent span 的时间。成功率表示完成 Diagnosis 的比例，不等同于评测通过率。运行时无法自动标注语义是否 unsupported，所以该项为 null；评测报告给出 Case 约束下的测量值。指标目前只在进程内聚合，重启归零，评测报告可持续留存。成本只计算 LLM 模型费用，不含 OpenMed 本地计算资源。
 
 ## OpenTelemetry
 

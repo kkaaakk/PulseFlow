@@ -102,7 +102,7 @@ docker compose -f testing/docker-compose.test.yml --profile agent up --build -d
 The stack builds Java and Agent, initializes a separate Agent MySQL server/user/schema, runs Alembic
 to head, and starts Agent. Java Flyway applies business migrations. The Agent receives **no business
 database credentials**, publishes no host port, and reaches Java on `agent-internal` (`internal: true`).
-The separate `agent-egress` network allows provider/Azure calls when explicitly configured; Java is
+The separate `agent-egress` network allows LLM provider calls and one-time OpenMed model downloads; Java is
 not attached to that network. Default model `test` makes no real provider calls.
 
 Agent image uses Python 3.11 slim, a versioned uv builder, `uv sync --locked --no-dev`, TLS root
@@ -110,8 +110,8 @@ certificates, UID 10001, readiness healthcheck, exec-form Uvicorn and SIGTERM sh
 are supplied through environment/secret management, not baked into the image. The service filesystem
 is read-only with `/tmp` tmpfs, dropped capabilities and no-new-privileges.
 
-For production, use `PULSEFLOW_AGENT_ENV=production`, an approved real model, provider/Azure secrets,
-and a dedicated `mysql+asyncmy` Agent user/schema. Supply secrets through the deployment manager;
+For production, use `PULSEFLOW_AGENT_ENV=production`, an approved real model and provider credentials,
+and a dedicated `mysql+asyncmy` Agent user/schema. Preload OpenMed weights into the persistent named volume before runtime; the Agent mounts it read-only and uses local-only inference. Supply secrets through the deployment manager;
 do not check in `.env`. Restrict public ingress to the Java authenticated routes, deny `/internal/**`,
 terminate TLS, apply provider egress restrictions, rotate machine tokens and configure backups/OTel.
 This Compose file's passwords and local auth directory are development fixtures, not production
@@ -126,7 +126,7 @@ evidence references, scope continuity, proposal gating and cancellation/acceptan
 
 The `agent-compose` CI job builds both images and runs the actual offline Java login → Agent DB →
 owned read/follow-up/SSE path, checks non-root health, rejects another operator and PII, then cleans
-up its isolated test volumes. No real LLM or paid Azure calls are made. Real model quality/latency,
+up its isolated test volumes. No real LLM calls or OpenMed model downloads are made in the offline gate. Real model quality/latency,
 deployment credentials and production traffic are not certified by these offline checks.
 
 The Compose gate also caught a pre-existing broad MyBatis scan that registered business service
