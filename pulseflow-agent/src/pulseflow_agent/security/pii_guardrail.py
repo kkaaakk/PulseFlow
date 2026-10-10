@@ -87,7 +87,7 @@ class AzurePiiGuardrail:
                     headers={"Ocp-Apim-Subscription-Key": key.get_secret_value()},
                     json={
                         "kind": "PiiEntityRecognition",
-                        "parameters": {"modelVersion": "latest"},
+                        "parameters": {"modelVersion": "latest", "loggingOptOut": True},
                         "analysisInput": {"documents": [
                             {"id": "1", "language": self._settings.azure_language_pii_language,
                              "text": value}
