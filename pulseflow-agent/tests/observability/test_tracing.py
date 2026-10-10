@@ -1,13 +1,19 @@
 """Real SDK spans prove propagation and content-free export without a collector."""
 
 import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from uuid import uuid4
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import Status, StatusCode
 from pydantic import SecretStr
 from pydantic_ai import ModelMessage, ModelResponse, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
@@ -160,3 +166,66 @@ async def test_tool_and_http_client_propagate_the_same_trace_to_java() -> None:
     assert metrics["avg_model_requests"] == 2
     assert metrics["avg_latency"] is not None
     telemetry.shutdown()
+
+
+def test_otlp_http_wire_is_content_free_and_preserves_error_and_parent() -> None:
+    """Check the actual protobuf exporter, including errors and Resource attributes."""
+    received: list[tuple[str, bytes]] = []
+
+    class Receiver(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            received.append((self.path, self.rfile.read(int(self.headers["Content-Length"]))))
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, _format: str, *args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Receiver)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    telemetry = Telemetry(
+        endpoint=f"http://127.0.0.1:{server.server_port}/",
+        provider=TracerProvider(resource=Resource({
+            "service.name": "pulseflow-agent", "private.resource": "PRIVATE_RESOURCE_SENTINEL",
+        })),
+    )
+    try:
+        tracer = telemetry.provider.get_tracer("privacy-wire-test")
+        with tracer.start_as_current_span("parent") as parent:
+            with tracer.start_as_current_span("failed-operation") as span:
+                for key in (
+                    "gen_ai.input.messages", "gen_ai.output.messages", "gen_ai.system_instructions",
+                    "gen_ai.tool.call.arguments", "gen_ai.tool.call.result", "db.statement",
+                    "db.query.text", "db.query.parameters", "http.request.header.authorization",
+                    "http.request.header.x_pulseflow_agent_token", "url.full",
+                ):
+                    span.set_attribute(key, "PRIVATE_CONTENT_SENTINEL")
+                span.set_attribute("tool.name", "query_metric")
+                span.record_exception(RuntimeError("PRIVATE_EXCEPTION_SENTINEL"))
+                span.set_status(Status(StatusCode.ERROR, "PRIVATE_STATUS_SENTINEL"))
+                expected_trace = span.get_span_context().trace_id.to_bytes(16, "big")
+            expected_parent = parent.get_span_context().span_id.to_bytes(8, "big")
+        assert telemetry.provider.force_flush(timeout_millis=10000)
+        assert len(received) == 1
+        path, body = received[0]
+        assert path == "/v1/traces"  # exactly once, including trailing slash in base URL
+        assert b"PRIVATE_" not in body
+        request = ExportTraceServiceRequest.FromString(body)
+        resource_spans = request.resource_spans[0]
+        exported = next(
+            item for scope in resource_spans.scope_spans for item in scope.spans
+            if item.name == "failed-operation"
+        )
+        assert exported.trace_id == expected_trace
+        assert exported.parent_span_id == expected_parent
+        assert exported.status.code == 2  # ERROR survives without the exception description
+        assert not exported.status.message
+        assert not exported.events
+        assert [item.key for item in exported.attributes] == ["tool.name"]
+        assert [item.key for item in resource_spans.resource.attributes] == ["service.name"]
+    finally:
+        telemetry.shutdown()
+        server.shutdown()
+        server.server_close()
+        worker.join(timeout=5)

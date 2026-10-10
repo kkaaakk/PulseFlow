@@ -22,6 +22,8 @@
 
 ## OpenTelemetry
 
+本地 Jaeger 启动、确定性跨服务验收及排查见 [Windows 本地追踪指南](jaeger-local-tracing.md)。
+
 Python 使用官方 FastAPI、HTTPX、SQLAlchemy 与 Pydantic AI instrumentation；Pydantic AI `include_content=False` 和 `include_binary_content=False`。SQLAlchemy 锁定在官方 instrumentor 支持的 2.0 系列。W3C `traceparent` 随 Java Tool 请求传播，Evidence 保存同一 trace ID 和 Java queryId。Java 使用锁定版本的 OpenTelemetry Spring Boot starter，HTTP server、`@WithSpan` 业务服务和 JDBC span 接续该 trace。
 
 两端 exporter 使用属性白名单，删除消息、Tool 参数/返回、SQL 文本、异常消息/堆栈、HTTP 认证头、链接事件和非白名单 Resource 属性；不记录 API Key、Internal Token、用户问题或原始事件。测试用敏感哨兵验证导出结果。追踪不能绕过 PII 出站检查。
