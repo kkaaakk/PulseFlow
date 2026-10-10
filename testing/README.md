@@ -1,5 +1,7 @@
 # PulseFlow Testing
 
+本地 Agent → Java → MySQL Trace 可视化：从仓库根目录执行 `./testing/observability/run.ps1 start`，再执行 `./testing/observability/run.ps1 verify`，打开 [Jaeger](http://localhost:16686)。关闭及安全清理见 [Windows 本地追踪指南](../docs/agent/jaeger-local-tracing.md)。原有测试命令不启用 Jaeger。
+
 `testing/` 是开发者主动执行的专项验收工具集，不重复 GitHub Actions 的快速回归。它保留完整业务 Replay、最终状态 Validator、受控并发、Campaign/Attribution 验证和 k6 性能测试。
 
 ## 职责边界

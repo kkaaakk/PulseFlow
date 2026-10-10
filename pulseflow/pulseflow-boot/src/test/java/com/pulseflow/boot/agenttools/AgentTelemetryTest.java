@@ -100,7 +100,15 @@ class AgentTelemetryTest {
         var span = telemetry.getTracer("privacy-test").spanBuilder("safe-operation").startSpan();
         span.setAttribute("tool.name", "query_metric");
         span.setAttribute("db.statement", "PRIVATE_SQL_SENTINEL");
+        span.setAttribute("db.query.text", "PRIVATE_SQL_TEXT_SENTINEL");
+        span.setAttribute("db.query.parameters", "PRIVATE_SQL_PARAMETERS_SENTINEL");
+        span.setAttribute("http.request.header.authorization", "PRIVATE_AUTH_SENTINEL");
         span.setAttribute("http.request.header.x_pulseflow_agent_token", "PRIVATE_TOKEN_SENTINEL");
+        span.setAttribute("gen_ai.input.messages", "PRIVATE_PROMPT_SENTINEL");
+        span.setAttribute("gen_ai.output.messages", "PRIVATE_OUTPUT_SENTINEL");
+        span.setAttribute("gen_ai.tool.call.arguments", "PRIVATE_TOOL_ARGUMENTS_SENTINEL");
+        span.setAttribute("gen_ai.tool.call.result", "PRIVATE_TOOL_RETURN_SENTINEL");
+        span.addEvent("PRIVATE_EVENT_SENTINEL");
         span.recordException(new RuntimeException("PRIVATE_EXCEPTION_SENTINEL"));
         span.setStatus(StatusCode.ERROR, "PRIVATE_STATUS_SENTINEL");
         span.end();
@@ -110,5 +118,7 @@ class AgentTelemetryTest {
                 .doesNotContain("PRIVATE_");
         assertThat(exported.getEvents()).isEmpty();
         assertThat(exported.getStatus().getDescription()).isEmpty();
+        assertThat(exported.getStatus().getStatusCode()).isEqualTo(StatusCode.ERROR);
+        assertThat(exported.getTraceId()).isEqualTo(span.getSpanContext().getTraceId());
     }
 }

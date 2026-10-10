@@ -1,0 +1,53 @@
+# Opt-in only: combine with docker-compose.test.yml and --profile observability.
+# No Collector or host OTLP port is needed; both services use agent-internal.
+services:
+  jaeger:
+    profiles: [observability]
+    image: cr.jaegertracing.io/jaegertracing/jaeger:2.17.0
+    ports: ["127.0.0.1:16686:16686"]
+    # Docker Desktop needs a non-internal network to publish the loopback UI.
+    # This dedicated network has no Agent, Java or database members.
+    networks: [agent-internal, observability-ui]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  java:
+    environment:
+      PULSEFLOW_OTEL_DISABLED: "false"
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+
+  agent:
+    environment:
+      # Telemetry.configure_endpoint appends /v1/traces.
+      PULSEFLOW_AGENT_OTEL_ENDPOINT: http://jaeger:4318
+
+  # Test fixture process only; never changes the running Agent's model or auth.
+  trace-check:
+    # Explicit `compose run trace-check` enables this helper profile automatically.
+    profiles: [observability-check]
+    image: pulseflow-agent:local
+    entrypoint: [python, /checks/verify.py]
+    environment:
+      PULSEFLOW_AGENT_ENV: development
+      PULSEFLOW_AGENT_MODEL: test
+      RUNNING_AGENT_MODEL: ${PULSEFLOW_AGENT_MODEL:-test}
+      PULSEFLOW_AGENT_DATABASE_URL: mysql+asyncmy://pulseflow_agent:${PULSEFLOW_AGENT_DB_PASSWORD:-agent-local-only}@agent-mysql:3306/pulseflow_agent
+      PULSEFLOW_JAVA_BASE_URL: http://java:8080
+      PULSEFLOW_AGENT_INTERNAL_TOKEN: ${PULSEFLOW_AGENT_INTERNAL_TOKEN:?set a dedicated machine token}
+      PULSEFLOW_AGENT_OTEL_ENDPOINT: http://jaeger:4318
+      PYTHONPATH: /app:/checks
+      PYTHONDONTWRITEBYTECODE: "1"
+    networks: [agent-internal]
+    volumes:
+      - ../pulseflow-agent/tests:/app/tests:ro
+      - ./observability:/checks:ro
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+networks:
+  observability-ui: {}
