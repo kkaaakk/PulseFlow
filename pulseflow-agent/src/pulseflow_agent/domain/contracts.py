@@ -1,17 +1,50 @@
 """Typed contract matching Java's aggregate-only internal tool API."""
 
-from datetime import timedelta
+import re
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
+
+
+class UnsafeToolValueError(Exception):
+    """A value cannot belong to the aggregate Java tool contract."""
 
 
 class WireModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
+
+    @field_validator("dimensions", check_fields=False)
+    @classmethod
+    def aggregate_dimension_values(cls, values: Any) -> Any:
+        if isinstance(values, dict):
+            for dimension, value in values.items():
+                if value is None:
+                    continue
+                valid = False
+                if dimension == "CHANNEL":
+                    valid = value in {"IN_APP", "PUSH", "EMAIL"}
+                elif dimension == "MODEL":
+                    valid = value == "CLICK_LAST_TOUCH"
+                elif dimension == "CAMPAIGN":
+                    valid = (
+                        value.isascii()
+                        and value.isdecimal()
+                        and len(value) <= 19
+                        and int(value) > 0
+                    )
+                elif dimension == "DAY":
+                    try:
+                        valid = date.fromisoformat(value).isoformat() == value
+                    except ValueError:
+                        pass
+                if not valid:
+                    raise UnsafeToolValueError("blocked_tool_value")
+        return values
 
 
 class Metric(StrEnum):
@@ -189,6 +222,26 @@ class ToolMetadata(WireModel):
             "validation_failed",
         ]
     ]
+
+    @field_validator("data_version")
+    @classmethod
+    def known_version_format(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        # Match Java AgentToolService/SqlAudiencePreviewService version formats.
+        if re.fullmatch(r"profile-(?:v[0-9]+|[0-9]{8}-[0-9]{4})", value):
+            return value
+        if value.startswith("campaign-summary:"):
+            suffix = value.removeprefix("campaign-summary:")
+            if re.fullmatch(r"v[0-9]+", suffix):
+                return value
+            try:
+                parsed = datetime.fromisoformat(suffix.replace("Z", "+00:00"))
+                if parsed.tzinfo is not None:
+                    return value
+            except ValueError:
+                pass
+        raise UnsafeToolValueError("blocked_tool_value")
 
 
 class MetricRow(WireModel):

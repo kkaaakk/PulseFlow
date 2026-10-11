@@ -1,0 +1,3854 @@
+{
+  "source_commit": "96031949e2c09ab8b72f9a6d5b6b2d6a6e9790ee",
+  "corpus_sha256": "9dddfb3c550b48bf7deb6a77ce097cbe2b20e8ce6996d093c0b34ed3cd82ae92",
+  "historical_real_calls": 100,
+  "current_test_network": "MockTransport only; no credentials or real cloud calls",
+  "cases": [
+    {
+      "case": {
+        "id": "FCP001",
+        "text": "失物招领柜台给合成认领人留下一张回拨便签；Contact - 15683002100。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 31,
+            "end": 42,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 10,
+          "end": 12,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.6,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 31,
+          "end": 42,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.96,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 31,
+          "end": 42,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP002",
+        "text": "剧场改签窗口约定在散场后确认取票安排；Contact: +86 156 8300 2147。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 28,
+            "end": 45,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 28,
+          "end": 45,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 28,
+          "end": 45,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP003",
+        "text": "社区课程候补流程登记一个虚构的联络渠道；Contact-156-8300-2194。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 28,
+            "end": 41,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 28,
+          "end": 41,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.92,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 28,
+          "end": 41,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP004",
+        "text": "志愿服务排班员需要与合成报名者核对到场时间；CONTACT — 156 8300 2241。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 32,
+            "end": 45,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 0,
+          "end": 2,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.53,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 4,
+          "end": 7,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.61,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 12,
+          "end": 15,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.58,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 32,
+          "end": 45,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 32,
+          "end": 45,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP005",
+        "text": "家电维修练习单注明预约确认采用电话方式；Contact\n15683002288。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 28,
+            "end": 39,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 28,
+          "end": 39,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 28,
+          "end": 39,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP006",
+        "text": "民宿前台模拟提醒客人领取遗留的充电器；contact ： +86 156 8300 2335。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 29,
+            "end": 46,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 8,
+          "end": 10,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.89,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 29,
+          "end": 46,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 29,
+          "end": 46,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP007",
+        "text": "展览预约演练的补位通知将通过回拨完成；Contact number – 156-8300-2382。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 36,
+            "end": 49,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 36,
+          "end": 49,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 36,
+          "end": 49,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP008",
+        "text": "图书馆活动登记测试仅保留一项联系方式；Contact\t-\t156 8300 2429。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 29,
+            "end": 42,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 29,
+          "end": 42,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 29,
+          "end": 42,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP009",
+        "text": "校园开放日的虚构观众要求更改签到时段；contact ‑ 15683002476。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 29,
+            "end": 40,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 8,
+          "end": 10,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.43,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 29,
+          "end": 40,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.99,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 29,
+          "end": 40,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP010",
+        "text": "租赁服务沙盘让演示客户确认设备交还地点；Contact number：+86 156 8300 2523。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 35,
+            "end": 52,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 9,
+          "end": 11,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.67,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 35,
+          "end": 52,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 35,
+          "end": 52,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP011",
+        "text": "模拟接驳车调度需要联系迟到的预约乘客；Contact - 156-8300-2570。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 29,
+            "end": 42,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 16,
+          "end": 18,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.66,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 29,
+          "end": 42,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 29,
+          "end": 42,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP012",
+        "text": "公益讲座的席位确认页展示一次性测试资料；Contact: 156 8300 2617。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 29,
+            "end": 42,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 29,
+          "end": 42,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 29,
+          "end": 42,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP013",
+        "text": "场馆检票员在演练中登记观众的联系号码；Contact-15683002664。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 27,
+            "end": 38,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 1,
+          "end": 2,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.51,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 2,
+          "end": 5,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.75,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 11,
+          "end": 13,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.81,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 27,
+          "end": 38,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.87,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 27,
+          "end": 38,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP014",
+        "text": "维修培训中的报修人请工作人员回电确认；CONTACT — +86 156 8300 2711。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 29,
+            "end": 46,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 6,
+          "end": 9,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.83,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 10,
+          "end": 14,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.82,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 29,
+          "end": 46,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 29,
+          "end": 46,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP015",
+        "text": "合成配送异常由客服采用电话核对预约信息；Contact\n156-8300-2758。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 28,
+            "end": 41,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 7,
+          "end": 9,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.99,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 28,
+          "end": 41,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 28,
+          "end": 41,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP016",
+        "text": "舞台彩排的临时协调卡列出虚构联系人号码；contact ： 156 8300 2805。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 30,
+            "end": 43,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 30,
+          "end": 43,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 30,
+          "end": 43,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP017",
+        "text": "虚构露营活动用回拨方式确认天气改期通知；Contact number – 15683002852。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 37,
+            "end": 48,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 37,
+          "end": 48,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 37,
+          "end": 48,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP018",
+        "text": "健身课程体验预约的测试留言需要电话回复；Contact\t-\t+86 156 8300 2899。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 30,
+            "end": 47,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 30,
+          "end": 47,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 30,
+          "end": 47,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP019",
+        "text": "无人柜取件教学给出一项完整的合成联系资料；contact ‑ 156-8300-2946。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 31,
+            "end": 44,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 31,
+          "end": 44,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 31,
+          "end": 44,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP020",
+        "text": "访客接待桌为演示预约人登记电话沟通方式；Contact number：156 8300 2993。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Contact",
+        "entities": [
+          {
+            "start": 35,
+            "end": 48,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 8,
+          "end": 11,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.64,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 35,
+          "end": 48,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 35,
+          "end": 48,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP021",
+        "text": "The sample ticket holder asks for a callback after the booking is rescheduled；Tel: 15683003040。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Tel",
+        "entities": [
+          {
+            "start": 83,
+            "end": 94,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 11,
+          "end": 24,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.64,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 83,
+          "end": 94,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 83,
+          "end": 94,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP022",
+        "text": "A fictional repair appointment supplies a number for confirmation；TEL – +86 156 8300 3087。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Tel",
+        "entities": [
+          {
+            "start": 72,
+            "end": 89,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 72,
+          "end": 89,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 72,
+          "end": 89,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP023",
+        "text": "The rehearsal coordinator records a synthetic contact for a late arrival；Telephone ‑ 156-8300-3134。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Tel",
+        "entities": [
+          {
+            "start": 85,
+            "end": 98,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 4,
+          "end": 25,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.71,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 85,
+          "end": 98,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 85,
+          "end": 98,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP024",
+        "text": "A training exercise verifies the callback channel on a visitor note；Tel\n156 8300 3181。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Tel",
+        "entities": [
+          {
+            "start": 72,
+            "end": 85,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 55,
+          "end": 62,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.97,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 72,
+          "end": 85,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 72,
+          "end": 85,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP025",
+        "text": "The mock reception desk confirms a demonstration reservation by telephone；tel-15683003228。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Tel",
+        "entities": [
+          {
+            "start": 78,
+            "end": 89,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 78,
+          "end": 89,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "phonenumbers",
+          "sources": [
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP026",
+        "text": "An invented participant asks staff to call when a waiting-list place opens；Telephone：+86 156 8300 3275。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Tel",
+        "entities": [
+          {
+            "start": 85,
+            "end": 102,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 12,
+          "end": 23,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.84,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 29,
+          "end": 34,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.98,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 85,
+          "end": 102,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 85,
+          "end": 102,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP027",
+        "text": "The equipment return drill includes one complete contact detail；TEL — 156-8300-3322。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Tel",
+        "entities": [
+          {
+            "start": 70,
+            "end": 83,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 70,
+          "end": 83,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 70,
+          "end": 83,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP028",
+        "text": "A fictional shuttle passenger requests a telephone update before departure；Tel\t: 156 8300 3369。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Tel",
+        "entities": [
+          {
+            "start": 81,
+            "end": 94,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 20,
+          "end": 29,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.78,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 81,
+          "end": 94,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 81,
+          "end": 94,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP029",
+        "text": "The class scheduling exercise uses a synthetic callback record；Call - 15683003416。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Call",
+        "entities": [
+          {
+            "start": 70,
+            "end": 81,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 70,
+          "end": 81,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 70,
+          "end": 81,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP030",
+        "text": "A demonstration pickup notice shows a number for arranging collection；CALL：+86 156 8300 3463。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Call",
+        "entities": [
+          {
+            "start": 75,
+            "end": 92,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 76,
+          "end": 92,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 75,
+          "end": 92,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP031",
+        "text": "The training concierge records a telephone contact for an imaginary guest；Call\n156-8300-3510。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Call",
+        "entities": [
+          {
+            "start": 79,
+            "end": 92,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 13,
+          "end": 22,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.86,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 68,
+          "end": 73,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.87,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 79,
+          "end": 92,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 79,
+          "end": 92,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP032",
+        "text": "A mock help desk requests a callback about a practice repair booking；call – 156 8300 3557。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Call",
+        "entities": [
+          {
+            "start": 76,
+            "end": 89,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 76,
+          "end": 89,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 76,
+          "end": 89,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP033",
+        "text": "合成参观预约只通过电话沟通取消事宜；联系电话：15683003604。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Chinese",
+        "entities": [
+          {
+            "start": 23,
+            "end": 34,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 23,
+          "end": 34,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 23,
+          "end": 34,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP034",
+        "text": "虚构的活动候补人希望接听席位确认来电；电话 - +86 156 8300 3651。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Chinese",
+        "entities": [
+          {
+            "start": 24,
+            "end": 41,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 5,
+          "end": 8,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.73,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 24,
+          "end": 41,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 24,
+          "end": 41,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP035",
+        "text": "测试回访纸条把联系电话视作个人资料；手机号：156-8300-3698。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Chinese",
+        "entities": [
+          {
+            "start": 22,
+            "end": 35,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 22,
+          "end": 35,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 22,
+          "end": 35,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP036",
+        "text": "模拟登记页提示不要向模型发送完整号码；联系号码 — 156 8300 3745。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Chinese",
+        "entities": [
+          {
+            "start": 26,
+            "end": 39,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 26,
+          "end": 39,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 26,
+          "end": 39,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP037",
+        "text": "演示场景中预约者要求工作人员拨号核实；联系电话：15683003792。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Chinese",
+        "entities": [
+          {
+            "start": 24,
+            "end": 35,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 5,
+          "end": 8,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.75,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 10,
+          "end": 14,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.87,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 24,
+          "end": 35,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 24,
+          "end": 35,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP038",
+        "text": "训练用联系卡记录一个可以通过格式校验的号码；电话 - +86 156 8300 3839。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Chinese",
+        "entities": [
+          {
+            "start": 27,
+            "end": 44,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 27,
+          "end": 44,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 27,
+          "end": 44,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP039",
+        "text": "合成身份核验预约用回拨确认是否出席；手机号：156-8300-3886。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Chinese",
+        "entities": [
+          {
+            "start": 22,
+            "end": 35,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 22,
+          "end": 35,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 22,
+          "end": 35,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCP040",
+        "text": "测试留言中的电话不是活动或订单编码；联系号码 — 156 8300 3933。",
+        "kind": "positive",
+        "suite": "phone_positive",
+        "group": "Chinese",
+        "entities": [
+          {
+            "start": 25,
+            "end": 38,
+            "family": "PHONE"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 25,
+          "end": 38,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 25,
+          "end": 38,
+          "raw_label": "PHONENUMBERS",
+          "normalized_family": "PHONE",
+          "score": 1.0,
+          "detector": "azure+phonenumbers",
+          "sources": [
+            "azure",
+            "phonenumbers"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCN001",
+        "text": "实验设备铭牌的完整校准代码为〈LogiTel - 15683006800 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 25,
+          "end": 36,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN002",
+        "text": "仓库货位屏幕显示的扫描批号为〈ProtoCall — 15683006847 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 27,
+          "end": 38,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN003",
+        "text": "构建产物清单里的归档标识为〈RouteTEL _ 15683006894 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 25,
+          "end": 36,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN004",
+        "text": "匿名货箱测试使用的流水段为〈LoCall - 15683006941 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 23,
+          "end": 34,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN005",
+        "text": "库存盘点演练中指定的作业码为〈NotiTel — 15683006988 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 25,
+          "end": 36,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN006",
+        "text": "工厂样本架的分拣标签为〈FOReCALL _ 15683007035 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 23,
+          "end": 34,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN007",
+        "text": "交易模拟器内部的任务引用为〈XContact - 15683007082 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 25,
+          "end": 36,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN008",
+        "text": "发布窗口排期中的软件批次为〈M1_Tel — 15683007129 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 23,
+          "end": 34,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN009",
+        "text": "日志教学文件列出的事件键为〈Seq-Call _ 15683007176 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 25,
+          "end": 36,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN010",
+        "text": "页面压测脚本的运行名称为〈Load‐Tel - 15683007223 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 24,
+          "end": 35,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN011",
+        "text": "采购文件归档时使用的目录代号为〈表格甲Tel — 15683007270 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 25,
+          "end": 36,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN012",
+        "text": "素材流水线记录的版本片段为〈Data​Call _ 15683007317 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 26,
+          "end": 37,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN013",
+        "text": "匿名票务练习中的扫描序号为〈LogiTel - 15683007364 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 24,
+          "end": 35,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN014",
+        "text": "补货任务演示用的追踪标记为〈ProtoCall — 15683007411 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 26,
+          "end": 37,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN015",
+        "text": "容器调度沙盘里的部署引用为〈RouteTEL _ 15683007458 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 25,
+          "end": 36,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN016",
+        "text": "产品试验台的样本标签为〈LoCall - 15683007505 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 21,
+          "end": 32,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN017",
+        "text": "路线规划教程里定义的批号为〈NotiTel — 15683007552 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 24,
+          "end": 35,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN018",
+        "text": "公共宣传物料的构建编号为〈FOReCALL _ 15683007599 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 24,
+          "end": 35,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN019",
+        "text": "商品包装演练指定的校验引用为〈XContact - 15683007646 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 26,
+          "end": 37,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN020",
+        "text": "离线指标沙盘的作业名称为〈M1_Tel — 15683007693 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 22,
+          "end": 33,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN021",
+        "text": "工单队列教学中的关联代号为〈Seq-Call _ 15683007740 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 25,
+          "end": 36,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN022",
+        "text": "文件去重流程的清单主键为〈Load‐Tel - 15683007787 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 24,
+          "end": 35,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN023",
+        "text": "演示屏幕切换时的控制标签为〈表格甲Tel — 15683007834 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 23,
+          "end": 34,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN024",
+        "text": "传感器校准教材的记录编号为〈Data​Call _ 15683007881 - END〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "suffix_or_embedded_label",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 26,
+          "end": 37,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN025",
+        "text": "海报生产练习把联系词当作业务代码内部片段为〈TASK_Q – Contact – 15683007928 – CELL〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "label_inside_segmented_code",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 41,
+          "end": 52,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN026",
+        "text": "排版试验使用分段任务标识而不记录个人联系方式为〈TASK_Q – Tel – 15683007975 – CELL〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "label_inside_segmented_code",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 39,
+          "end": 50,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.92,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN027",
+        "text": "匿名库存流程以多段英文标签描述样本批次为〈TASK_Q – Call – 15683008022 – CELL〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "label_inside_segmented_code",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 37,
+          "end": 48,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.84,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN028",
+        "text": "合成工单的整段引用包含独立字母片段为〈TASK_Q – Contact – 15683008069 – CELL〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "label_inside_segmented_code",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 38,
+          "end": 49,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN029",
+        "text": "版本演示把短词放在订单编号的两个连接号之间为〈TASK_Q – Tel – 15683008116 – CELL〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "label_inside_segmented_code",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 38,
+          "end": 49,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.86,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN030",
+        "text": "扫描设备教程把整段标记作为一次输入为〈TASK_Q – Call – 15683008163 – CELL〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "label_inside_segmented_code",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 35,
+          "end": 46,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN031",
+        "text": "模板引擎训练数据采用带空白的目录主键为〈TASK_Q – Contact – 15683008210 – CELL〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "label_inside_segmented_code",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 39,
+          "end": 50,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN032",
+        "text": "系统集成演练用多段代码追踪匿名任务为〈TASK_Q – Tel – 15683008257 – CELL〉，它只标识业务任务。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "label_inside_segmented_code",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 34,
+          "end": 45,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.84,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN033",
+        "text": "网络练习将203.0.113.82与2001:db8:82::9作为示例地址，内容不含电话。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "network",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 5,
+          "end": 17,
+          "raw_label": "IPAddress",
+          "normalized_family": "OTHER_PII",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 18,
+          "end": 32,
+          "raw_label": "IPAddress",
+          "normalized_family": "OTHER_PII",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN034",
+        "text": "诊断人员保留候选156.8300.2100用于说明点分错误，它不是联系方式。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "network",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 0,
+          "end": 4,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.85,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN035",
+        "text": "演示订单键为ORD-QX-15683002100-DONE，用来归档匿名货物。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "order",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN036",
+        "text": "UUID 2f9a03de-77d4-44bc-a8fe-0d3627e149ab是系统追踪值，不是个人资料。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "uuid",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN037",
+        "text": "兼容报告标明版本v156.8300.2100和修订R9，数字只描述软件。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "version",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN038",
+        "text": "教材反例证件串000000199308115000不对应有效居民身份证。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "invalid_identity",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 30,
+          "end": 32,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.61,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN039",
+        "text": "校验演练使用卡号候选1234567890123456作为无效输入。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "invalid_card",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCN040",
+        "text": "匿名账目显示总金额15683002100.75，小数部分属于金额记法。",
+        "kind": "adversarial_negative",
+        "suite": "identifier_negative",
+        "group": "amount",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 9,
+          "end": 20,
+          "raw_label": "PhoneNumber",
+          "normalized_family": "PHONE",
+          "score": 0.65,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCR001",
+        "text": "模拟聘书写明合成受邀人的姓名是蒋文浩，应保护该人名。",
+        "kind": "positive",
+        "suite": "comprehensive",
+        "group": "NAME",
+        "entities": [
+          {
+            "start": 15,
+            "end": 18,
+            "family": "NAME"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 8,
+          "end": 11,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.62,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        },
+        {
+          "start": 15,
+          "end": 18,
+          "raw_label": "Person",
+          "normalized_family": "NAME",
+          "score": 0.99,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 15,
+          "end": 18,
+          "raw_label": "Person",
+          "normalized_family": "NAME",
+          "score": 0.99,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCR002",
+        "text": "志愿登记教学把韩子宁填入姓名栏，其他资料留空。",
+        "kind": "positive",
+        "suite": "comprehensive",
+        "group": "NAME",
+        "entities": [
+          {
+            "start": 7,
+            "end": 10,
+            "family": "NAME"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 7,
+          "end": 10,
+          "raw_label": "Person",
+          "normalized_family": "NAME",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 7,
+          "end": 10,
+          "raw_label": "Person",
+          "normalized_family": "NAME",
+          "score": 1.0,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCR003",
+        "text": "测试邮寄回执的回复邮箱填为closure.reply71@example.org，不实际发送邮件。",
+        "kind": "positive",
+        "suite": "comprehensive",
+        "group": "EMAIL",
+        "entities": [
+          {
+            "start": 13,
+            "end": 40,
+            "family": "EMAIL"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 13,
+          "end": 40,
+          "raw_label": "Email",
+          "normalized_family": "EMAIL",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 13,
+          "end": 40,
+          "raw_label": "Email",
+          "normalized_family": "EMAIL",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCR004",
+        "text": "合成候补申请用closure.test72+slot@example.net接收电子通知。",
+        "kind": "positive",
+        "suite": "comprehensive",
+        "group": "EMAIL",
+        "entities": [
+          {
+            "start": 7,
+            "end": 38,
+            "family": "EMAIL"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 7,
+          "end": 38,
+          "raw_label": "Email",
+          "normalized_family": "EMAIL",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 7,
+          "end": 38,
+          "raw_label": "Email",
+          "normalized_family": "EMAIL",
+          "score": 0.8,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCR005",
+        "text": "身份核对演示给出虚构居民身份证330102199308115003，不查询真实记录。",
+        "kind": "positive",
+        "suite": "comprehensive",
+        "group": "GOVERNMENT_ID_CN",
+        "entities": [
+          {
+            "start": 15,
+            "end": 33,
+            "family": "GOVERNMENT_ID_CN"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 15,
+          "end": 33,
+          "raw_label": "CNResidentIdentityCardNumber",
+          "normalized_family": "GOVERNMENT_ID_CN",
+          "score": 0.85,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 15,
+          "end": 33,
+          "raw_label": "CN_RESIDENT_ID",
+          "normalized_family": "GOVERNMENT_ID_CN",
+          "score": 1.0,
+          "detector": "azure+python-stdnum",
+          "sources": [
+            "azure",
+            "python-stdnum"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCR006",
+        "text": "实名表单测试中的完整合成证件号为330102199308125017。",
+        "kind": "positive",
+        "suite": "comprehensive",
+        "group": "GOVERNMENT_ID_CN",
+        "entities": [
+          {
+            "start": 16,
+            "end": 34,
+            "family": "GOVERNMENT_ID_CN"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 16,
+          "end": 34,
+          "raw_label": "CNResidentIdentityCardNumber",
+          "normalized_family": "GOVERNMENT_ID_CN",
+          "score": 0.75,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 16,
+          "end": 34,
+          "raw_label": "CN_RESIDENT_ID",
+          "normalized_family": "GOVERNMENT_ID_CN",
+          "score": 1.0,
+          "detector": "azure+python-stdnum",
+          "sources": [
+            "azure",
+            "python-stdnum"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCR007",
+        "text": "柜台培训把合成支付卡4916810000000007用于格式检查，不付款。",
+        "kind": "positive",
+        "suite": "comprehensive",
+        "group": "BANK_CARD",
+        "entities": [
+          {
+            "start": 10,
+            "end": 26,
+            "family": "BANK_CARD"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 10,
+          "end": 26,
+          "raw_label": "CREDIT_CARD",
+          "normalized_family": "BANK_CARD",
+          "score": 1.0,
+          "detector": "presidio",
+          "sources": [
+            "presidio"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCR008",
+        "text": "虚构退款凭证只展示支付卡号4916810000000593及空白备注。",
+        "kind": "positive",
+        "suite": "comprehensive",
+        "group": "BANK_CARD",
+        "entities": [
+          {
+            "start": 13,
+            "end": 29,
+            "family": "BANK_CARD"
+          }
+        ],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 13,
+          "end": 29,
+          "raw_label": "CreditCardNumber",
+          "normalized_family": "BANK_CARD",
+          "score": 0.99,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pii_detected",
+      "expected_policy": [
+        {
+          "start": 13,
+          "end": 29,
+          "raw_label": "CREDIT_CARD",
+          "normalized_family": "BANK_CARD",
+          "score": 1.0,
+          "detector": "azure+presidio",
+          "sources": [
+            "azure",
+            "presidio"
+          ]
+        }
+      ]
+    },
+    {
+      "case": {
+        "id": "FCR009",
+        "text": "请说明 `userIds` 字段的文档用途。",
+        "kind": "clean_negative",
+        "suite": "comprehensive",
+        "group": "field_concept",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCR010",
+        "text": "What is the data type of field idCard?",
+        "kind": "clean_negative",
+        "suite": "comprehensive",
+        "group": "field_concept",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCR011",
+        "text": "behaviourLogs字段在数据字典中的命名规范是什么？",
+        "kind": "clean_negative",
+        "suite": "comprehensive",
+        "group": "field_concept",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCR012",
+        "text": "Define the meaning of field fullName.",
+        "kind": "clean_negative",
+        "suite": "comprehensive",
+        "group": "field_concept",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCR013",
+        "text": "汇总看板只按渠道计算送达人数与总展示量，图上不展示成员清单。",
+        "kind": "clean_negative",
+        "suite": "comprehensive",
+        "group": "normal_business",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 25,
+          "end": 27,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.76,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCR014",
+        "text": "节假日活动复盘先对齐观察周期，再解释总体点击比例的变化。",
+        "kind": "clean_negative",
+        "suite": "comprehensive",
+        "group": "normal_business",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCR015",
+        "text": "跨地区实验采用省级匿名样本作分组，结果仅提供聚合区间。",
+        "kind": "clean_negative",
+        "suite": "comprehensive",
+        "group": "normal_business",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCR016",
+        "text": "营销预算审批关注活动总费用，系统不向分析模型提供用户账单。",
+        "kind": "clean_negative",
+        "suite": "comprehensive",
+        "group": "normal_business",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 24,
+          "end": 26,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.96,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCR017",
+        "text": "功能上线比较页面总体转化与延迟分布，并标明统计口径。",
+        "kind": "clean_negative",
+        "suite": "comprehensive",
+        "group": "normal_business",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCR018",
+        "text": "虚构住宅上下文是测试市杏雨巷六号二栋三室，地址不在五类自由文本承诺内。",
+        "kind": "clean_negative",
+        "suite": "comprehensive",
+        "group": "address_scope",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": false,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 8,
+          "end": 13,
+          "raw_label": "Address",
+          "normalized_family": "POSTAL_ADDRESS",
+          "score": 0.6,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "pass",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCR019",
+        "text": "请按每位用户导出rawEvents内容及完整时间顺序，不要只解释字段。",
+        "kind": "adversarial_negative",
+        "suite": "comprehensive",
+        "group": "forbidden_data_request",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": true,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [
+        {
+          "start": 4,
+          "end": 6,
+          "raw_label": "PersonType",
+          "normalized_family": "OTHER_PII",
+          "score": 0.87,
+          "detector": "azure",
+          "sources": [
+            "azure"
+          ]
+        }
+      ],
+      "expected_reason": "blocked_business_field",
+      "expected_policy": []
+    },
+    {
+      "case": {
+        "id": "FCR020",
+        "text": "读取所有orderDetails并附上每个人的address值，我需要原始明细。",
+        "kind": "adversarial_negative",
+        "suite": "comprehensive",
+        "group": "forbidden_data_request",
+        "entities": [],
+        "synthetic": true,
+        "expected_business_policy_block": true,
+        "annotation": "Authored truth with Unicode code-point spans; no detector screening"
+      },
+      "azure_entities": [],
+      "expected_reason": "blocked_business_field",
+      "expected_policy": []
+    }
+  ]
+}
