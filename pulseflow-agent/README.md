@@ -18,6 +18,13 @@ Set `PULSEFLOW_JAVA_BASE_URL`, `PULSEFLOW_AGENT_INTERNAL_TOKEN` and `PULSEFLOW_A
 
 ## Validation
 
+The [PII guardrail contract](../docs/agent/pii-guardrail-contract.md) defines the five-category
+Azure policy, validated local phone/ID/payment-card detection, business-field preflight and strict
+Tool values. Address-only free text is outside this promise; structured address fields remain
+forbidden. Offline regression includes the final 100 saved synthetic Azure observations and
+does not call Azure or a real LLM. Apply the locked dependencies and restart the Agent when
+rolling out code; merging Git alone does not update a running process or replace `.env`.
+
 ```powershell
 uv sync --locked
 uv run ruff check .

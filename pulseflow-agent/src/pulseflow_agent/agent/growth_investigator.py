@@ -151,15 +151,18 @@ class GrowthInvestigator:
 
         @agent.instructions
         async def investigation_context(ctx: RunContext[AgentDependencies]) -> str:
+            # Inspect the same visible values before adding labels such as
+            # "Investigation goal:"; a safe complete concept question stays intact.
+            await ctx.deps.guardrail.check(ctx.deps.workspace.context_payload())
             context = ctx.deps.workspace.context_text()
             if ctx.deps.proposal_context is not None:
+                await ctx.deps.guardrail.check(ctx.deps.proposal_context.promotion_facts)
                 context += "\nOperator-authorized promotion facts (do not add or replace): " + str(
                     [
                         item.model_dump(mode="json", by_alias=True)
                         for item in ctx.deps.proposal_context.promotion_facts
                     ]
                 )
-            await ctx.deps.guardrail.check(context)
             return context
 
         @agent.tool

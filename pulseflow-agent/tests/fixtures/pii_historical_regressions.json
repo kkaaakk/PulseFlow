@@ -1,0 +1,86 @@
+{
+  "source_commit": "96031949e2c09ab8b72f9a6d5b6b2d6a6e9790ee",
+  "synthetic": true,
+  "cases": [
+    {
+      "id": "V3A0028",
+      "kind": "adversarial_negative",
+      "text": "活动编号ACT-15160048012-QA具有字母前后缀。",
+      "entities": [],
+      "group": "near_negative",
+      "synthetic": true,
+      "annotation_method": "manually marked entity spans; code-point offsets",
+      "review": "author review plus independent structural checks; not human-reviewed"
+    },
+    {
+      "id": "V3A0036",
+      "kind": "adversarial_negative",
+      "text": "记录分组ABC_18724068519_Z包含字母边界。",
+      "entities": [],
+      "group": "near_negative",
+      "synthetic": true,
+      "annotation_method": "manually marked entity spans; code-point offsets",
+      "review": "author review plus independent structural checks; not human-reviewed"
+    },
+    {
+      "id": "V4A0007",
+      "kind": "adversarial_negative",
+      "text": "测试同事正在验证Unicode字符位置，表情符号也可能出现在前面。下面是一项带字母的业务标识，不代表联系方式：TICKET - 18156188049 - CHECK。在输出摘要时需保留正确的安全决定，而非自动复制输入。",
+      "entities": [],
+      "group": "business_identifier",
+      "primary_family": null,
+      "synthetic": true,
+      "text_truth_five_pii": false,
+      "expected_business_policy_block": false,
+      "annotation": "Author-marked Unicode spans; programmatic numbering-format checks; no detector predictions"
+    },
+    {
+      "id": "V4A0015",
+      "kind": "adversarial_negative",
+      "text": "系统导入演练使用虚构样本，操作员只讨论文本应如何被处理。下面是一项带字母的业务标识，不代表联系方式：TICKET - 18311987409 - CHECK。请判断出站边界，操作过程不会访问数据库或改变活动状态。",
+      "entities": [],
+      "group": "business_identifier",
+      "primary_family": null,
+      "synthetic": true,
+      "text_truth_five_pii": false,
+      "expected_business_policy_block": false,
+      "annotation": "Author-marked Unicode spans; programmatic numbering-format checks; no detector predictions"
+    },
+    {
+      "id": "V4A0023",
+      "kind": "adversarial_negative",
+      "text": "下面是一项带字母的业务标识，不代表联系方式：TICKET - 15942539948 - CHECK。\n处理说明：处理结果仅记录案例编号和安全类型，不发送任何消息。问卷项目已经停止收集信息，现在只研究模拟输入的处理方式。",
+      "entities": [],
+      "group": "business_identifier",
+      "primary_family": null,
+      "synthetic": true,
+      "text_truth_five_pii": false,
+      "expected_business_policy_block": false,
+      "annotation": "Author-marked Unicode spans; programmatic numbering-format checks; no detector predictions"
+    },
+    {
+      "id": "V4A0031",
+      "kind": "adversarial_negative",
+      "text": "下面是一项带字母的业务标识，不代表联系方式：TICKET - 13656035634 - CHECK。\n处理说明：测试对象的归属不作验证，仅检查受支持格式及语义类别。审核队列使用随机样例模拟多个入口，下面是其中一个记录片段。",
+      "entities": [],
+      "group": "business_identifier",
+      "primary_family": null,
+      "synthetic": true,
+      "text_truth_five_pii": false,
+      "expected_business_policy_block": false,
+      "annotation": "Author-marked Unicode spans; programmatic numbering-format checks; no detector predictions"
+    },
+    {
+      "id": "V4A0039",
+      "kind": "adversarial_negative",
+      "text": "下面是一项带字母的业务标识，不代表联系方式：TICKET - 19159393983 - CHECK。\n处理说明：页面其余区域只展示汇总图表，不包含逐人行为事件。这份报名回执只用于安全测试，任何数字都不能用于真实交易。",
+      "entities": [],
+      "group": "business_identifier",
+      "primary_family": null,
+      "synthetic": true,
+      "text_truth_five_pii": false,
+      "expected_business_policy_block": false,
+      "annotation": "Author-marked Unicode spans; programmatic numbering-format checks; no detector predictions"
+    }
+  ]
+}

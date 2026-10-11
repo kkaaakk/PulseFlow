@@ -19,9 +19,11 @@ from pulseflow_agent.domain.contracts import (
     PreviewAudienceArgs,
     QueryMetricArgs,
     QueryResponse,
+    UnsafeToolValueError,
     WireModel,
 )
 from pulseflow_agent.observability.tracing import QualityMetrics
+from pulseflow_agent.security.pii_guardrail import PiiBlockedError
 
 ResponseT = TypeVar("ResponseT", bound=WireModel)
 _PREFIX = "/internal/v1/agent-tools"
@@ -94,6 +96,8 @@ class PulseFlowApiClient:
         self._open_until = 0.0
         try:
             result = response_type.model_validate(response.json())
+        except UnsafeToolValueError:
+            raise PiiBlockedError("blocked_tool_value") from None
         except (ValidationError, ValueError, TypeError):
             if self._metrics:
                 self._metrics.java_call(True)

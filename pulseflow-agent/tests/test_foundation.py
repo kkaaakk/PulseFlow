@@ -140,7 +140,11 @@ async def test_local_fields_block_before_azure_or_model() -> None:
     [
         (httpx.Response(200, json=azure_response()), None),
         *[
-            (httpx.Response(200, json=azure_response([{"category": category}])), "pii_detected")
+            # Category-only records are malformed, not evidence of a valid PII span.
+            (
+                httpx.Response(200, json=azure_response([{"category": category}])),
+                "pii_provider_unavailable",
+            )
             for category in ("PhoneNumber", "Person", "Address", "Email", "BankAccountNumber")
         ],
         (httpx.Response(500), "pii_provider_unavailable"),

@@ -1,0 +1,107 @@
+{
+  "source": "datasets/round3/holdout_v2/adversarial.json",
+  "source_sha256": "ce225f9dd24347b4e2a94634ca6f8c2b03edd2edb33c6b3753857ae0a3d7a19d",
+  "note": "Historical holdout reused only as fixed regression; not a new blind test",
+  "cases": [
+    {
+      "id": "H2A0021",
+      "phase": "near_miss",
+      "kind": "adversarial_negative",
+      "family": "NONE",
+      "target_family": "IP_ADDRESS",
+      "text": "越界的点分网络值198.51.100.400并非IP。",
+      "entities": [],
+      "synthetic": true
+    },
+    {
+      "id": "H2A0022",
+      "phase": "near_miss",
+      "kind": "adversarial_negative",
+      "family": "NONE",
+      "target_family": "IP_ADDRESS",
+      "text": "越界的点分网络值198.51.100.401并非IP。",
+      "entities": [],
+      "synthetic": true
+    },
+    {
+      "id": "H2A0023",
+      "phase": "near_miss",
+      "kind": "adversarial_negative",
+      "family": "NONE",
+      "target_family": "IP_ADDRESS",
+      "text": "越界的点分网络值198.51.100.402并非IP。",
+      "entities": [],
+      "synthetic": true
+    },
+    {
+      "id": "H2A0024",
+      "phase": "near_miss",
+      "kind": "adversarial_negative",
+      "family": "NONE",
+      "target_family": "IP_ADDRESS",
+      "text": "越界的点分网络值198.51.100.403并非IP。",
+      "entities": [],
+      "synthetic": true
+    },
+    {
+      "id": "H2A0025",
+      "phase": "near_miss",
+      "kind": "adversarial_negative",
+      "family": "NONE",
+      "target_family": "IP_ADDRESS",
+      "text": "越界的点分网络值198.51.100.404并非IP。",
+      "entities": [],
+      "synthetic": true
+    },
+    {
+      "id": "H2A0026",
+      "phase": "near_miss",
+      "kind": "adversarial_negative",
+      "family": "NONE",
+      "target_family": "IP_ADDRESS",
+      "text": "越界的点分网络值198.51.100.405并非IP。",
+      "entities": [],
+      "synthetic": true
+    },
+    {
+      "id": "H2A0027",
+      "phase": "near_miss",
+      "kind": "adversarial_negative",
+      "family": "NONE",
+      "target_family": "IP_ADDRESS",
+      "text": "越界的点分网络值198.51.100.406并非IP。",
+      "entities": [],
+      "synthetic": true
+    },
+    {
+      "id": "H2A0028",
+      "phase": "near_miss",
+      "kind": "adversarial_negative",
+      "family": "NONE",
+      "target_family": "IP_ADDRESS",
+      "text": "越界的点分网络值198.51.100.407并非IP。",
+      "entities": [],
+      "synthetic": true
+    },
+    {
+      "id": "H2A0029",
+      "phase": "near_miss",
+      "kind": "adversarial_negative",
+      "family": "NONE",
+      "target_family": "IP_ADDRESS",
+      "text": "越界的点分网络值198.51.100.408并非IP。",
+      "entities": [],
+      "synthetic": true
+    },
+    {
+      "id": "H2A0030",
+      "phase": "near_miss",
+      "kind": "adversarial_negative",
+      "family": "NONE",
+      "target_family": "IP_ADDRESS",
+      "text": "越界的点分网络值198.51.100.409并非IP。",
+      "entities": [],
+      "synthetic": true
+    }
+  ]
+}
