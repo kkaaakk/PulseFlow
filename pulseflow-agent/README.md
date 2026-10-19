@@ -38,3 +38,23 @@ follow-up, cancellation, business SSE and human draft review. See
 limits, Docker/Compose startup and recovery. Use `uv sync --locked` and migrate Alembic to head
 before starting. Production requires a real model, Azure PII configuration and the dedicated Agent
 MySQL schema; offline CI uses no paid provider requests.
+
+## Business-aware investigation context
+
+`workspace/context.py` selects run-entry history by question, goal, scope and validated Tool
+selectors. Current Hypothesis support/refutation and valid prior Diagnosis references are
+protected as complete units. Historical scopes remain `BACKGROUND`; the SDK carries new
+Tool results during a run. The final rendered context still passes the Azure PII guardrail.
+
+`PULSEFLOW_AGENT_CONTEXT_TOKENS=4000` uses a conservative UTF-8 byte text estimate, with
+`PULSEFLOW_AGENT_CONTEXT_RESERVE_TOKENS=4000` for schemas, SDK history and subsequent turns.
+`PULSEFLOW_AGENT_CONTEXT_WINDOW_TOKENS=32768` is an operational window, to be set at or below
+the deployed model capacity. Available context also shrinks with cumulative Run usage;
+existing SDK usage limits remain unchanged. Protected context that cannot fit ends as
+`BUDGET_EXHAUSTED` with low confidence, without cutting IDs, values or references.
+
+The existing 22-case offline Eval suite is joined by six before/after context scenarios.
+Set `PULSEFLOW_CONTEXT_EVAL_REPORT` to save their JSON report. FunctionModel token usage is
+synthetic and excludes instructions; it does not measure real-provider token savings.
+See the [implementation audit](../docs/agent/business-aware-context-audit.md) for the call
+chain, selection rules, estimate limits and validation evidence.

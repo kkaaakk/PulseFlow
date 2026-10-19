@@ -125,9 +125,7 @@ class InvestigationWorkspace:
     tool_trajectory: list[str] = field(default_factory=list)
     proposals: list[ProposalRecord] = field(default_factory=list)
 
-    async def add_proposal(
-        self, proposal: CampaignProposal, owner_id: int
-    ) -> ProposalRecord:
+    async def add_proposal(self, proposal: CampaignProposal, owner_id: int) -> ProposalRecord:
         if self.id is None or self.repository is None:
             raise ValueError("proposal requires a persisted investigation")
         self._validate_evidence(proposal.supporting_evidence_ids)
@@ -287,32 +285,6 @@ class InvestigationWorkspace:
                 diagnosis=diagnosis,
             )
         )
-
-    def context_text(self) -> str:
-        prior = (
-            self.messages[:-1]
-            if self.messages and self.messages[-1].role == "USER"
-            else self.messages
-        )
-        recent = [f"{item.role}: {item.content}" for item in prior[-4:]]
-        facts = [
-            f"{item.id} "
-            f"[{'CURRENT' if item.scope_version == self.scope_version else 'BACKGROUND'}]: "
-            f"{item.observation}"
-            for item in self.evidence[-12:]
-        ]
-        hypotheses = [
-            f"{item.id} [{item.status}]: {item.statement}" for item in self.hypotheses[-8:]
-        ]
-        return (
-            f"Investigation goal: {self.goal}\nCurrent scope: {self.scope or 'overall'}\n"
-            + "Prior visible conversation:\n"
-            + "\n".join(recent)
-            + "\nEvidence (BACKGROUND is historical, not proof for current scope):\n"
-            + "\n".join(facts)
-            + "\nHypotheses:\n"
-            + "\n".join(hypotheses)
-        )[:6000]
 
     def _validate_evidence(self, ids: list[str]) -> None:
         if not set(ids).issubset(self.evidence_ids):
