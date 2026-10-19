@@ -23,6 +23,7 @@ class AgentSettings(BaseSettings):
     pulseflow_agent_max_tool_calls: int = Field(default=12, ge=0)
     pulseflow_agent_max_input_tokens: int = Field(default=12000, ge=1)
     pulseflow_agent_max_output_tokens: int = Field(default=4000, ge=1, le=32000)
+    pulseflow_agent_context_target_chars: int = Field(default=12000, ge=1)
     pulseflow_agent_run_timeout_seconds: float = Field(default=90, gt=0, le=110)
     pulseflow_agent_max_concurrency: int = Field(default=4, ge=1, le=32)
     pulseflow_agent_runs_per_minute: int = Field(default=20, ge=1, le=1000)

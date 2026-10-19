@@ -1,12 +1,13 @@
 """One Pydantic AI agent that chooses Java read-only tools dynamically."""
 
+import json
 from asyncio import CancelledError, shield
 from collections.abc import Awaitable, Callable
 from typing import Literal
 
 from opentelemetry import trace
 from pydantic_ai import Agent, ModelResponse, ModelRetry, RunContext, ToolDefinition
-from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.models.test import TestModel
@@ -50,6 +51,7 @@ from pulseflow_agent.domain.investigation import (
 )
 from pulseflow_agent.observability.tracing import Telemetry
 from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail, PiiBlockedError
+from pulseflow_agent.workspace.context import ContextBuilder
 
 
 def create_model(settings: AgentSettings) -> TestModel | OpenAIModel:
@@ -151,19 +153,35 @@ class GrowthInvestigator:
 
         @agent.instructions
         async def investigation_context(ctx: RunContext[AgentDependencies]) -> str:
-            # Inspect the same visible values before adding labels such as
-            # "Investigation goal:"; a safe complete concept question stays intact.
-            await ctx.deps.guardrail.check(ctx.deps.workspace.context_payload())
-            context = ctx.deps.workspace.context_text()
+            builder = ctx.deps.context_builder
+            assert builder is not None
+            context = builder.build(
+                scope=ctx.deps.workspace.scope,
+                scope_version=ctx.deps.workspace.scope_version,
+                target_chars=self._settings.pulseflow_agent_context_target_chars,
+            )
+            # Check every value in the final rendered JSON, preserving the
+            # existing complete-concept-question boundary. Also inspect whole
+            # queries so untrusted legacy JSON keys cannot hide PII.
+            payload = json.loads(context)
             if ctx.deps.proposal_context is not None:
-                await ctx.deps.guardrail.check(ctx.deps.proposal_context.promotion_facts)
-                context += "\nOperator-authorized promotion facts (do not add or replace): " + str(
-                    [
-                        item.model_dump(mode="json", by_alias=True)
-                        for item in ctx.deps.proposal_context.promotion_facts
-                    ]
+                payload["operator_authorized_promotion_facts"] = [
+                    item.model_dump(mode="json", by_alias=True)
+                    for item in ctx.deps.proposal_context.promotion_facts
+                ]
+                payload["promotion_facts_policy"] = (
+                    "Operator-authorized promotion facts (do not add or replace)"
                 )
-            return context
+            await ctx.deps.guardrail.check(
+                [
+                    payload,
+                    [
+                        json.dumps(item["query"], ensure_ascii=False)
+                        for item in payload["relevant_evidence"]
+                    ],
+                ]
+            )
+            return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
         @agent.tool
         async def query_metric(
@@ -406,6 +424,7 @@ class GrowthInvestigator:
             if workspace_factory is not None
             else InvestigationWorkspace(goal=prompt)
         )
+        context_builder = ContextBuilder(workspace, prompt)
         await workspace.add_message("USER", prompt)
         deps = AgentDependencies(
             self._pulseflow,
@@ -413,6 +432,7 @@ class GrowthInvestigator:
             operator_context,
             self._guardrail,
             proposal_context=proposal_context,
+            context_builder=context_builder,
         )
         usage = RunUsage()
         cost: float | None = None
@@ -473,12 +493,27 @@ class GrowthInvestigator:
                 self.telemetry.metrics.record_status("CANCELLED", usage)
                 raise
             except Exception as error:
+                # Read only a structured provider code, never its free-text body.
+                # A rejected request window is distinct from cumulative Run usage.
+                window_exceeded = False
+                if isinstance(error, ModelHTTPError) and error.status_code in {400, 413}:
+                    body = error.body
+                    detail = body.get("error", body) if isinstance(body, dict) else None
+                    window_exceeded = (
+                        isinstance(detail, dict) and detail.get("code") == "context_length_exceeded"
+                    )
                 failure = Diagnosis(
                     status="INSUFFICIENT_EVIDENCE",
-                    summary="Investigation failed.",
+                    summary="Model context window exceeded."
+                    if window_exceeded
+                    else "Investigation failed.",
                     findings=[],
                     evidence_ids=[],
-                    unresolved_questions=["The investigation did not complete."],
+                    unresolved_questions=[
+                        "Reduce the model request context before retrying."
+                        if window_exceeded
+                        else "The investigation did not complete."
+                    ],
                     confidence="low",
                     recommended_next_action=None,
                 )
@@ -486,6 +521,12 @@ class GrowthInvestigator:
                 self.telemetry.metrics.record_status(
                     "PII_BLOCKED" if isinstance(error, PiiBlockedError) else "FAILED", usage
                 )
+                if isinstance(error, ModelHTTPError):
+                    raise RuntimeError(
+                        "model_context_window_exceeded"
+                        if window_exceeded
+                        else "model_provider_request_failed"
+                    ) from None
                 raise
             try:
                 await self._guardrail.check(

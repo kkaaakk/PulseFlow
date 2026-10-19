@@ -1,5 +1,6 @@
 """Optional real MySQL validation, enabled by Agent CI service container."""
 
+import json
 import os
 from uuid import uuid4
 
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from pulseflow_agent.domain.campaign_proposal import CampaignProposal
 from pulseflow_agent.domain.contracts import CampaignPerformanceArgs, ToolMetadata
 from pulseflow_agent.domain.investigation import Diagnosis, InvestigationWorkspace
+from pulseflow_agent.workspace.context import ContextBuilder
 from pulseflow_agent.workspace.repository import SqlAlchemyInvestigationRepository
 
 
@@ -101,5 +103,40 @@ async def test_agent_schema_migrates_and_persists_on_mysql(
         assert (await repo.load_proposal(record.id)).evidence_ids == [item.id]
         assert (await repo.mark_draft_created(record.id, 77)).draft_id == 77
         assert len(loaded.evidence) == 1
+        # Selection is a read-only view: every excluded record still round-trips
+        # through real MySQL with its full observation, selectors and provenance.
+        restored = await repo.begin_followup(created.id)
+        workspace.evidence = list(restored.evidence)
+        workspace.messages = list(restored.messages)
+        for campaign_id in range(100, 116):
+            await workspace.add_evidence(
+                "get_campaign_performance",
+                ToolMetadata.model_validate(
+                    {
+                        "queryId": str(uuid4()),
+                        "generatedAt": "2026-09-25T00:00:00Z",
+                        "dataVersion": "campaign-summary:v2",
+                        "source": "campaign-summary",
+                        "warnings": ["summary_unavailable"],
+                    }
+                ),
+                f"CAMPAIGN={campaign_id} summary=UNAVAILABLE",
+                CampaignPerformanceArgs(campaign_id=campaign_id),
+            )
+        before = await repo.load(created.id)
+        context = json.loads(
+            ContextBuilder(workspace, "Review Campaign 9").build(
+                scope=workspace.scope,
+                scope_version=workspace.scope_version,
+                target_chars=4000,
+            )
+        )
+        assert 0 < len(context["relevant_evidence"]) < len(before.evidence)
+        after = await repo.load(created.id)
+        assert [row.model_dump() for row in after.evidence] == [
+            row.model_dump() for row in before.evidence
+        ]
+        assert len(after.evidence) == 17
+        await workspace.finish("COMPLETED", diagnosis)
     finally:
         await engine.dispose()
