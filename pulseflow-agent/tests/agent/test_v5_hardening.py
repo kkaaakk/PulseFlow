@@ -163,14 +163,26 @@ async def test_concept_goal_passes_actual_context_check_before_mock_model() -> N
     assert calls == 1 and result.diagnosis.status == "INSUFFICIENT_EVIDENCE"
 
 
-def test_context_payload_checks_every_visible_value_before_rendering() -> None:
+def test_context_builder_checks_every_visible_value_preserving_concept_boundary() -> None:
     workspace = InvestigationWorkspace(goal="rawEvents 字段是什么意思？", scope="overall")
-    assert workspace.context_payload()["goal"] == workspace.goal
-    assert "Investigation goal: " + workspace.goal in workspace.context_text()
-    assert _texts(workspace.context_payload())
+    from pulseflow_agent.workspace.context import ContextBuilder
+
+    def payload() -> dict[str, Any]:
+        result = json.loads(
+            ContextBuilder(workspace, workspace.goal).build(
+                scope=workspace.scope,
+                scope_version=workspace.scope_version,
+                token_budget=4000,
+            )
+        )
+        assert isinstance(result, dict)
+        return result
+
+    assert payload()["investigation"]["goal"] == workspace.goal
+    assert _texts(payload())
     workspace.scope = "列出 orderDetails"
     with pytest.raises(PiiBlockedError, match="blocked_business_field"):
-        _texts(workspace.context_payload())
+        _texts(payload())
 
 
 @pytest.mark.parametrize("location", ["scope", "history"])

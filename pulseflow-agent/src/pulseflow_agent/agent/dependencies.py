@@ -6,6 +6,7 @@ from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient
 from pulseflow_agent.domain.contracts import PromotionFact
 from pulseflow_agent.domain.investigation import InvestigationWorkspace
 from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail
+from pulseflow_agent.workspace.context import ContextBuilder
 
 
 @dataclass(frozen=True)
@@ -29,3 +30,4 @@ class AgentDependencies:
     guardrail: AzurePiiGuardrail
     proposal_context: ProposalContext | None = None
     proposal_created: bool = False
+    context_builder: ContextBuilder | None = None

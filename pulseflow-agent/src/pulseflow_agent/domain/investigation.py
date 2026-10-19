@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
 from opentelemetry import trace
@@ -125,9 +125,7 @@ class InvestigationWorkspace:
     tool_trajectory: list[str] = field(default_factory=list)
     proposals: list[ProposalRecord] = field(default_factory=list)
 
-    async def add_proposal(
-        self, proposal: CampaignProposal, owner_id: int
-    ) -> ProposalRecord:
+    async def add_proposal(self, proposal: CampaignProposal, owner_id: int) -> ProposalRecord:
         if self.id is None or self.repository is None:
             raise ValueError("proposal requires a persisted investigation")
         self._validate_evidence(proposal.supporting_evidence_ids)
@@ -287,53 +285,6 @@ class InvestigationWorkspace:
                 diagnosis=diagnosis,
             )
         )
-
-    def context_payload(self) -> dict[str, Any]:
-        """The exact visible values, checked before adding rendering labels."""
-        prior = (
-            self.messages[:-1]
-            if self.messages and self.messages[-1].role == "USER"
-            else self.messages
-        )
-        return {
-            "goal": self.goal,
-            "scope": self.scope or "overall",
-            "recent": [{"role": item.role, "content": item.content} for item in prior[-4:]],
-            "facts": [
-                {
-                    "id": item.id,
-                    "status": "CURRENT"
-                    if item.scope_version == self.scope_version
-                    else "BACKGROUND",
-                    "observation": item.observation,
-                }
-                for item in self.evidence[-12:]
-            ],
-            "hypotheses": [
-                {"id": item.id, "status": item.status, "statement": item.statement}
-                for item in self.hypotheses[-8:]
-            ],
-        }
-
-    def context_text(self) -> str:
-        content = self.context_payload()
-        recent = [f"{item['role']}: {item['content']}" for item in content["recent"]]
-        facts = [
-            f"{item['id']} [{item['status']}]: {item['observation']}" for item in content["facts"]
-        ]
-        hypotheses = [
-            f"{item['id']} [{item['status']}]: {item['statement']}"
-            for item in content["hypotheses"]
-        ]
-        return (
-            f"Investigation goal: {content['goal']}\nCurrent scope: {content['scope']}\n"
-            + "Prior visible conversation:\n"
-            + "\n".join(recent)
-            + "\nEvidence (BACKGROUND is historical, not proof for current scope):\n"
-            + "\n".join(facts)
-            + "\nHypotheses:\n"
-            + "\n".join(hypotheses)
-        )[:6000]
 
     def _validate_evidence(self, ids: list[str]) -> None:
         if not set(ids).issubset(self.evidence_ids):

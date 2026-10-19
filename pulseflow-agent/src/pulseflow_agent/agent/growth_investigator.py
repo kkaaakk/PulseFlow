@@ -1,5 +1,6 @@
 """One Pydantic AI agent that chooses Java read-only tools dynamically."""
 
+import json
 from asyncio import CancelledError, shield
 from collections.abc import Awaitable, Callable
 from typing import Literal
@@ -50,6 +51,11 @@ from pulseflow_agent.domain.investigation import (
 )
 from pulseflow_agent.observability.tracing import Telemetry
 from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail, PiiBlockedError
+from pulseflow_agent.workspace.context import (
+    ContextBudgetExceeded,
+    ContextBuilder,
+    context_token_budget,
+)
 
 
 def create_model(settings: AgentSettings) -> TestModel | OpenAIModel:
@@ -151,18 +157,39 @@ class GrowthInvestigator:
 
         @agent.instructions
         async def investigation_context(ctx: RunContext[AgentDependencies]) -> str:
-            # Inspect the same visible values before adding labels such as
-            # "Investigation goal:"; a safe complete concept question stays intact.
-            await ctx.deps.guardrail.check(ctx.deps.workspace.context_payload())
-            context = ctx.deps.workspace.context_text()
-            if ctx.deps.proposal_context is not None:
-                await ctx.deps.guardrail.check(ctx.deps.proposal_context.promotion_facts)
-                context += "\nOperator-authorized promotion facts (do not add or replace): " + str(
+            builder = ctx.deps.context_builder
+            assert builder is not None
+            context = builder.build(
+                scope=ctx.deps.workspace.scope,
+                scope_version=ctx.deps.workspace.scope_version,
+                token_budget=context_token_budget(
+                    self._settings,
+                    input_tokens_used=ctx.usage.input_tokens,
+                    output_tokens_used=ctx.usage.output_tokens,
+                    fixed_text=GROWTH_INVESTIGATOR_INSTRUCTIONS + builder.question,
+                ),
+                operator_authorized_promotion_facts=(
                     [
                         item.model_dump(mode="json", by_alias=True)
                         for item in ctx.deps.proposal_context.promotion_facts
                     ]
-                )
+                    if ctx.deps.proposal_context is not None
+                    else None
+                ),
+            )
+            # Check every value in the final rendered JSON, preserving the
+            # existing complete-concept-question boundary. Also inspect whole
+            # queries so untrusted legacy JSON keys cannot hide PII.
+            payload = json.loads(context)
+            await ctx.deps.guardrail.check(
+                [
+                    payload,
+                    [
+                        json.dumps(item["query"], ensure_ascii=False)
+                        for item in payload["relevant_evidence"]
+                    ],
+                ]
+            )
             return context
 
         @agent.tool
@@ -406,6 +433,7 @@ class GrowthInvestigator:
             if workspace_factory is not None
             else InvestigationWorkspace(goal=prompt)
         )
+        context_builder = ContextBuilder(workspace, prompt)
         await workspace.add_message("USER", prompt)
         deps = AgentDependencies(
             self._pulseflow,
@@ -413,6 +441,7 @@ class GrowthInvestigator:
             operator_context,
             self._guardrail,
             proposal_context=proposal_context,
+            context_builder=context_builder,
         )
         usage = RunUsage()
         cost: float | None = None
@@ -446,14 +475,21 @@ class GrowthInvestigator:
                 status: Literal["COMPLETED", "INSUFFICIENT_EVIDENCE", "BUDGET_EXHAUSTED"] = (
                     "COMPLETED" if diagnosis.status == "DIAGNOSED" else "INSUFFICIENT_EVIDENCE"
                 )
-            except UsageLimitExceeded:
+            except UsageLimitExceeded as error:
+                context_exceeded = isinstance(error, ContextBudgetExceeded)
                 diagnosis = Diagnosis(
                     status="INSUFFICIENT_EVIDENCE",
-                    summary="Investigation stopped at its usage budget.",
+                    summary=(
+                        "Required investigation context exceeds its text budget."
+                        if context_exceeded
+                        else "Investigation stopped at its usage budget."
+                    ),
                     findings=[],
                     evidence_ids=sorted(workspace.evidence_ids),
                     unresolved_questions=[
-                        "Which additional business facts would resolve the question?"
+                        "Narrow the investigation scope or review its protected evidence."
+                        if context_exceeded
+                        else "Which additional business facts would resolve the question?"
                     ],
                     confidence="low",
                     recommended_next_action=None,
