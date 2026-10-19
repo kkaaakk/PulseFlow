@@ -1,4 +1,4 @@
-"""Business relevance, reference closure and complete-unit context budgets."""
+"""Business relevance, reference closure and complete-unit context target_charss."""
 
 import json
 from datetime import UTC, datetime
@@ -7,7 +7,6 @@ from uuid import UUID
 
 import pytest
 
-from pulseflow_agent.config import AgentSettings
 from pulseflow_agent.domain.investigation import (
     AgentMessage,
     Diagnosis,
@@ -16,12 +15,7 @@ from pulseflow_agent.domain.investigation import (
     Hypothesis,
     InvestigationWorkspace,
 )
-from pulseflow_agent.workspace.context import (
-    ContextBudgetExceeded,
-    ContextBuilder,
-    context_token_budget,
-    estimate_tokens,
-)
+from pulseflow_agent.workspace.context import ContextBuilder
 from tests.evals.harness import BASELINE, CURRENT
 
 NOW = datetime(2026, 9, 26, tzinfo=UTC)
@@ -85,13 +79,13 @@ def assessment(ids: list[str]) -> Diagnosis:
 
 
 def context(
-    workspace: InvestigationWorkspace, question: str = "Continue", budget: int = 100000
+    workspace: InvestigationWorkspace, question: str = "Continue", target_chars: int = 100000
 ) -> dict[str, Any]:
     payload = json.loads(
         ContextBuilder(workspace, question).build(
             scope=workspace.scope,
             scope_version=workspace.scope_version,
-            token_budget=budget,
+            target_chars=target_chars,
         )
     )
     assert isinstance(payload, dict)
@@ -114,7 +108,7 @@ def test_question_metric_beats_recency_and_original_goal() -> None:
     workspace = InvestigationWorkspace(
         goal="CTR decline", evidence=[target, *[fact(index) for index in range(1, 21)]]
     )
-    result = context(workspace, "转化率如何？", budget=2000)
+    result = context(workspace, "转化率如何？", target_chars=2000)
     assert result["relevant_evidence"][0]["id"] == target.id
     assert len(result["relevant_evidence"]) < len(workspace.evidence)
     assert result["business_context"]["metrics"] == ["CONVERSION_RATE"]
@@ -191,7 +185,7 @@ def test_both_sides_and_valid_diagnosis_references_are_protected_with_provenance
         ],
     )
     before = [item.model_dump_json() for item in workspace.evidence + workspace.hypotheses]
-    result = context(workspace, "转化率", budget=5000)
+    result = context(workspace, "转化率", target_chars=5000)
     ids = {item["id"] for item in result["relevant_evidence"]}
     assert {support.id, contradiction.id, diagnosed.id}.issubset(ids)
     assert result["hypotheses"][0]["supporting_evidence_ids"] == [support.id]
@@ -263,9 +257,9 @@ def test_unknown_words_or_legacy_selectors_conservatively_keep_whole_observation
 
 def test_whole_units_keep_precision_and_do_not_delete_unselected_evidence() -> None:
     workspace = InvestigationWorkspace(goal="Review", evidence=[fact(index) for index in range(10)])
-    text = ContextBuilder(workspace, "CTR").build(scope=None, scope_version=0, token_budget=2400)
+    text = ContextBuilder(workspace, "CTR").build(scope=None, scope_version=0, target_chars=2400)
     result = json.loads(text)
-    assert estimate_tokens(text) <= 2400
+    assert len(text) <= 2400
     assert 0 < len(result["relevant_evidence"]) < 10
     for item in result["relevant_evidence"]:
         assert item["observation"] == workspace.evidence[0].observation
@@ -284,8 +278,8 @@ def test_short_context_is_not_compressed_and_historical_reference_units_are_clos
     assert result["relevant_evidence"][0]["observation"] == record.observation
     assert result["hypotheses"][0]["statement"] == workspace.hypotheses[0].statement
     workspace.scope_version = 1
-    for budget in (1400, 2300, 4000):
-        selected = context(workspace, budget=budget)
+    for target_chars in (1400, 2300, 4000):
+        selected = context(workspace, target_chars=target_chars)
         known = {item["id"] for item in selected["relevant_evidence"]}
         for item in selected["hypotheses"]:
             assert (
@@ -293,18 +287,18 @@ def test_short_context_is_not_compressed_and_historical_reference_units_are_clos
             )
 
 
-def test_protected_oversize_unit_raises_explicitly_without_leaking_its_contents() -> None:
+def test_protected_oversize_units_exceed_soft_target_without_losing_information() -> None:
     record = fact(0, observation="A complete observation " * 500 + "value=0.000012340000")
     workspace = InvestigationWorkspace(
         goal="Review", evidence=[record], hypotheses=[hypothesis([], [record.id])]
     )
-    with pytest.raises(ContextBudgetExceeded) as failure:
-        context(workspace, budget=4000)
-    assert failure.value.required > failure.value.budget == 4000
-    assert record.id not in str(failure.value)
-    assert "0.000012340000" not in str(failure.value)
+    result = context(workspace, target_chars=4000)
+    assert len(json.dumps(result)) > 4000
+    assert result["relevant_evidence"][0]["observation"] == record.observation
+    assert result["hypotheses"][0]["contradicting_evidence_ids"] == [record.id]
+    assert result["selection"]["soft_target_chars"] == 4000
     workspace.hypotheses.clear()
-    assert context(workspace, budget=4000)["relevant_evidence"] == []
+    assert context(workspace, target_chars=4000)["relevant_evidence"] == []
 
 
 def test_oversize_historical_questions_can_be_removed_before_current_evidence() -> None:
@@ -323,7 +317,7 @@ def test_oversize_historical_questions_can_be_removed_before_current_evidence() 
             )
         ],
     )
-    result = context(workspace, budget=2400)
+    result = context(workspace, target_chars=2400)
     assert result["relevant_evidence"]
     assert result["unresolved_questions"] == []
 
@@ -335,60 +329,29 @@ def test_run_entry_snapshot_excludes_new_tool_results_and_reclassifies_after_sco
     workspace.evidence.append(new)
     old.query["metric"] = "CONVERSIONS"
     workspace.messages.append(AgentMessage(role="USER", content="Continue", created_at=NOW))
-    text = builder.build(scope=None, scope_version=0, token_budget=4000)
+    text = builder.build(scope=None, scope_version=0, target_chars=4000)
     assert old.id in text and new.id not in text
     assert json.loads(text)["relevant_evidence"][0]["query"]["metric"] == "CTR"
-    text = builder.build(scope="Different scope", scope_version=1, token_budget=4000)
+    text = builder.build(scope="Different scope", scope_version=1, target_chars=4000)
     assert all(item["scope"] == "BACKGROUND" for item in json.loads(text)["relevant_evidence"])
 
 
-def test_input_usage_model_window_and_fixed_instructions_limit_the_context_budget() -> None:
-    settings = AgentSettings.model_validate(
-        {
-            "pulseflow_agent_model": "test",
-            "pulseflow_java_base_url": "http://java.internal:8080",
-            "pulseflow_agent_database_url": "sqlite+aiosqlite:///:memory:",
-        }
-    )
-    assert (
-        context_token_budget(
-            settings, input_tokens_used=0, output_tokens_used=0, fixed_text="x" * 1000
-        )
-        == 4000
-    )
-    assert (
-        context_token_budget(
-            settings, input_tokens_used=6000, output_tokens_used=100, fixed_text="x" * 1000
-        )
-        == 1000
-    )
-    assert (
-        context_token_budget(
-            settings, input_tokens_used=9000, output_tokens_used=100, fixed_text="x" * 1000
-        )
-        == 0
-    )
-    smaller = settings.model_copy(update={"pulseflow_agent_context_window_tokens": 8000})
-    assert (
-        context_token_budget(
-            smaller, input_tokens_used=0, output_tokens_used=0, fixed_text="x" * 1000
-        )
-        == 1000
-    )
-    assert estimate_tokens("调查 CTR") == len("调查 CTR".encode())
+def test_non_ascii_history_target_is_character_length_not_token_usage() -> None:
+    record = fact(0, observation="指标值保持原始精度 " * 100 + "0.12340000")
+    builder = ContextBuilder(InvestigationWorkspace(goal="Review", evidence=[record]), "CTR")
+    full = builder.build(scope=None, scope_version=0, target_chars=100000)
+    assert len(full.encode()) > len(full)
+    selected = json.loads(builder.build(scope=None, scope_version=0, target_chars=len(full)))
+    assert selected["relevant_evidence"][0]["observation"] == record.observation
 
 
-def test_authorized_facts_are_complete_mandatory_units_in_the_same_budget() -> None:
-    builder = ContextBuilder(InvestigationWorkspace(goal="Review"), "Continue")
-    facts = [{"type": "COUPON", "discount": "10.0000", "description": "Operator fact"}]
-    rendered = builder.build(
-        scope=None, scope_version=0, token_budget=4000, operator_authorized_promotion_facts=facts
+def test_duplicate_conversation_is_not_repeated_or_deleted() -> None:
+    message = AgentMessage(
+        role="USER", content="Earlier question about aggregate metrics", created_at=NOW
     )
-    assert json.loads(rendered)["operator_authorized_promotion_facts"] == facts
-    with pytest.raises(ContextBudgetExceeded):
-        builder.build(
-            scope=None,
-            scope_version=0,
-            token_budget=1200,
-            operator_authorized_promotion_facts=[{"description": "Complete unit " * 100}],
-        )
+    workspace = InvestigationWorkspace(
+        goal="Review", messages=[message.model_copy() for _ in range(20)]
+    )
+    result = context(workspace)
+    assert len(result["recent_conversation"]) == 1
+    assert len(workspace.messages) == 20

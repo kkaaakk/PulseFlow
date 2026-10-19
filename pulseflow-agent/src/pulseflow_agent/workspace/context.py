@@ -10,10 +10,9 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import date
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import ValidationError
-from pydantic_ai.exceptions import UsageLimitExceeded
 
 from pulseflow_agent.domain.contracts import (
     AttributionArgs,
@@ -25,9 +24,6 @@ from pulseflow_agent.domain.contracts import (
     TimeRange,
 )
 from pulseflow_agent.domain.investigation import Evidence, Hypothesis, InvestigationWorkspace
-
-if TYPE_CHECKING:
-    from pulseflow_agent.config import AgentSettings
 
 _METRICS = {
     "SENT": ("sent", "发送量", "发送数"),
@@ -63,53 +59,6 @@ _POLICY = (
     "SUPPORTED) and prior_diagnosis are assessments, not confirmed facts. BACKGROUND and "
     "conversation cannot prove current-scope findings. Cite only current evidence IDs."
 )
-
-
-class ContextBudgetExceeded(UsageLimitExceeded):
-    """Protected whole units do not fit; never expose their contents in an error."""
-
-    def __init__(self, required: int, budget: int) -> None:
-        self.required = required
-        self.budget = budget
-        super().__init__(f"Protected context exceeds text budget ({required} > {budget}).")
-
-
-def estimate_tokens(text: str) -> int:
-    """Conservative text estimate: one token per UTF-8 byte, NOT provider usage.
-
-    For byte-based tokenizers the text count is between 1 and B for B nonempty
-    bytes, so this can overestimate by B-1. Provider framing/tool schemas are
-    outside that envelope and need a separate reserve plus SDK UsageLimits.
-    """
-    return len(text.encode("utf-8"))
-
-
-def context_token_budget(
-    settings: AgentSettings,
-    *,
-    input_tokens_used: int,
-    output_tokens_used: int,
-    fixed_text: str,
-) -> int:
-    """Leave input room for schemas, SDK history and subsequent tool/model turns.
-
-    Cumulative usage is also a deliberately conservative bound on prior history
-    for the operational model window. The reserve is planning headroom, not a
-    promise that all max_model_requests will fit or a provider preflight count.
-    """
-    overhead = estimate_tokens(fixed_text) + settings.pulseflow_agent_context_reserve_tokens
-    return max(
-        0,
-        min(
-            settings.pulseflow_agent_context_tokens,
-            settings.pulseflow_agent_max_input_tokens - input_tokens_used - overhead,
-            settings.pulseflow_agent_context_window_tokens
-            - input_tokens_used
-            - output_tokens_used
-            - overhead
-            - 2000,
-        ),
-    )
 
 
 @dataclass(frozen=True)
@@ -211,7 +160,8 @@ def _render(payload: dict[str, Any]) -> str:
 class ContextBuilder:
     """A small immutable-input selector, captured BEFORE the current USER message.
 
-    Only scope classification and the available budget change during a run.
+    Only scope classification changes during a run. The character target
+    only selects optional history; required business units may exceed it.
     New Evidence/Hypothesis/Message records are already carried by the SDK loop.
     """
 
@@ -228,8 +178,7 @@ class ContextBuilder:
         *,
         scope: str | None,
         scope_version: int,
-        token_budget: int,
-        operator_authorized_promotion_facts: list[dict[str, Any]] | None = None,
+        target_chars: int = 12000,
     ) -> str:
         question, scoped, goal = map(_text_terms, (self.question, scope or "", self._goal))
         evidence = {item.id: item for item in self._evidence}
@@ -318,11 +267,6 @@ class ContextBuilder:
             "recent_conversation": [],
             "unresolved_questions": [],
         }
-        if operator_authorized_promotion_facts is not None:
-            payload["operator_authorized_promotion_facts"] = operator_authorized_promotion_facts
-            payload["promotion_facts_policy"] = (
-                "Operator-authorized promotion facts (do not add or replace)"
-            )
         # Only the latest assessment is reused; no older conclusion becomes a new fact.
         if latest and valid_diagnosis:
             payload["unresolved_questions"] = [
@@ -337,15 +281,12 @@ class ContextBuilder:
                 "omitted_evidence": len(evidence) - len(candidate["relevant_evidence"]),
                 "omitted_hypotheses": len(self._hypotheses) - len(candidate["hypotheses"]),
                 "omitted_messages": len(self._messages) - len(candidate["recent_conversation"]),
-                "text_budget": token_budget,
-                "token_estimator": "utf8_bytes_upper_estimate",
+                "soft_target_chars": target_chars,
             }
             return _render(candidate)
 
-        required = estimate_tokens(render(payload))
-        if required > token_budget:
-            raise ContextBudgetExceeded(required, token_budget)
-
+        # P0 is always retained, even above the character target. This is
+        # historical content selection, never a Run or model-window quota.
         # Optional units have dependencies: include an old hypothesis/diagnosis
         # only together with every referenced evidence record, never dangling IDs.
         candidates: list[tuple[int, int, int, str, Any]] = []
@@ -427,6 +368,6 @@ class ContextBuilder:
             candidate["relevant_evidence"].extend(
                 evidence_payload(evidence[ref]) for ref in sorted(refs - present)
             )
-            if estimate_tokens(render(candidate)) <= token_budget:
+            if len(render(candidate)) <= target_chars:
                 payload = candidate
         return render(payload)

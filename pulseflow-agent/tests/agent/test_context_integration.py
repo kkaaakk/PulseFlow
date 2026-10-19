@@ -5,12 +5,13 @@ from typing import Any
 
 import httpx
 import pytest
-from pydantic_ai import ModelMessage, ModelResponse, ToolCallPart
+from pydantic_ai import ModelMessage, ModelResponse, RunContext, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.usage import RequestUsage
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from pulseflow_agent.agent.dependencies import ProposalContext
-from pulseflow_agent.agent.growth_investigator import GrowthInvestigator
+from pulseflow_agent.agent.dependencies import AgentDependencies, ProposalContext
+from pulseflow_agent.agent.growth_investigator import GrowthInvestigator, create_usage_limits
 from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient
 from pulseflow_agent.config import AgentSettings
 from pulseflow_agent.domain.contracts import PromotionFact
@@ -18,7 +19,7 @@ from pulseflow_agent.domain.investigation import AgentMessage, Diagnosis, Invest
 from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail, PiiBlockedError
 from pulseflow_agent.workspace.repository import SqlAlchemyInvestigationRepository
 from pulseflow_agent.workspace.service import InvestigationService
-from tests.evals.harness import CURRENT, contents, metadata
+from tests.evals.harness import BASELINE, CURRENT, EvalCase, FixtureServer, contents, metadata
 from tests.workspace.test_context import NOW, assessment, fact, hypothesis
 
 
@@ -344,10 +345,12 @@ async def test_azure_checks_the_complete_rendered_context_before_model_request()
     assert json.loads(checked[1][1][0]) == record.query
 
 
-async def test_oversize_protected_context_finishes_persisted_run_without_any_llm_call(
+async def test_oversize_protected_context_continues_and_preserves_persisted_records(
     database_url: str,
 ) -> None:
-    settings = config(database_url)
+    settings = config(database_url).model_copy(
+        update={"pulseflow_agent_context_target_chars": 1000}
+    )
     engine = create_async_engine(database_url)
     repo = SqlAlchemyInvestigationRepository(engine)
     created = await repo.create("Review")
@@ -359,22 +362,32 @@ async def test_oversize_protected_context_finishes_persisted_run_without_any_llm
     await workspace.propose_hypothesis("A tentative explanation", [record.id], [])
     await workspace.finish("COMPLETED", assessment([record.id]))
 
-    async def never(_: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
-        pytest.fail("The required context does not fit; no model may be called")
+    model_calls = 0
+
+    async def respond(_: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        nonlocal model_calls
+        model_calls += 1
+        payload = injected(info)
+        assert len(json.dumps(payload)) > 1000
+        assert payload["relevant_evidence"][0]["observation"] == record.observation
+        return finish(info, [record.id])
 
     async with httpx.AsyncClient() as http:
         guardrail = AzurePiiGuardrail(settings, http)
         service = InvestigationService(
             repo,
             GrowthInvestigator(
-                settings, guardrail, PulseFlowApiClient(settings, http), model=FunctionModel(never)
+                settings,
+                guardrail,
+                PulseFlowApiClient(settings, http),
+                model=FunctionModel(respond),
             ),
             guardrail,
         )
         result = await service.follow_up(created.id, "Continue")
-    assert result.status == "BUDGET_EXHAUSTED"
-    assert result.final_diagnosis and "context" in result.final_diagnosis.summary
-    assert result.final_diagnosis.confidence == "low"
+    assert result.status == "COMPLETED"
+    assert model_calls == 1
+    assert result.final_diagnosis and result.final_diagnosis.evidence_ids == [record.id]
     assert result.evidence[0].model_dump() == record.model_dump()
     assert result.hypotheses[0].supporting_evidence_ids == [record.id]
     assert len(result.messages) == 3
@@ -474,3 +487,330 @@ async def test_sensitive_query_key_text_is_checked_by_existing_real_mode_guardra
                 PulseFlowApiClient(settings, http),
                 model=FunctionModel(never),
             ).run("Continue", workspace_factory=factory)
+
+
+async def multi_request_investigation(steps: int = 7) -> dict[str, Any]:
+    """A fixture policy; explicit usage exercises the SDK, not a real tokenizer."""
+    from pathlib import Path
+
+    case = EvalCase.model_validate(
+        json.loads((Path(__file__).parents[1] / "evals/cases.json").read_text(encoding="utf-8"))[0]
+    )
+    server = FixtureServer(case)
+    historical = [fact(60), fact(61)]
+    workspace = InvestigationWorkspace(
+        goal="Review CTR",
+        evidence=list(historical),
+        hypotheses=[hypothesis([historical[0].id], [historical[1].id])],
+        messages=[
+            AgentMessage(
+                role="ASSISTANT",
+                content="Prior finding",
+                created_at=NOW,
+                diagnosis=assessment([historical[0].id]),
+            ),
+        ],
+    )
+    canonical = [
+        "query_metric",
+        "compare_metric",
+        "propose_hypothesis",
+        "breakdown_metric",
+        "update_hypothesis",
+        "get_attribution_breakdown",
+    ]
+    tools = canonical[:4] if steps == 5 else canonical + (["list_hypotheses"] if steps == 8 else [])
+    observations: list[dict[str, Any]] = []
+    snapshots: list[dict[str, int]] = []
+
+    async def factory(_: str) -> InvestigationWorkspace:
+        return workspace
+
+    async def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        items = contents(messages)
+        evidence_ids = [
+            value["evidence_id"]
+            for _, value in items
+            if isinstance(value, dict) and value.get("evidence_id")
+        ]
+        payload = injected(info)
+        visible = {entry["id"] for entry in payload["relevant_evidence"]}
+        assert {record.id for record in historical} <= visible
+        assert not set(evidence_ids) & visible
+        observations.append(
+            {
+                "stage": tools[len(items)] if len(items) < len(tools) else "diagnosis",
+                "context_chars": len(
+                    json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+                ),
+                "history_ids": sorted(visible),
+                "sdk_usage_before": dict(snapshots[-1]),
+            }
+        )
+        if len(items) == len(tools):
+            response = finish(info, [r.id for r in historical] + evidence_ids)
+        else:
+            name = tools[len(items)]
+            args: dict[str, Any]
+            if name == "propose_hypothesis":
+                args = {
+                    "statement": "The metric change needs explanation",
+                    "supporting_evidence_ids": evidence_ids[:1],
+                    "contradicting_evidence_ids": evidence_ids[1:2],
+                    "reason": "Both sides reviewed",
+                }
+            elif name == "update_hypothesis":
+                proposed = next(value for tool, value in items if tool == "propose_hypothesis")
+                args = {
+                    "hypothesis_id": proposed["id"],
+                    "status": "WEAKENED",
+                    "supporting_evidence_ids": evidence_ids[:1],
+                    "contradicting_evidence_ids": evidence_ids[1:],
+                    "reason": "Aggregate evidence needs further investigation",
+                    "confidence": "low",
+                }
+            elif name == "list_hypotheses":
+                args = {}
+            else:
+                query: dict[str, Any] = {"time_range": CURRENT}
+                if name != "get_attribution_breakdown":
+                    query["metric"] = "CTR"
+                if name == "compare_metric":
+                    query = {
+                        "metric": "CTR",
+                        "current_period": CURRENT,
+                        "baseline_period": BASELINE,
+                    }
+                if name in {"breakdown_metric", "get_attribution_breakdown"}:
+                    query["dimension"] = "CHANNEL"
+                args = {"request": query}
+            response = ModelResponse(parts=[ToolCallPart(name, args)])
+        response.usage = RequestUsage(input_tokens=1200, output_tokens=200)
+        return response
+
+    settings = config()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(server)) as http:
+        investigator = GrowthInvestigator(
+            settings,
+            AzurePiiGuardrail(settings, http),
+            PulseFlowApiClient(settings, http),
+            model=FunctionModel(respond),
+        )
+
+        @investigator._agent.instructions
+        async def observe_usage(ctx: RunContext[AgentDependencies]) -> str:
+            snapshots.append(
+                {
+                    "requests": ctx.usage.requests,
+                    "input_tokens": ctx.usage.input_tokens,
+                    "output_tokens": ctx.usage.output_tokens,
+                }
+            )
+            return ""
+
+        result = await investigator.run("Continue reviewing CTR", workspace_factory=factory)
+    metrics = investigator.telemetry.metrics
+    record = {
+        "requested_steps": steps,
+        "model_calls": len(observations),
+        "status": workspace.status,
+        "requests": metrics.model_requests,
+        "sdk_total_tokens": metrics.tokens,
+        "java_calls": server.calls,
+        "trajectory": result.tool_trajectory,
+        "evidence_references": result.diagnosis.evidence_ids,
+        "reference_valid": set(result.diagnosis.evidence_ids) <= workspace.evidence_ids,
+        "observations": observations,
+        "usage_mode": "explicit_fixture_usage",
+    }
+    investigator.telemetry.shutdown()
+    return record
+
+
+@pytest.mark.parametrize("steps", [5, 7, 8])
+async def test_multiple_requests_share_sdk_usage_without_context_budget_abort(steps: int) -> None:
+    record = await multi_request_investigation(steps)
+    assert record["status"] == "COMPLETED"
+    assert record["model_calls"] == record["requests"] == steps
+    assert record["sdk_total_tokens"] == steps * 1400
+    assert record["reference_valid"]
+    assert len({row["context_chars"] for row in record["observations"]}) == 1
+    assert record["observations"][-1]["sdk_usage_before"] == {
+        "requests": steps - 1,
+        "input_tokens": (steps - 1) * 1200,
+        "output_tokens": (steps - 1) * 200,
+    }
+
+
+@pytest.mark.parametrize(
+    ("kind", "input_per_response", "output_per_response", "expected_calls"),
+    [
+        ("requests", 100, 20, 8),
+        ("input", 4000, 100, 4),
+        ("output", 100, 1500, 3),
+        ("tools", 100, 20, 7),
+    ],
+)
+async def test_sdk_native_run_limits_still_stop_without_custom_accounting(
+    kind: str,
+    input_per_response: int,
+    output_per_response: int,
+    expected_calls: int,
+) -> None:
+    settings = config()
+    limits = create_usage_limits(settings)
+    assert (
+        limits.request_limit,
+        limits.tool_calls_limit,
+        limits.input_tokens_limit,
+        limits.output_tokens_limit,
+    ) == (8, 12, 12000, 4000)
+    calls = 0
+    snapshots: list[tuple[int, int, int]] = []
+    workspace = InvestigationWorkspace(
+        goal="Review CTR", evidence=[fact(60)], hypotheses=[hypothesis([], [fact(60).id])]
+    )
+
+    async def factory(_: str) -> InvestigationWorkspace:
+        return workspace
+
+    async def loop(_: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        nonlocal calls
+        calls += 1
+        assert injected(info)["relevant_evidence"][0]["id"] == fact(60).id
+        return ModelResponse(
+            parts=[
+                ToolCallPart("list_hypotheses", {}, tool_call_id=f"call-{calls}-{i}")
+                for i in range(2 if kind == "tools" else 1)
+            ],
+            usage=RequestUsage(input_tokens=input_per_response, output_tokens=output_per_response),
+        )
+
+    async with httpx.AsyncClient() as http:
+        investigator = GrowthInvestigator(
+            settings,
+            AzurePiiGuardrail(settings, http),
+            PulseFlowApiClient(settings, http),
+            model=FunctionModel(loop),
+        )
+
+        @investigator._agent.instructions
+        async def observe_usage(ctx: RunContext[AgentDependencies]) -> str:
+            snapshots.append((ctx.usage.requests, ctx.usage.input_tokens, ctx.usage.output_tokens))
+            return ""
+
+        result = await investigator.run("Continue", workspace_factory=factory)
+    assert calls == expected_calls
+    assert workspace.status == "BUDGET_EXHAUSTED"
+    assert result.diagnosis.summary == "Investigation stopped at its usage budget."
+    assert result.diagnosis.confidence == "low"
+    metrics = investigator.telemetry.metrics
+    assert metrics.model_requests == calls
+    assert metrics.tokens == calls * (input_per_response + output_per_response)
+    assert snapshots[:calls] == [
+        (i, i * input_per_response, i * output_per_response) for i in range(calls)
+    ]
+    if kind == "tools":
+        assert metrics.tool_calls == 12
+    investigator.telemetry.shutdown()
+
+
+def test_current_chat_provider_has_no_supported_preflight_and_old_configs_are_removed() -> None:
+    from pydantic_ai.models import Model
+    from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+
+    assert OpenAIChatModel.count_tokens is Model.count_tokens
+    assert OpenAIResponsesModel.count_tokens is not Model.count_tokens
+    assert not create_usage_limits(config()).count_tokens_before_request
+    assert (
+        not {
+            "pulseflow_agent_context_tokens",
+            "pulseflow_agent_context_reserve_tokens",
+            "pulseflow_agent_context_window_tokens",
+        }
+        & AgentSettings.model_fields.keys()
+    )
+
+
+@pytest.mark.parametrize(
+    ("provider_code", "safe_code", "summary"),
+    [
+        (
+            "context_length_exceeded",
+            "model_context_window_exceeded",
+            "Model context window exceeded.",
+        ),
+        ("invalid_request", "model_provider_request_failed", "Investigation failed."),
+    ],
+)
+async def test_provider_request_failure_is_classified_redacted_and_not_retried(
+    provider_code: str,
+    safe_code: str,
+    summary: str,
+    database_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from pydantic_ai import models
+    from pydantic_ai.models.openai import OpenAIChatModel
+    from pydantic_ai.providers.openai import OpenAIProvider
+
+    from pulseflow_agent.agent import growth_investigator
+    from tests.test_foundation import settings as provider_settings
+
+    monkeypatch.setattr(models, "ALLOW_MODEL_REQUESTS", True)
+    settings = config(database_url)
+    engine = create_async_engine(database_url)
+    repo = SqlAlchemyInvestigationRepository(engine)
+    created = await repo.create("Review")
+    workspace = InvestigationWorkspace(goal=created.goal, id=created.id, repository=repo)
+    calls = 0
+    private_body = "CONFIDENTIAL_EVIDENCE_FROM_PROVIDER_BODY"
+
+    async def factory(_: str) -> InvestigationWorkspace:
+        return workspace
+
+    def reject(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            400,
+            json={
+                "error": {
+                    "code": provider_code,
+                    "type": "invalid_request_error",
+                    "message": private_body,
+                }
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(reject)) as model_http:
+        monkeypatch.setattr(
+            growth_investigator,
+            "OpenAIProvider",
+            lambda **kwargs: OpenAIProvider(**kwargs, http_client=model_http),
+        )
+        model = growth_investigator.create_model(
+            provider_settings(real=True, pulseflow_agent_base_url="https://model.invalid/v1")
+        )
+        assert isinstance(model, OpenAIChatModel)
+        assert model.client.max_retries == 0
+
+        investigator = GrowthInvestigator(
+            settings,
+            AzurePiiGuardrail(settings, model_http),
+            PulseFlowApiClient(settings, model_http),
+            model=model,
+        )
+        with pytest.raises(RuntimeError, match=safe_code) as error:
+            await investigator.run("Continue", workspace_factory=factory)
+    assert calls == 1
+    assert str(error.value) == safe_code
+    assert error.value.__suppress_context__
+    loaded = await repo.load(created.id)
+    assert loaded.status == "FAILED"  # Provider window, not SDK cumulative budget.
+    assert loaded.final_diagnosis and loaded.final_diagnosis.summary == summary
+    assert private_body not in loaded.model_dump_json() + caplog.text + str(error.value)
+    assert investigator.telemetry.metrics.budgets == 0
+    investigator.telemetry.shutdown()
+    await engine.dispose()

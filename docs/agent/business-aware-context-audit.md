@@ -1,93 +1,115 @@
-# Business-Aware Context Builder 改造审计
+# Context Builder 职责简化与预算修正审计
 
-日期：2026-10-19。审计基线：`40febc966fca791e67445441a7eaca8cf60b4d10`，并完整阅读实施开始时工作区的实际 Python 修改。最终交付基于 `origin/main@99048b862c75039154ba661d8d96e741feb41b55` 的独立 Worktree，分支 `codex/pulseflow-context-builder`；原工作区保留在 `codex/pulseflow-context-working-copy`。本次仅提交上下文改造差异，已有 DeepSeek 接入、中文注释、部署、Java、Web、文档删除等工作区修改保留，不打包提交。main 已包含 Azure 五类 PII 加固及 `loggingOptOut=True`；全部保留，不把原工作区旧版 Guardrail 覆盖到 main。
+日期：2026-10-19。基线：PR #22 的 `6b9ad768e373e50cea0637dbcd4d16f962b0437a`。继续在原 `codex/pulseflow-context-builder` Worktree 修改，未覆盖其他 Worktree 或原工作区未提交内容。本文替换旧版将字节估算用于硬预算的设计说明。
 
-## 实际调用链与数据边界
+## 修正结果
 
-1. 新调查由 `InvestigationService.create/start` → Repository `create` 建立新 ID；追问由 `follow_up/start/propose` → `begin_followup` → `load` 按原 ID 恢复全部记录。`_workspace` 复制 Scope、Evidence、Hypothesis、Message 等列表。Repository 和 Service 的生产实现无需改动。
-2. `GrowthInvestigator.run` 检查用户问题，取得 Workspace，**在追加当前 USER 消息前**创建 `ContextBuilder` 历史快照。每个 Run 有独立 Builder，经 `AgentDependencies` 传递，没有跨调查记忆。
-3. Pydantic AI `@agent.instructions investigation_context` 调用 Builder；当前 Scope/版本和剩余预算在每次回调时传入。授权优惠事实与上下文组成同一最终 JSON；该 JSON 的**全部值**以及**完整 Query JSON（含键）**经原有 `AzurePiiGuardrail.check`，通过后才返回框架。保留 main 对完整概念问题逐值检查的安全语义，格式标签不改变已验证的概念问题；旧查询的敏感键也无法隐藏。没有修改 SDK Loop 或增加 Hooks。
-4. Java 六个只读聚合 Tool → `PulseFlowApiClient` 严格验证结构化 Response → 现有 `query_observation/compare_observation/performance_observation/attribution_observation/audience_observation` → `_save` 检查 Observation/元数据 → `Workspace.add_evidence` 用 `safe_query` 保存已验证选择条件 → Repository `add_evidence` → MySQL；返回带 Evidence ID 的 `ToolObservation`。
-5. 本 Run 新增 Evidence/Hypothesis/消息不进入快照，由原生 SDK Tool Return/消息历史传给模型。切换 Scope 时，旧快照记录立即按新版本标为 BACKGROUND。新 Run 再从数据库完整恢复并重新选取。
+现在只有两层职责：
 
-本地实际核对 Pydantic AI **1.107.6**：`_agent_graph.ModelRequestNode` 在每次请求准备阶段解析动态 instructions，再准备模型请求并执行 UsageLimits；Tool Return 加入 SDK message history。代码没有依赖、调用或修改这些私有实现。
+| 层 | 管理内容 | 容量/异常 |
+|---|---|---|
+| Business-Aware Context Builder | Run 开始时 Workspace 历史：Goal、Scope、Evidence、Hypothesis、最近 Diagnosis、对话和待查问题 | 字符软目标只筛选可选历史；完整必要关联信息允许超出，永不因此中止 Run |
+| Pydantic AI UsageLimits | 同一次 agent.run 的所有模型请求、成功 Tool Call、累计输入和输出 Usage | SDK 原生 UsageLimitExceeded → 原有 BUDGET_EXHAUSTED/low 处理 |
 
-数据库 `agent_evidence` 保存 Observation、query_json、source、data_version、warnings、时间、Java query ID、scope_version 等字段，**不保存完整 Java Response JSON**。Builder 只使用现存字段，不能补回 Observation 未记录的 Java 数值；不反向解析 Observation，不重新调用 Java，不新增模型调用。
+删除 `estimate_tokens`、`context_token_budget`、`ContextBudgetExceeded`，以及 UTF-8 字节额度、固定预留 4000、累计 Usage 扣模型窗口公式、上下文超目标的硬异常。Context Builder 不再导入 SDK 异常、配置或 Usage 类型。
 
-## 选择与可追溯性
+删除三项配置 `PULSEFLOW_AGENT_CONTEXT_TOKENS`、`PULSEFLOW_AGENT_CONTEXT_RESERVE_TOKENS`、`PULSEFLOW_AGENT_CONTEXT_WINDOW_TOKENS`。保留一项实际使用的历史长度启发式：`PULSEFLOW_AGENT_CONTEXT_TARGET_CHARS=12000`。它衡量序列化历史 JSON 的 Python len（字符数，含标签/标点），不是 Token、模型窗口或 Run 配额，也没有字符/4 等换算。默认值是可调整的内容整理目标，不代表测得的模型容量。
 
-- P0：当前版本且引用有效的 Hypothesis（含 OPEN/WEAKENED/REJECTED）的全部支持、反驳证据；最近一个有效 Diagnosis 的全部当前引用；假设本身、完整诊断和它的未解决问题共同保留。
-- P1：按当前问题优先，随后 Scope、Goal，匹配 Metric、Campaign、Channel、时间。数据选择器用现有 Pydantic Tool 参数类型验证读取；Audience 只读取 `safe_query` 已保存的渠道。不同业务维度加权排序，时间仅作宽松重叠提示，创建先后只用于相同相关性时排序。
-- P2：其他当前 Evidence、必要近期对话、旧诊断中的待查问题。当前问题不重复加入历史；原调查 Goal 和同一段 Diagnosis 摘要不重复渲染为对话。
-- P3：其他历史消息、旧版本 Evidence/Hypothesis/Diagnosis。历史假设、诊断只有在全部引用证据也能完整放入时才纳入；缺失引用不会被包装成有效当前假设。
+## 实际调用与业务保护
 
-关键词仅识别明确指标别名、合法渠道、显式 Campaign ID 和 ISO 日期。自然语言相对日期、含糊条件、未知或历史查询格式不会被猜成已验证查询，也不会据此硬过滤证据。`business_context` 是相关性提示，真正条件始终以 Evidence.query 原文为准。
+`Repository.create/begin_followup → load → Service._workspace → GrowthInvestigator.run`。每次 Run 在写入当前 USER 消息前创建深复制历史快照，并创建新的 SDK RunUsage；同一 Investigation 的追问继续共用调查 ID 和持久化记录，但 Run 预算独立。
 
-输出是完整 JSON 信息单元，保留 Evidence/Hypothesis ID、原始 Observation 精度、查询口径和时间、来源、版本、warnings、Java query ID、采集时间、支持/反驳关系。Hypothesis/历史 Diagnosis 明确是评估；相关性不代表因果。对话没有持久化 Scope 版本，因此统一标为 `UNVERIFIED_HISTORY`，不作为当前事实。
+`@agent.instructions investigation_context` 仅从快照按当前 Scope/版本构建历史，附加本轮授权优惠事实，检查最终 JSON 全部值和完整 Query JSON（包括键），再渲染返回。授权事实已回到 Agent 层，不再由历史 Builder 管理或裁剪。主链的 Query 键值 PII 检测、完整概念问题的安全边界全部保留。
 
-最近 Diagnosis 从持久化 Assistant Message 的 diagnosis 恢复：现有 Workspace 不直接持有 final_diagnosis，而 Repository.finish 在同一事务写终态和带诊断的 Assistant 消息。仅当非空引用全部属于当前 Scope，且 Finding 引用属于该 Diagnosis 引用集合时，才将其视为当前历史评估并保护引用；否则降为 BACKGROUND。无引用的旧待查问题也标为 BACKGROUND，不猜测其所属 Scope。
+同一 Run 的新 ToolObservation 继续由 Pydantic AI 原生消息历史传递，不回灌历史快照；Scope 切换会把快照中的旧版记录重新标为 BACKGROUND。Builder 不管理 SDK Tool Message、模型响应或 Tool Schema，不调用 Java/LLM，不改变 Hypothesis 状态。
 
-筛选只生成模型输入视图，不更新 Hypothesis 状态，也不删除或缩写 Workspace/MySQL 记录。现有 `evidence_ids`、Diagnosis 引用校验和 Proposal 引用/操作员授权继续生效。
+Java 六个只读 Tool、observations.py 的结构化 Observation 转换、safe_query、Evidence 原始精度/元数据、Workspace 业务状态、Repository/MySQL、Hypothesis/Diagnosis 引用校验、Scope 隔离和 Proposal → Java Draft → 人工确认均保持原实现。
 
-## 预算、误差与超限
+优先级保留：
 
-新增三个配置，不提高现有模型或累计 Token 限额：
+- P0：当前有效 Hypothesis 及全部支持、反驳 Evidence；当前有效历史 Diagnosis 及其引用和未解决问题。两侧证据同等保护，完整 ID、Observation、查询/时间、来源、版本和 warnings 不裁切。
+- P1：当前问题的 Metric、Campaign、Channel、时间相关证据，随后参考 Scope 和 Goal。只读取既有结构化查询，不反向解析 Observation，不创造事实；未知条件保持保守选择。
+- P2：其他当前 Evidence、必要对话和调查进度。重复消息、当前问题和已呈现 Diagnosis 摘要不重复注入。
+- P3：旧 Scope 与较低相关历史。历史假设/诊断只有与其全部引用 Evidence 一起容纳才纳入；无悬空引用，旧 Scope 不作为当前事实。
 
-| 配置 | 默认值 | 含义 |
+短历史中的可选信息完整纳入；更长历史按既有相关性排序、去重和完整单元选择。P0 先完整构造，超出字符软目标也原样保留；可选单元放不下时跳过并继续尝试其他单元。selection 只记录软目标和未注入数量。未进入上下文的信息不会从 Workspace/MySQL 删除。
+
+## SDK Run Budget 与单次模型窗口
+
+实际锁定 `pydantic-ai-slim==1.107.6`；生产工厂使用 OpenAI Chat Completions 兼容适配器（旧名 OpenAIModel，当前 SDK 的 OpenAIChatModel 别名）。未改变 Provider、模型、依赖版本或运行限制。
+
+`create_usage_limits` 原样保留，配置默认值仍为请求 8、Tool 12、累计输入 12000、累计输出 4000。多个模型响应的 RequestUsage 由 SDK 累加到同一 RunUsage；生产代码不按文本长度重算消耗。下一次独立 agent.run 使用新 RunUsage。
+
+SDK 请求数在请求前检查；Token 消耗来自响应，默认在响应后检查。因此累计 Token 可能在一次响应后超过阈值再停止，不是严格预扣费。请求级 max_tokens=2000 也仍是原设置，与 Run 累计输出 4000 分开。
+
+已检查安装源码：
+
+- `usage.py` 提供 count_tokens_before_request，但默认关闭；其作用是调用对应 Model 的计数能力。
+- 当前 OpenAIChatModel 继承 Model.count_tokens 的 NotImplementedError，没有可靠的完整请求预检实现。
+- OpenAIResponsesModel 实现了官方 Responses input_tokens.count，包含消息、instructions 和 tools；这属于另一接口，不能假设任意 OpenAI 兼容 Chat Provider 都支持。
+
+本次不启用不受支持的计数、不新增 Tokenizer、不升级 SDK 或切换接口。若将来需要严格预检，须验证实际 Provider/模型支持的官方完整请求计数接口；只升级 SDK 不能保证兼容 Chat Provider 可用。
+
+模型单次窗口包含固定/动态 instructions、当前消息、SDK 历史、Tool Schema 和协议开销，Builder 的字符软目标无法确定其 Token 数。生产中不把累计 Run Usage 当成单次窗口占用。
+
+真实 Provider HTTP 400/413 的结构化 code=context_length_exceeded（顶层或 error 内）被归类为窗口拒绝：持久化 FAILED，摘要 Model context window exceeded.，抛出固定 model_context_window_exceeded；不映射为 BUDGET_EXHAUSTED。其他 Provider HTTP 错误仍 FAILED，抛出 model_provider_request_failed。原始响应 body、模型名称和 Evidence 不进入错误字符串；不根据自由文本猜测分类。工厂原有 max_retries=0 保留，SDK/HTTP 形状测试确认一次拒绝仅一次请求。未知 Provider 错误格式仍安全归为通用失败，不声称已识别所有供应商的窗口错误。
+
+## 回归证据
+
+本次本地完整回归：**397 passed, 1 skipped，59.69s**。真实 MySQL 8.0 专用临时容器执行既有迁移和完整 17 条 Evidence 持久化回归；现有 PII、Hypothesis、Diagnosis、Proposal、22-case Agent Evals 和六个 Context 对照全部执行。跳过项为未显式启用的真实付费 Provider Eval。两个警告来自现有工厂 OpenAIModel 名称在 SDK 中已弃用，本次保持工厂兼容行为。
+
+`ruff check .`、本次 8 个 Python 文件的 `ruff format --check`、完整 `mypy src tests`（47 模块）通过。锁文件、依赖、数据库和 Java 未改。
+
+先在未修改生产代码的 6b9ad76 上执行同一七步 fixture 轨迹，再执行修正版本。每次显式提供 RequestUsage(input_tokens=1200, output_tokens=200)，用于验证真实 SDK 聚合机制；数字是测试输入，不是 Tokenizer 或真实模型成本：
+
+| 轨迹 | 模型请求数 | 最终累计输入/输出 | 结果 |
+|---|---:|---:|---|
+| 原 PR 七步轨迹 | 4 | 4800 / 800 | Context 自研公式过早 BUDGET_EXHAUSTED |
+| 修正后五步 | 5 | 6000 / 1000 | COMPLETED |
+| 修正后七步 | 7 | 8400 / 1400 | COMPLETED |
+| 修正后八步 | 8 | 9600 / 1600 | COMPLETED，仍在原生上限内 |
+
+七步完整路径：query_metric → compare_metric → propose_hypothesis → breakdown_metric → update_hypothesis → get_attribution_breakdown → Diagnosis；八步增加 list_hypotheses。每次请求检查实际注入的快照 ID 和字符数；同一 Scope 历史内容稳定，Usage 逐次增长，本轮新增 Evidence 不出现在动态历史中，最终引用全部合法。
+
+原生默认限制也独立验证：
+
+| 限制 | 测试返回的每次输入/输出 | SDK 停止位置 |
 |---|---:|---|
-| `PULSEFLOW_AGENT_CONTEXT_TOKENS` | 4000 | 动态上下文文本的保守估算预算 |
-| `PULSEFLOW_AGENT_CONTEXT_RESERVE_TOKENS` | 4000 | 为 Tool Schema、SDK 历史及后续 Tool/模型轮次预留输入空间 |
-| `PULSEFLOW_AGENT_CONTEXT_WINDOW_TOKENS` | 32768 | 运维设定的模型窗口上限，应不高于实际模型容量 |
+| request_limit=8 | 100 / 20 | 8 次模型请求后禁止第 9 次 |
+| input_tokens_limit=12000 | 4000 / 100 | 第 4 次响应后累计输入 16000，检测并停止 |
+| output_tokens_limit=4000 | 100 / 1500 | 第 3 次响应后累计输出 4500，检测并停止 |
+| tool_calls_limit=12 | 100 / 20，每次提议 2 个 Tool | 执行 12 个 Tool 后停止，第 7 次模型请求不能继续执行 Tool |
 
-实际可用预算为三者最小值，且不小于零：
+测试没有提高原生上限，也没有增加生产 Hooks、计数器或 BudgetManager。另以实际 create_model 工厂和 MockTransport 返回 HTTP 400，验证窗口分类、通用错误分类、单次请求、脱敏异常和安全持久化。
 
-```text
-configured_context_budget
-max_run_input - used_input - fixed_text_estimate - reserve
-operational_window - used_input - used_output - fixed_text_estimate - reserve - 2000
-```
+相对原 PR #22 的已保存六场景离线基线：
 
-`fixed_text` 包括固定 instructions 和当前问题；完整授权优惠事实在 Builder 的同一 JSON 中作为必要单元计入预算，不另行拼接；2000 是现有每次请求的 max_tokens。SDK 继续限制累计输入 12000、累计输出 4000、请求 8、Tool Call 12（均为现有可配置默认值）。采用累计已用输入作为历史开销的保守界，会比仅看当前窗口更早收紧预算。
+| 场景 | 历史字符数：原 PR → 修正后 | 关键证据召回：原 PR → 修正后 | 行为 |
+|---|---:|---:|---|
+| 空调查 | 791 → 752 | 无证据 | 均证据不足 |
+| 小上下文 | 1287 → 1248 | 100% → 100% | 状态保持 |
+| 早期 Metric | 3893 → 11668 | 100% → 100% | 保留相关性优先，软目标容纳更多可选历史 |
+| 支持与反驳 | 3701 → 11869 | 100% → 100% | 两侧仍保留，均证据不足 |
+| Scope 切换 | 2521 → 2482 | 100% → 100% | 历史与当前引用隔离 |
+| 受保护大单元 | 未发送 → 13244 | 0% → 100% | 原 PR 0 次模型调用、过早停止；现在 1 次正常完成 |
 
-估算为 **UTF-8 字节数 B**，不是实际 Token 用量。对按 UTF-8 byte 分词的文本部分，实际 Token 数在 `[1,B]`（空文本为 0），因此可能高估至 `B-1`；不声称通用于所有供应商私有 Tokenizer。这个边界不覆盖供应商封装、Tool Schema、模型内部开销。reserve 是规划余量，不能保证每个 Run 都能执行满 8 次请求；SDK 原有 UsageLimits 仍以真实返回的累计 usage 收敛，原有设置不会精确预估下一请求。没有为计数增加 Provider 请求。
+六场景相对原 PR 的过早 Context 预算中止从 1 次降为 0；引用有效与 Scope 隔离均 100%。原始字符截断对照渲染器仍仅存在测试中，经 SDK 官方 instructions override 运行，未扩展成新评估框架。
 
-当前工作区实际模型为 DeepSeek Flash；核对日期的[官方模型文档](https://api-docs.deepseek.com/quick_start/pricing/)列出 1M 上下文。32768 是刻意较小的运维值，不等同于模型硬上限；换模型时需要核对该配置。
+原有 22-case Eval 仍 22/22 预期通过，引用有效率 100%、未支持数值声明率 0%，平均模型请求 2.0、Tool 1.136。FunctionModel 的默认合成用量不包含 instructions；显式 fixture RequestUsage 也不是生产计费。上下文增长、诊断一致性及证据召回一并报告，不用 Token 减少单独判定成功。
 
-短上下文完整纳入；预算不足时依次选择完整高优先级单元，跳过放不下的低优先级单元并继续尝试其他较小单元。不会切 ID、数值、单位或引用边。selection 告知未注入的 Evidence/Hypothesis/消息数量；这些记录仍完整持久化。
+GitHub CI 使用 PR #22 当前 head 的 agent-compose、agent-python、backend-java、frontend 四项检查验证；交付时核对实际 SHA 与检查结果，不以本地测试代替 CI。
 
-如果 P0、Goal/Scope 等必要信息本身放不下，抛出仅含估算数字的 `ContextBudgetExceeded`，沿现有预算处理返回 `BUDGET_EXHAUSTED / INSUFFICIENT_EVIDENCE / low`，明确提示收窄 Scope 或检查保护证据，并持久化终态。若首个请求前超限，模型调用为零。不会默默放弃反驳证据或继续形成高置信度结论。
+## 修改文件与剩余边界
 
-## 验证与对比
+- workspace/context.py：删除三个预算函数/异常，build 改为历史字符软目标；不再管理授权事实。
+- agent/growth_investigator.py：动态 instructions 删除 Usage 运算；授权事实与既有 PII 检查保留；run 保留原生 UsageLimitExceeded，增加脱敏 Provider 失败分类。
+- config.py、.env.example、README：删除三个硬 Token/窗口配置，新增一个实际使用的历史字符软目标并说明语义。
+- tests/workspace/test_context.py：将硬超限测试改为完整保护/软目标继续、非 ASCII 字符、去重回归。
+- tests/agent/test_context_integration.py：连续 5/7/8 请求、累计 Usage、四项原生限制、Provider HTTP 拒绝、授权和 PII 回归。
+- tests/evals/test_context_comparison.py：大单元应继续，删除伪 Token 估算指标；保留六个对照。
+- tests/agent/test_v5_hardening.py、tests/workspace/test_mysql_integration.py：适配 Builder 的软目标参数，原安全和持久化断言保留。
+- 本审计报告更新原文件。
 
-原工作区改造前：**49 passed, 2 skipped**；改造后含独立 MySQL 8.0 容器回归：**86 passed, 1 skipped**。**最终 main Worktree：387 passed, 1 skipped（58.85s）**，包含 main 已有 PII 加固测试、真实 MySQL 和全部离线 Eval。跳过的是未启用 `REAL_AGENT_EVAL=true` 的付费真实 Provider Eval。Java HTTP 和 Azure 响应使用受控 fixture；MySQL 是真实服务。
+没有新代码文件、依赖、数据库结构、迁移、Agent、Service/Adapter/Strategy 层或额外 LLM 调用。上下文整理与预算职责比原 PR 更少，SDK Loop、证据模型、只读 Tool 和人工审批流程保持稳定。
 
-原工作区 `ruff check .`、本次改动 Python 文件 `ruff format --check`、`mypy src tests --exclude test_deepseek.py` 通过（39 个模块）。最终 main Worktree `uv sync --locked`、`ruff check .`、本次 10 个 Python 文件的 `ruff format --check`、完整 `mypy src tests` 均通过；mypy 检查 47 个模块，没有排除规则。原工作区未跟踪的 `tests/agent/test_deepseek.py` 在改造前已有 9 个 mypy 错误，保留未修改，不计作本次通过的静态检查。其他未改文件的格式基线也不批量改写。
-
-新增测试覆盖：空调查、冷恢复追问与独立 ID、Metric/Channel/Campaign/时间及比较基准期、支持与反驳、来源/版本/警告/数值精度、旧 Scope 和非法跨 Scope 引用、保守未知条件、完整单元预算/显式超限、快照和 SDK 多 Tool 轮次、10 类历史文本字段 PII、真实 Azure 调用形状的 mock、授权事实精度和 PII、旧 Query 键中的敏感值、零额外模型调用、MySQL 完整记录。现有 Hypothesis、Diagnosis、Proposal 和迁移测试全部运行。
-
-既有 22-case Eval Harness：前后均 **22/22 预期通过**；Evidence 引用有效率 100%，未支持数值声明率 0%，平均模型请求 2.0、平均 Tool Call 1.136，fixture 结果一致。其平均 Token 214.45 是 FunctionModel 合成统计，**不包含动态 instructions，不代表生产用量**。
-
-新增六个对照场景复用原 FunctionModel、Telemetry、引用验证与数值 oracle；对照渲染器只存在于测试，逐字保留旧方法的输出规则，并通过 SDK 公开的 instructions override 使用同一套 Tool、输出验证、Run wrapper 与 fixture 策略。相同 fixture 策略只接受完整且当前 Scope 的证据：
-
-| 场景 | 关键证据召回：前 → 后 | 文本字符/字节估算：前 → 后 | 诊断/行为 |
-|---|---|---:|---|
-| 空调查 | 无证据 | 173 → 791 | 均证据不足 |
-| 小上下文 | 100% → 100% | 276 → 1287 | 均保留原诊断 |
-| 早期 Metric 证据被尾部淹没 | 0% → 100% | 1564 → 3893 | 补回证据后 fixture 可诊断 |
-| 支持与反驳都被尾部淹没 | 0% → 100% | 1613 → 3701 | 两侧完整召回，仍证据不足，不强推结论 |
-| Scope 切换 | 100% → 100% | 507 → 2521 | 当前引用正确，旧结论仅背景 |
-| 受保护大单元超限 | 完整证据均不可用 | 6000 → 不发送 | 原先切断 1 单元；现在显式超限、零模型请求 |
-
-表中场景都是 ASCII fixture，故字符数与 UTF-8 字节估算相同。新增来源、版本、完整查询和引用关系使部分上下文更长；成功标准是召回和可信引用，不是单看 Token 减少。对照中引用有效率与 Scope 隔离均 100%；四个应保持状态的场景均一致；普通场景模型请求没有增加。零请求超限场景的“引用有效”仅指系统预算诊断携带的当前 ID，不是模型已读过证据。
-
-这是离线检索与控制流回归，**不是实际大模型诊断质量、真实 Token 成本或生产验收**。真实模型/Azure 服务端质量、真实 Java 数据内容未在本次离线 Eval 中验证。
-
-## 文件与边界复核
-
-新增核心仅 `workspace/context.py`（简单 Builder、内部业务条件值对象和纯预算/渲染函数），没有 Service/Manager/Adapter/Strategy 分层。删除 `InvestigationWorkspace.context_payload/context_text`，没有创建同义转发方法。
-
-改动生产文件：`agent/growth_investigator.py`、`agent/dependencies.py`、`domain/investigation.py`、`config.py`；配置及说明：`.env.example`、`README.md` 和本文。测试新增 `workspace/test_context.py`、`agent/test_context_integration.py`、`evals/test_context_comparison.py`，扩展现有 `workspace/test_mysql_integration.py`，将 `agent/test_v5_hardening.py` 的旧 context_payload 测试迁移到 Builder 并保留原安全断言。
-
-无新依赖、数据库表、迁移、Java 接口或 Evidence 模型变更；无向量库、跨调查记忆、LLM 摘要、后台任务、新 Agent 框架、SDK Loop 改写。Campaign Proposal → Java Draft → 人工确认的生产代码没有改动。
-
-剩余限制：关键词是保守排序提示；相对时间/复杂条件不强行解析；未持久化的 Java 字段不能恢复；保护单元很多时宁可显式停止；文本计数偏保守且 Schema/历史余量仍是估算。PII 保留原有本地字段与 Azure fail-closed 边界，本任务没有扩大为 SDK 全部消息/Retry 内容的安全架构重构。
+剩余边界：P0 很多时历史可以超过软目标，最终仍可能被真实模型窗口拒绝；当前 Chat Provider 无可靠全请求预检；未知供应商窗口错误可能只能归为通用 Provider 失败；关键词和 ISO 日期仍只是保守相关性提示。真实模型/真实 Java/Azure 质量和生产成本没有由本次离线验收证明。

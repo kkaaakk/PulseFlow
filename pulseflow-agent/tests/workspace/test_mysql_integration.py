@@ -128,7 +128,7 @@ async def test_agent_schema_migrates_and_persists_on_mysql(
             ContextBuilder(workspace, "Review Campaign 9").build(
                 scope=workspace.scope,
                 scope_version=workspace.scope_version,
-                token_budget=4000,
+                target_chars=4000,
             )
         )
         assert 0 < len(context["relevant_evidence"]) < len(before.evidence)

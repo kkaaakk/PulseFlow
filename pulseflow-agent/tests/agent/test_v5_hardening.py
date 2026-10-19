@@ -172,7 +172,7 @@ def test_context_builder_checks_every_visible_value_preserving_concept_boundary(
             ContextBuilder(workspace, workspace.goal).build(
                 scope=workspace.scope,
                 scope_version=workspace.scope_version,
-                token_budget=4000,
+                target_chars=4000,
             )
         )
         assert isinstance(result, dict)

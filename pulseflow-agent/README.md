@@ -48,20 +48,26 @@ MySQL schema; offline CI uses no paid provider requests.
 
 ## Business-aware investigation context
 
-`workspace/context.py` selects run-entry history by question, goal, scope and validated Tool
-selectors. Current Hypothesis support/refutation and valid prior Diagnosis references are
-protected as complete units. Historical scopes remain `BACKGROUND`; the SDK carries new
-Tool results during a run. The final rendered context still passes the Azure PII guardrail.
+`workspace/context.py` organises run-entry history by question, Goal, Scope and validated
+Tool selectors. It protects complete Hypothesis support/refutation and valid prior Diagnosis
+references. Historical scopes remain `BACKGROUND`; the SDK carries new Tool results during
+a run. The final JSON values and complete Query JSON still pass the existing PII guardrail.
 
-`PULSEFLOW_AGENT_CONTEXT_TOKENS=4000` uses a conservative UTF-8 byte text estimate, with
-`PULSEFLOW_AGENT_CONTEXT_RESERVE_TOKENS=4000` for schemas, SDK history and subsequent turns.
-`PULSEFLOW_AGENT_CONTEXT_WINDOW_TOKENS=32768` is an operational window, to be set at or below
-the deployed model capacity. Available context also shrinks with cumulative Run usage;
-existing SDK usage limits remain unchanged. Protected context that cannot fit ends as
-`BUDGET_EXHAUSTED` with low confidence, without cutting IDs, values or references.
+`PULSEFLOW_AGENT_CONTEXT_TARGET_CHARS=12000` is a soft target for optional historical content,
+measured in characters, not tokens. Short history is retained; duplicate conversation is
+removed and long history is selected as complete business units. Required facts and reference
+relationships can exceed the target without stopping the run. Builder does not count model
+usage, reserve Tool tokens, or predict the whole request window.
 
-The existing 22-case offline Eval suite is joined by six before/after context scenarios.
-Set `PULSEFLOW_CONTEXT_EVAL_REPORT` to save their JSON report. FunctionModel token usage is
-synthetic and excludes instructions; it does not measure real-provider token savings.
-See the [implementation audit](../docs/agent/business-aware-context-audit.md) for the call
-chain, selection rules, estimate limits and validation evidence.
+Pydantic AI `UsageLimits` alone enforces each run's request/tool/cumulative input/output limits
+(defaults 8/12/12000/4000). Usage comes from model responses; token limits may be detected after
+a response, so they are not exact advance deductions. The installed Chat provider lacks a
+reliable full-request preflight counter. Recognised provider context-window rejections finish
+as `FAILED` with a content-free error code, separately from SDK `BUDGET_EXHAUSTED`; no unbounded
+retry or second hard token budget is introduced.
+
+The existing 22-case offline Eval suite and six context comparisons are retained. Set
+`PULSEFLOW_CONTEXT_EVAL_REPORT` to save the comparison JSON. FunctionModel usage is synthetic;
+fixture usage exercises SDK accounting and is not provider billing. See the
+[implementation audit](../docs/agent/business-aware-context-audit.md) for the call chain,
+capacity boundaries, multi-request tests and verification evidence.

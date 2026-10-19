@@ -21,7 +21,6 @@ from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient
 from pulseflow_agent.domain.investigation import AgentMessage, InvestigationWorkspace
 from pulseflow_agent.observability.tracing import Telemetry
 from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail
-from pulseflow_agent.workspace.context import estimate_tokens
 from tests.agent.test_context_integration import config, finish
 from tests.evals.harness import unsupported_numbers
 from tests.workspace.test_context import NOW, assessment, fact, hypothesis
@@ -177,7 +176,8 @@ async def compare_run(name: str, legacy: bool) -> dict[str, Any]:
         "run_status": workspace.status,
         "model_calls": calls,
         "context_chars": len(text),
-        "context_text_token_upper_estimate": estimate_tokens(text),
+        "history_soft_target_exceeded": not legacy
+        and len(text) > settings.pulseflow_agent_context_target_chars,
         "sdk_synthetic_total_tokens": quality["avg_tokens"],
         "partial_evidence_units": sum(
             e.id in text and e.id not in complete_ids for e in original.evidence
@@ -212,14 +212,16 @@ async def test_context_before_after_comparison(
             assert before["key_evidence_recall"] == 0 and after["key_evidence_recall"] == 1
         if name == "protected_overflow":
             assert before["partial_evidence_units"] == 1
-            assert after["run_status"] == "BUDGET_EXHAUSTED" and after["model_calls"] == 0
+            assert after["run_status"] == "COMPLETED" and after["model_calls"] == 1
+            assert after["key_evidence_recall"] == 1 and after["history_soft_target_exceeded"]
         records.extend([before, after])
     report = {
         "mode": "offline_context_control_flow",
         "production_provider_acceptance": False,
         "token_note": (
-            "UTF-8 byte text upper estimates; FunctionModel synthetic usage excludes instructions. "
-            "Neither is provider billing or production token usage."
+            "context_chars is history length only. "
+            "FunctionModel synthetic usage excludes instructions; "
+            "it is not provider billing or production token usage."
         ),
         "cases": records,
     }
