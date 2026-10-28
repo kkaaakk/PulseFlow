@@ -7,6 +7,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
+ * 活动计划配置，保存触发类型、发送时间及时区信息。
+ *
  * Schedule block. v1 supports type=ONCE only.
  *
  * <p>{@code sendAt} MUST be ISO-8601 with offset (e.g.

@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
+ * 把通过校验的 DSL 条件转换为现有规则引擎配置。
+ *
  * Converts a validated {@link CampaignDsl} into the existing
  * {@code campaign_rule} JSON shape that {@link com.pulseflow.campaign.decision.DecisionEngine}
  * understands.
@@ -37,6 +39,8 @@ public class DslToRuleConverter {
     private final CampaignFieldRegistry fieldRegistry;
 
     /**
+     * 把每个人群条件转换为执行引擎规则；当前多行规则由引擎按 AND 合并。
+     *
      * Returns one rule_config JSON per DSL condition. AND/OR logic is implicit
      * (DecisionEngine ANDs all rules of a campaign; OR is approximated by
      * emitting a single composite rule in future — v1 supports AND only via
@@ -83,11 +87,13 @@ public class DslToRuleConverter {
         return out;
     }
 
+    /** 将标签条件值转换为布尔语义，供生成标签匹配规则使用。 */
     private boolean toBoolean(Object v) {
         if (v instanceof Boolean b) return b;
         return "true".equalsIgnoreCase(String.valueOf(v));
     }
 
+    /** 按声明值类型转换规则阈值，统一执行引擎数值表示。 */
     private long toThreshold(Object v, ValueType type) {
         if (v instanceof Number n) return n.longValue();
         try {
@@ -98,6 +104,8 @@ public class DslToRuleConverter {
     }
 
     /**
+     * 由 DSL 条件转换而成的单条规则类型与 JSON 配置。
+     *
      * One converted rule row to insert into campaign_rule.
      */
     public record ConvertedRule(String ruleName, String ruleType, String ruleConfigJson) {}

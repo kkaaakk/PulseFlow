@@ -13,6 +13,7 @@ from pulseflow_agent.workspace.repository import (
 )
 
 
+# 验证重新加载后证据、假设、消息与范围版本完整保留。
 @pytest.mark.asyncio
 async def test_evidence_hypotheses_messages_and_scope_survive_reload(database_url: str) -> None:
     engine = create_async_engine(database_url)
@@ -84,6 +85,7 @@ async def test_evidence_hypotheses_messages_and_scope_survive_reload(database_ur
     await second_engine.dispose()
 
 
+# 验证生产配置必须使用专用 Agent 数据库及账号。
 def test_production_settings_require_dedicated_agent_schema() -> None:
     from pydantic import SecretStr, ValidationError
 
@@ -94,7 +96,7 @@ def test_production_settings_require_dedicated_agent_schema() -> None:
             "pulseflow_agent_env": "production",
             "pulseflow_java_base_url": "http://java.internal:8080",
             "pulseflow_agent_database_url": SecretStr("mysql+asyncmy://root:secret@db/pulseflow"),
-            "pulseflow_agent_model": "openai:sample-model",
+            "pulseflow_agent_model": "deepseek:deepseek-flash",
             "pulseflow_agent_api_key": SecretStr("fake-model-key"),
             "pulseflow_agent_internal_token": SecretStr("fake-internal-token"),
             "azure_language_endpoint": "https://example.cognitiveservices.azure.com",

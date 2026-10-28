@@ -78,12 +78,14 @@
     </div>
 
     <script>
+        /** 追加带时间的模拟日志，并把输出区滚动到最新记录。 */
         function log(msg) {
             const out = document.getElementById('output');
             out.textContent += '\n' + new Date().toLocaleTimeString() + ' ' + msg;
             out.scrollTop = out.scrollHeight;
         }
 
+        /** 请求模拟接口并显示 JSON 结果，网络或解析失败时记录错误。 */
         async function apiCall(url) {
             try {
                 const resp = await fetch(url);
@@ -94,6 +96,7 @@
             }
         }
 
+        /** 从表单读取用户、事件类型和目标 ID，构造单事件模拟请求。 */
         function generateEvent() {
             const userId = document.getElementById('userId').value;
             const eventType = document.getElementById('eventType').value;
@@ -103,17 +106,20 @@
             apiCall(url);
         }
 
+        /** 按表单用户触发登录至支付的模拟旅程，并记录操作日志。 */
         function simulateJourney() {
             const userId = document.getElementById('userId').value;
             log('=== Simulating user journey for userId=' + userId + ' ===');
             apiCall('/api/simulator/user-journey?userId=' + userId);
         }
 
+        /** 按指定数量触发批量模拟事件生成，供本地链路验证使用。 */
         function generateBulk(count) {
             log('>>> Generating ' + count + ' random events...');
             apiCall('/api/simulator/bulk?count=' + count);
         }
 
+        /** 清空模拟日志显示区，方便观察下一轮操作结果。 */
         function clearOutput() {
             document.getElementById('output').textContent = 'Cleared.';
         }

@@ -14,12 +14,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/** 验证 WebQueryController 的业务行为和边界条件。 */
 @ExtendWith(MockitoExtension.class)
 class WebQueryControllerTest {
 
     @Mock private WebQueryService queryService;
     @InjectMocks private WebQueryController controller;
 
+    /** 验证仪表盘接口使用统一 API 响应结构。 */
     @Test
     void dashboardUsesTheUnifiedApiResponseEnvelope() {
         WebDtos.DashboardSummary summary = new WebDtos.DashboardSummary(
@@ -33,6 +35,7 @@ class WebQueryControllerTest {
         verify(queryService).dashboardSummary();
     }
 
+    /** 验证活动列表完整传递分页与筛选参数。 */
     @Test
     void campaignListPassesPaginationAndFiltersToTheQueryService() {
         WebDtos.PageResponse<WebDtos.CampaignListItem> page =

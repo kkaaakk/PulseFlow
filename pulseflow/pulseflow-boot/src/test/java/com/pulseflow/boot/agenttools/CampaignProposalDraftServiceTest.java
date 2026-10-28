@@ -25,6 +25,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/** 验证 CampaignProposalDraftService 的业务行为和边界条件。 */
 class CampaignProposalDraftServiceTest {
     final CampaignDraftMapper mapper = mock(CampaignDraftMapper.class);
     final CampaignDraftService drafts = mock(CampaignDraftService.class);
@@ -38,6 +39,7 @@ class CampaignProposalDraftServiceTest {
     final String investigationId = UUID.randomUUID().toString();
     final String evidenceId = UUID.randomUUID().toString();
 
+    /** 构造带归属和证据的方案快照，供草稿创建边界测试使用。 */
     JsonNode snapshot(String status, long owner, String referencedEvidence, String knownEvidence) {
         String json = """
                 {"record":{"id":"%s","investigationId":"%s","ownerId":%d,"status":"%s",
@@ -52,6 +54,7 @@ class CampaignProposalDraftServiceTest {
         return JsonUtil.fromJson(json, JsonNode.class);
     }
 
+    /** 构造校验通过的人群预估结果，隔离草稿测试的下游依赖。 */
     void validPreview() {
         when(mapper.updateById(any(CampaignDraft.class))).thenReturn(1);
         when(validator.validate(any(CampaignDsl.class))).thenReturn(DslValidationResult.ok(List.of()));
@@ -62,6 +65,7 @@ class CampaignProposalDraftServiceTest {
                 .thenReturn(CampaignDraft.builder().id(77L).requestId(proposalId).operatorId(1024L).build());
     }
 
+    /** 验证拥有者只能幂等创建一份草稿，优惠事实取自持久化方案。 */
     @Test void ownerCanCreateOnceAndPromotionFactsComeFromStoredProposal() {
         when(proposals.read(proposalId)).thenReturn(snapshot("GENERATED", 1024, evidenceId, evidenceId));
         validPreview();
@@ -76,6 +80,7 @@ class CampaignProposalDraftServiceTest {
         verify(mapper).updateById(created);
     }
 
+    /** 验证其他操作员不能使用不属于自己的方案创建草稿。 */
     @Test void anotherUserCannotUseProposal() {
         when(proposals.read(proposalId)).thenReturn(snapshot("GENERATED", 1024, evidenceId, evidenceId));
         assertThatThrownBy(() -> service.create(proposalId, 2048L))
@@ -83,6 +88,7 @@ class CampaignProposalDraftServiceTest {
         verify(drafts, never()).createDraft(anyString(), anyLong(), anyString(), any(), any(), any());
     }
 
+    /** 验证调查归属独立于方案内容进行检查。 */
     @Test void investigationOwnershipIsCheckedSeparately() {
         when(proposals.read(proposalId)).thenReturn(snapshot("GENERATED", 1024, evidenceId, evidenceId));
         doThrow(new CampaignForbiddenException("denied")).when(ownership).lockOwner(investigationId, 1024L);
@@ -90,6 +96,7 @@ class CampaignProposalDraftServiceTest {
                 .isInstanceOf(CampaignForbiddenException.class);
     }
 
+    /** 验证取消或被新范围淘汰的方案无法生成草稿。 */
     @Test void cancelledOrSupersededProposalCannotCreateDraft() {
         for (String status : List.of("CANCELLED", "SUPERSEDED", "DRAFT_CREATED")) {
             when(proposals.read(proposalId)).thenReturn(snapshot(status, 1024, evidenceId, evidenceId));
@@ -99,12 +106,14 @@ class CampaignProposalDraftServiceTest {
         verify(drafts, never()).createDraft(anyString(), anyLong(), anyString(), any(), any(), any());
     }
 
+    /** 验证方案不能引用其他调查的证据。 */
     @Test void crossInvestigationEvidenceIsRejected() {
         when(proposals.read(proposalId)).thenReturn(snapshot("GENERATED", 1024, evidenceId, UUID.randomUUID().toString()));
         assertThatThrownBy(() -> service.create(proposalId, 1024L))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    /** 验证 Agent 不可用时已有草稿仍可幂等返回。 */
     @Test void existingDraftSurvivesAgentOutageAndIsIdempotent() {
         CampaignDraft existing = CampaignDraft.builder().id(77L).requestId(proposalId)
                 .investigationId(investigationId).operatorId(1024L).build();
@@ -116,6 +125,7 @@ class CampaignProposalDraftServiceTest {
         verify(drafts, never()).createDraft(anyString(), anyLong(), anyString(), any(), any(), any());
     }
 
+    /** 验证 Agent 不可用时重复请求也不会向其他用户泄露草稿。 */
     @Test void existingDraftNeverLeaksToAnotherUserDuringAgentOutage() {
         CampaignDraft existing = CampaignDraft.builder().id(77L).requestId(proposalId)
                 .investigationId(investigationId).operatorId(1024L).build();
@@ -125,6 +135,7 @@ class CampaignProposalDraftServiceTest {
         verifyNoInteractions(proposals);
     }
 
+    /** 验证方案 DSL 由共享校验器拒绝，阻止无效配置落库。 */
     @Test void invalidDslIsRejectedBySharedValidator() {
         when(proposals.read(proposalId)).thenReturn(snapshot("GENERATED", 1024, evidenceId, evidenceId));
         when(validator.validate(any())).thenReturn(DslValidationResult.invalid(List.of("unsupported audience")));
@@ -133,6 +144,7 @@ class CampaignProposalDraftServiceTest {
         verifyNoInteractions(preview);
     }
 
+    /** 验证状态回写失败仍返回已提交草稿，重试时修复关联状态。 */
     @Test void controllerReturnsCommittedDraftWhenStatusRepairFailsAndRetriesRepair() {
         CampaignProposalDraftService draftService = mock(CampaignProposalDraftService.class);
         CampaignDraft existing = CampaignDraft.builder().id(77L).operatorId(1024L)
@@ -149,6 +161,7 @@ class CampaignProposalDraftServiceTest {
         verify(proposals, times(2)).markDraftCreated(proposalId, 77L);
     }
 
+    /** 验证跨用户方案返回 403，操作员身份不能由浏览器伪造。 */
     @Test void userApiMapsForeignProposalTo403AndNeverAcceptsBrowserOperator() throws Exception {
         CampaignProposalDraftService draftService = mock(CampaignProposalDraftService.class);
         doThrow(new CampaignForbiddenException("foreign_proposal"))
@@ -167,6 +180,7 @@ class CampaignProposalDraftServiceTest {
         verifyNoInteractions(proposals);
     }
 
+    /** 验证重复 POST 返回已有草稿，不重复创建业务记录。 */
     @Test void userApiReturnsExistingDraftOnRepeatedPost() throws Exception {
         CampaignProposalDraftService draftService = mock(CampaignProposalDraftService.class);
         CampaignDraft existing = CampaignDraft.builder().id(77L).operatorId(1024L)

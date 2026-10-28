@@ -19,11 +19,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/** 验证 EventService 的业务行为和边界条件。 */
 class EventServiceTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper()
             .registerModule(new JavaTimeModule());
 
+    /** 验证接入请求反序列化时保留 null 目标标识。 */
     @Test
     @DisplayName("HTTP JSON targetId null remains null in EventRequest")
     void deserializesNullTargetId() throws Exception {
@@ -43,6 +45,7 @@ class EventServiceTest {
         assertThat(request.getTargetId()).isNull();
     }
 
+    /** 验证 Kafka JSON 中 null 目标标识按 null 传递。 */
     @Test
     @DisplayName("EventService Kafka payload preserves targetId null")
     void kafkaPayloadContainsJsonNullTargetId() throws Exception {
@@ -70,6 +73,7 @@ class EventServiceTest {
         assertThat(payload.get("targetId").isNull()).isTrue();
     }
 
+    /** 验证 Kafka JSON 中零目标标识仍为数值零。 */
     @Test
     @DisplayName("EventService Kafka payload preserves targetId zero")
     void kafkaPayloadContainsNumericZeroTargetId() throws Exception {

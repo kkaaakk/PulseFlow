@@ -51,6 +51,8 @@ public class CampaignContentValidator {
     private static final Pattern NUMBER_PATTERN = Pattern.compile("\\d+(?:\\.\\d+)?");
 
     /**
+     * 依据权威优惠事实、长度和禁用词校验并清理文案，返回处理后的结果。
+     *
      * Validate and clean a {@link ContentResult}.
      *
      * @param input the authoritative campaign facts (contains
@@ -149,6 +151,7 @@ public class CampaignContentValidator {
         return result;
     }
 
+    /** 从输入中收集禁用词，供文案逐项检查。 */
     @SuppressWarnings("unchecked")
     private Set<String> collectForbidden(java.util.Map<String, Object> input) {
         Set<String> out = new HashSet<>();
@@ -162,6 +165,8 @@ public class CampaignContentValidator {
     }
 
     /**
+     * 提取优惠金额、折扣、日期及事实描述中允许出现的数字。
+     *
      * Collect all numbers that may legally appear in the content:
      * promotion facts (threshold, discount, rate), validUntil date numbers,
      * and any numbers explicitly listed in promotionFacts[].description.
@@ -208,6 +213,7 @@ public class CampaignContentValidator {
         return out;
     }
 
+    /** 将可解析数值规范化后加入允许集合，忽略无法解析的输入。 */
     private void addNumber(Set<BigDecimal> out, Object v) {
         if (v == null) return;
         if (v instanceof Number n) {
@@ -218,6 +224,7 @@ public class CampaignContentValidator {
         }
     }
 
+    /** 检查文案数字是否都能被授权事实解释，识别未授权优惠承诺。 */
     private boolean hasUnknownNumber(String text, Set<BigDecimal> allowed) {
         if (text == null || text.isBlank()) return false;
         Matcher m = NUMBER_PATTERN.matcher(text);
@@ -230,6 +237,7 @@ public class CampaignContentValidator {
         return false;
     }
 
+    /** 按数值而非小数位表示比较数字，避免同值不同精度误判。 */
     private boolean anyMatch(Set<BigDecimal> candidates, BigDecimal target) {
         for (BigDecimal c : candidates) {
             if (c.subtract(target).abs().compareTo(new BigDecimal("0.01")) <= 0) return true;
@@ -237,13 +245,16 @@ public class CampaignContentValidator {
         return false;
     }
 
+    /** 忽略大小写检查文本包含关系，供禁用词匹配使用。 */
     private boolean containsIgnoreCase(String hay, String needle) {
         if (hay == null || needle == null) return false;
         return hay.toLowerCase().contains(needle.toLowerCase());
     }
 
+    /** 把可空文案转换为安全字符串，简化后续长度和关键词检查。 */
     private String safe(String s) { return s == null ? "" : s; }
 
+    /** 解析整数配置，缺失或无效时使用传入默认值。 */
     private int asInt(Object v, int dflt) {
         if (v == null) return dflt;
         if (v instanceof Number n) return n.intValue();
@@ -251,6 +262,7 @@ public class CampaignContentValidator {
         catch (NumberFormatException e) { return dflt; }
     }
 
+    /** 解析布尔配置，无法识别时沿用默认值。 */
     private boolean asBoolean(Object v, boolean dflt) {
         if (v == null) return dflt;
         if (v instanceof Boolean b) return b;

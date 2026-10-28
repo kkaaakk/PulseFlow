@@ -7,11 +7,13 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/** 验证 LocalAuthSessionConfig 的业务行为和边界条件。 */
 class LocalAuthSessionConfigTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withUserConfiguration(LocalAuthSessionConfig.class);
 
+    /** 验证内存会话配置注册本地 Sa-Token 存储。 */
     @Test
     void memoryStoreProvidesLocalSaTokenDao() {
         contextRunner
@@ -23,6 +25,7 @@ class LocalAuthSessionConfigTest {
                 });
     }
 
+    /** 验证 Redis 会话配置不会意外覆盖为本地存储。 */
     @Test
     void redisStoreDoesNotInstallLocalDao() {
         contextRunner

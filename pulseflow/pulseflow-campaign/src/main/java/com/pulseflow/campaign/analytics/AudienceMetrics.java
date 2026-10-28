@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
+ * 目标人群的标签比例及行为聚合结果。
+ *
  * Aggregated audience metrics computed by the Java backend before sending
  * for business queries. These values are computed by Java.
  */

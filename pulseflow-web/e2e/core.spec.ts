@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 
+// 验证演示登录后可依次查看活动详情和用户全景。
 test('登录 → Campaign Detail → User 360', async ({ page }) => {
   await page.goto('/login')
   await expect(page.getByRole('heading', { name: '登录 PulseFlow' })).toBeVisible()
@@ -17,6 +18,7 @@ test('登录 → Campaign Detail → User 360', async ({ page }) => {
   await expect(page.getByText('Event Timeline')).toBeVisible()
 })
 
+// 验证演示活动列表可进入详情，展示触达及归因信息。
 test('Campaign list and performance view', async ({ page }) => {
   await page.goto('/login')
   await page.getByRole('button', { name: '进入控制台' }).click()

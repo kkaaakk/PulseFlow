@@ -6,6 +6,7 @@ import com.pulseflow.common.model.ApiResponse;
 import com.pulseflow.event.service.EventService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -14,8 +15,10 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
+/** 通过真实事件服务生成单事件、用户旅程和批量演示数据。 */
 @Slf4j
 @RestController
+@ConditionalOnProperty(name = "pulseflow.simulator.enabled", havingValue = "true")
 @RequestMapping("/api/simulator")
 @RequiredArgsConstructor
 public class SimulatorController {
@@ -23,6 +26,8 @@ public class SimulatorController {
     private final EventService eventService;
 
     /**
+     * 为指定用户生成单个模拟事件，方便验证接入和下游处理链路。
+     *
      * Generate a random user event for testing.
      * GET /api/simulator/generate?userId=1024&eventType=CONTENT_VIEW&targetId=100
      */
@@ -52,6 +57,8 @@ public class SimulatorController {
     }
 
     /**
+     * 按登录、浏览、加购和支付顺序生成演示用户旅程事件。
+     *
      * Generate a batch of events for a simulated user journey.
      * GET /api/simulator/user-journey?userId=1024
      * Generates: LOGIN → CONTENT_VIEW → ADD_CART → ORDER_PAID
@@ -83,6 +90,8 @@ public class SimulatorController {
     }
 
     /**
+     * 批量生成随机事件，用于演示或本地负载验证。
+     *
      * Generate bulk random events for load testing.
      * GET /api/simulator/bulk?count=100
      */
@@ -107,6 +116,7 @@ public class SimulatorController {
         return ApiResponse.success(Map.of("total", count, "success", success, "failed", failed));
     }
 
+    /** 构建模拟事件请求并交给正式事件服务，复用真实接入链路。 */
     private void sendEvent(Long userId, String eventType, Long targetId, Map<String, Object> props) {
         String eventId = "evt_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
         EventRequest request = EventRequest.builder()

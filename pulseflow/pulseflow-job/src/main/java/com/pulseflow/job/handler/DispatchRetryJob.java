@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/** 补发落库后未成功发布到 Kafka 的触达任务。 */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -25,6 +26,7 @@ public class DispatchRetryJob {
     private final KafkaTemplate<String, String> kafkaTemplate;
     private static final String DELIVERY_TOPIC = "pulseflow.delivery";
 
+    /** 扫描尚未成功发布的触达任务并补发 Kafka，修复落库后消息发布失败。 */
     @XxlJob("dispatchRetryJob")
     public void execute() {
         log.info("DispatchRetryJob started");

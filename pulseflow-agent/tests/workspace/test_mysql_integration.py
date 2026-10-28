@@ -16,6 +16,7 @@ from pulseflow_agent.workspace.context import ContextBuilder
 from pulseflow_agent.workspace.repository import SqlAlchemyInvestigationRepository
 
 
+# 验证真实 MySQL 迁移及调查持久化往返，依赖显式启用的集成环境。
 @pytest.mark.asyncio
 async def test_agent_schema_migrates_and_persists_on_mysql(
     monkeypatch: pytest.MonkeyPatch,

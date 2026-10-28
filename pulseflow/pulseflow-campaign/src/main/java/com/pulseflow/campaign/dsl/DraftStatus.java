@@ -1,6 +1,8 @@
 package com.pulseflow.campaign.dsl;
 
 /**
+ * 草稿生命周期状态，约束编辑、刷新预估与确认操作。
+ *
  * Lifecycle states for a Campaign draft.
  *
  * <pre>

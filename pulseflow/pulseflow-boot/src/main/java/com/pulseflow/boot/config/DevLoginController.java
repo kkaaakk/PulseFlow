@@ -15,6 +15,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
+ * 仅在演示环境提供按操作员 ID 建立会话的便捷入口。
+ *
  * <b>DEMO / LOCAL ONLY</b> — issues a Sa-Token session for a given operator id
  * so the end-to-end AI Campaign Copilot demo script can call the
  * authenticated {@code /api/**} endpoints.
@@ -24,7 +26,7 @@ import java.util.Map;
  * real deployment: it lets any caller become any user without credentials.
  * The opt-in flag keeps production safe while making the demo runnable.</p>
  *
- * <p>See {@code docs/demo-scenario.md} for the full demo script.</p>
+ * <p>See {@code ARCHITECTURE.md} for the system and authentication boundaries.</p>
  */
 @Slf4j
 @RestController
@@ -33,6 +35,8 @@ import java.util.Map;
 public class DevLoginController {
 
     /**
+     * 演示环境按操作员 ID 建立 Sa-Token 会话，返回后续请求所需的令牌。
+     *
      * Login as a given operator id (demo only).
      * Usage: {@code POST /api/auth/dev-login?operatorId=1024}
      * Returns the Sa-Token value to send as the {@code token} header later.
@@ -50,12 +54,15 @@ public class DevLoginController {
         return ApiResponse.success(data);
     }
 
-    /** Convenience GET form so the demo is runnable from a browser address bar. */
+    /**
+     * 提供浏览器可直接访问的演示登录入口，复用同一登录逻辑。
+     * Convenience GET form so the demo is runnable from a browser address bar. */
     @GetMapping
     public ApiResponse<Map<String, Object>> loginGet(@RequestParam(defaultValue = "1024") Long operatorId) {
         return login(operatorId);
     }
 
+    /** 演示登录响应字段，保存操作员与令牌信息。 */
     @Data
     static class DevLoginResponse {
         private Long operatorId;

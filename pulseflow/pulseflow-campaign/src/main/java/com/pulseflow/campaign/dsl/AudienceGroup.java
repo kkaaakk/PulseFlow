@@ -9,6 +9,8 @@ import lombok.NoArgsConstructor;
 import java.util.List;
 
 /**
+ * 单层 AND/OR 人群条件组，供 DSL 校验和预估使用。
+ *
  * Audience rule: AND/OR of conditions. v1 supports one level (logic + conditions).
  * Nested groups would be a future extension and are rejected by the validator
  * to keep rule complexity bounded.

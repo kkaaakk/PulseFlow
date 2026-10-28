@@ -17,22 +17,28 @@ if str(FUNCTIONAL_DIR) not in sys.path:
 import validate  # noqa: E402  pylint: disable=wrong-import-position
 
 
+# 验证测试数据解析或所有权边界，避免空值误判及清理范围扩张。
 class NullableIntTests(unittest.TestCase):
+    # 验证 MySQL NULL 文本标记被解析为 None。
     def test_mysql_null_tokens_map_to_none(self) -> None:
         for value in (None, "", "NULL", "\\N"):
             with self.subTest(value=value):
                 self.assertIsNone(validate.nullable_int(value))
 
+    # 验证数值零不会被误认为 SQL NULL。
     def test_zero_is_not_treated_as_null(self) -> None:
         self.assertEqual(validate.nullable_int(0), 0)
         self.assertEqual(validate.nullable_int("0"), 0)
 
+    # 验证合法数值保持整数类型与原值。
     def test_numeric_values_are_preserved_as_integers(self) -> None:
         self.assertEqual(validate.nullable_int(123), 123)
         self.assertEqual(validate.nullable_int("123"), 123)
 
 
+# 验证测试数据解析或所有权边界，避免空值误判及清理范围扩张。
 class MysqlRunnerTests(unittest.TestCase):
+    # 验证 CLI 输出保留 NULL 标记，使可空整数解析正确。
     def test_run_mysql_keeps_cli_null_token_for_nullable_parser(self) -> None:
         args = SimpleNamespace(
             mysql_bin="mysql",
@@ -61,7 +67,9 @@ class MysqlRunnerTests(unittest.TestCase):
         self.assertIn("--skip-column-names", command)
 
 
+# 验证测试数据解析或所有权边界，避免空值误判及清理范围扩张。
 class CanonicalSampleTests(unittest.TestCase):
+    # 验证规范事件抽样查询能正确保留并解析 null 目标标识。
     def test_canonical_query_preserves_and_parses_mysql_null(self) -> None:
         manifest = {
             "expected": {
@@ -92,6 +100,7 @@ class CanonicalSampleTests(unittest.TestCase):
         calls: list[str] = []
         checks: list[dict[str, object]] = []
 
+        # 模拟包含 NULL 与零目标标识的 MySQL 行，验证抽样解析区别。
         def fake_run_mysql(_args: object, query: str) -> tuple[list[list[str]], None]:
             calls.append(query)
             return mysql_rows, None

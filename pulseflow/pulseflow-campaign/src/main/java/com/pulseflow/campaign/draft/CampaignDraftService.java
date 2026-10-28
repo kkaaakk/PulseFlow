@@ -31,6 +31,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
+ * 维护草稿校验、过期和确认状态，并事务化创建活动规则。
+ *
  * CRUD + lifecycle for Campaign drafts.
  *
  * <p>State machine:</p>
@@ -57,6 +59,7 @@ public class CampaignDraftService {
     @Autowired
     private AudiencePreviewService audiencePreviewService;
 
+    /** 保存 DSL、校验结果、预估快照和过期时间；简化入口先完成校验及预估。 */
     public CampaignDraft createDraft(String requestId, Long operatorId, CampaignDsl dsl) {
         if (operatorId == null) throw new CampaignForbiddenException("Authentication required");
         if (dsl == null) throw new IllegalArgumentException("dsl is required");
@@ -69,6 +72,8 @@ public class CampaignDraftService {
     }
 
     /**
+     * 保存 DSL、校验结果、预估快照和过期时间；简化入口先完成校验及预估。
+     *
      * Persist a validated DSL as a draft.
      * The DSL has already been validated; this method just stores it.
      */
@@ -102,6 +107,8 @@ public class CampaignDraftService {
     }
 
     /**
+     * 校验归属与有效期后更新 DSL 和状态，已确认或过期草稿拒绝编辑。
+     *
      * Update an existing draft's DSL (operator edit). Re-validates.
      * Returns the updated draft and validation result.
      *
@@ -134,6 +141,8 @@ public class CampaignDraftService {
     }
 
     /**
+     * 重新校验当前 DSL 并计算人群，更新快照、版本和警告；已确认草稿拒绝刷新。
+     *
      * Recalculate the audience snapshot for the current DSL.
      *
      * <p>The old controller implementation returned the values already stored
@@ -185,6 +194,8 @@ public class CampaignDraftService {
     }
 
     /**
+     * 事务内再次校验 DSL，创建活动和规则并关联草稿；已确认草稿幂等返回已有活动。
+     *
      * Confirm a VALIDATED draft and create the real Campaign + rules.
      * Re-validates before commit. Idempotent on CONFIRMED state.
      */
@@ -263,6 +274,7 @@ public class CampaignDraftService {
         return new ConfirmResult(campaign.getId(), draft.getId(), false);
     }
 
+    /** 加载草稿并验证操作员归属后返回。 */
     public CampaignDraft loadDraft(Long draftId, Long operatorId) {
         CampaignDraft draft = loadDraftOrThrow(draftId);
         requireDraftOwner(draft, operatorId);
@@ -271,6 +283,7 @@ public class CampaignDraftService {
 
     // ---------- helpers ----------
 
+    /** 按 ID 读取草稿，不存在时抛出资源未找到异常。 */
     private CampaignDraft loadDraftOrThrow(Long draftId) {
         CampaignDraft draft = draftMapper.selectById(draftId);
         if (draft == null) {
@@ -280,6 +293,8 @@ public class CampaignDraftService {
     }
 
     /**
+     * 要求操作员已登录并匹配草稿归属；无归属的历史草稿按当前兼容规则处理。
+     *
      * Verify that the current operator owns the draft. Throws 403 if not.
      * Null operatorId (no session) is allowed only for system-initiated calls
      * (e.g. job) where operatorId is genuinely absent — but for interactive
@@ -294,22 +309,26 @@ public class CampaignDraftService {
         }
     }
 
+    /** 把 DSL 校验结果映射为已校验、待确认或无效草稿状态。 */
     private DraftStatus pickStatus(DslValidationResult v) {
         if (v.isValid()) return DraftStatus.VALIDATED;
         if (v.isNeedsConfirmation()) return DraftStatus.NEEDS_CONFIRMATION;
         return DraftStatus.INVALID;
     }
 
+    /** 合并 DSL 校验与人群预估警告，完整保留给人工审核。 */
     private List<String> combinedWarnings(DslValidationResult v, AudiencePreviewResult p) {
         List<String> out = new ArrayList<>(v.getWarnings());
         if (p != null && p.getWarnings() != null) out.addAll(p.getWarnings());
         return out;
     }
 
+    /** 判断当前时间是否已超过草稿过期时间。 */
     private boolean isExpired(CampaignDraft draft) {
         return draft.getExpiresAt() != null && LocalDateTime.now().isAfter(draft.getExpiresAt());
     }
 
+    /** 幂等标记草稿过期并更新修改时间，返回更新后的实体。 */
     private CampaignDraft markExpired(CampaignDraft draft) {
         if (!DraftStatus.EXPIRED.name().equals(draft.getValidationStatus())) {
             draft.setValidationStatus(DraftStatus.EXPIRED.name());
@@ -319,6 +338,7 @@ public class CampaignDraftService {
         return draft;
     }
 
+    /** 将不超过二十四小时的频控配置映射为用户日上限，其余情况使用默认值。 */
     private int pickDailyLimit(CampaignDsl dsl) {
         if (dsl.getFrequencyCap() == null) return 3;
         Integer window = dsl.getFrequencyCap().getWindowHours();
@@ -327,6 +347,7 @@ public class CampaignDraftService {
         return 3; // default user_daily_limit
     }
 
+    /** 将大于一天且不超过七天的频控配置映射为活动周上限。 */
     private int pickWeeklyLimit(CampaignDsl dsl) {
         if (dsl.getFrequencyCap() == null) return 1;
         Integer window = dsl.getFrequencyCap().getWindowHours();
@@ -335,6 +356,7 @@ public class CampaignDraftService {
         return 1;
     }
 
+    /** 根据人群条件和优惠事实数量生成活动描述，便于操作员查看来源配置。 */
     private String buildDescription(CampaignDsl dsl) {
         StringBuilder sb = new StringBuilder();
         if (dsl.getAudience() != null && dsl.getAudience().getConditions() != null) {
@@ -347,6 +369,7 @@ public class CampaignDraftService {
         return sb.toString();
     }
 
+    /** 优先采用首条优惠事实构建文案，无优惠事实时使用活动名。 */
     private String buildMessageTemplate(CampaignDsl dsl) {
         // v1: use first promotion fact as the message template; the operator
         // picks a content variant from /contents and overrides this.
@@ -361,11 +384,15 @@ public class CampaignDraftService {
     }
 
     /**
+     * 编辑或刷新草稿后的实体与校验组合结果。
+     *
      * Returned by {@link #updateDraft}.
      */
     public record DraftUpdateResult(CampaignDraft draft, DslValidationResult validation) {}
 
     /**
+     * 确认操作的活动 ID、草稿 ID 及幂等命中结果。
+     *
      * Returned by {@link #confirmAndCreate}.
      */
     public record ConfirmResult(Long campaignId, Long draftId, boolean idempotent) {}

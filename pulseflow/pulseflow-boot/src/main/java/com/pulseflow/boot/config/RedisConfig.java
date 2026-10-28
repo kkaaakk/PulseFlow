@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/** 创建业务链路共享的 Redisson 客户端。 */
 @Configuration
 public class RedisConfig {
 
@@ -22,6 +23,7 @@ public class RedisConfig {
     @Value("${spring.redis.database}")
     private int database;
 
+    /** 按 Spring Redis 配置创建 Redisson 客户端，供原子脚本和缓存操作复用。 */
     @Bean(destroyMethod = "shutdown")
     public RedissonClient redissonClient() {
         Config config = new Config();

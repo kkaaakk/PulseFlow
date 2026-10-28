@@ -20,12 +20,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+/** 验证 AgentMetricService 的业务行为和边界条件。 */
 class AgentMetricServiceTest {
     private final NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
     private final AgentMetricService service = new AgentMetricService(jdbc);
     private final TimeRange period = new TimeRange(OffsetDateTime.parse("2026-09-01T00:00:00+08:00"),
             OffsetDateTime.parse("2026-09-08T00:00:00+08:00"));
 
+    /** 验证点击率计算公式与汇总器一致，结果不含用户明细。 */
     @Test
     void ctrUsesCalculatorFormulaAndReturnsOnlyAggregates() {
         fakeFacts();
@@ -39,6 +41,7 @@ class AgentMetricServiceTest {
         assertThat(result.rows().get(0).toString()).doesNotContain("userId", "taskId", "SQL");
     }
 
+    /** 验证指标差异由 Java 计算，并明确处理零基准。 */
     @Test
     void compareIsCalculatedInJavaAndZeroBaselineIsExplicit() {
         fakeFacts();
@@ -48,6 +51,7 @@ class AgentMetricServiceTest {
         assertThat(result.rows().get(0).relativeDelta()).isEqualByComparingTo("0.0000");
     }
 
+    /** 验证零基准时相对变化为 null 且携带警告。 */
     @Test
     void zeroBaselineProducesNullRelativeDeltaAndWarning() {
         when(jdbc.queryForList(anyString(), any(MapSqlParameterSource.class))).thenAnswer(invocation -> {
@@ -70,6 +74,7 @@ class AgentMetricServiceTest {
         assertThat(response.metadata().warnings()).contains("baseline_zero");
     }
 
+    /** 验证非法白名单值和时间范围在执行 SQL 前被拒绝。 */
     @Test
     void invalidRegistryValuesAndRangeAreRejectedBeforeJdbc() {
         assertThatThrownBy(() -> service.query(new QueryRequest(null, period, null, null, null)))
@@ -88,6 +93,7 @@ class AgentMetricServiceTest {
         verifyNoInteractions(jdbc);
     }
 
+    /** 验证行数上限和无维度总计的契约稳定。 */
     @Test
     void rowLimitAndNullDimensionHaveStableMeaning() {
         when(jdbc.queryForList(anyString(), any(MapSqlParameterSource.class))).thenAnswer(invocation -> {
@@ -104,6 +110,7 @@ class AgentMetricServiceTest {
         assertThat(result.metadata().warnings()).contains("row_limit_reached");
     }
 
+    /** 验证归因只返回计数，不携带底层事实明细。 */
     @Test
     void attributionReturnsCountsWithoutRawRows() {
         when(jdbc.queryForList(anyString(), any(MapSqlParameterSource.class))).thenReturn(
@@ -115,6 +122,7 @@ class AgentMetricServiceTest {
         assertThat(result.rows().get(0).toString()).doesNotContain("userId", "targetEventId");
     }
 
+    /** 验证筛选值通过参数绑定进入 SQL，不能成为 SQL 片段。 */
     @Test
     void filterValuesAreBoundParametersRatherThanSqlFragments() {
         fakeFacts();
@@ -134,6 +142,7 @@ class AgentMetricServiceTest {
                 .isEqualTo(List.of(9L));
     }
 
+    /** 构造模拟 JDBC 聚合事实，隔离指标服务与真实数据库。 */
     private void fakeFacts() {
         when(jdbc.queryForList(anyString(), any(MapSqlParameterSource.class))).thenAnswer(invocation -> {
             String sql = invocation.getArgument(0);

@@ -21,6 +21,7 @@ from pulseflow_agent.observability.tracing import Telemetry
 from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail
 
 
+# 构造隔离测试配置，使用测试数据库和虚拟机器令牌，避免依赖开发环境凭据。
 def settings() -> AgentSettings:
     return AgentSettings.model_validate(
         {
@@ -32,6 +33,7 @@ def settings() -> AgentSettings:
     )
 
 
+# 验证 HTTP 父 trace 传播到官方 Agent span 与调查数据库调用。
 def test_http_parent_reaches_official_agent_run_and_agent_db() -> None:
     exporter = InMemorySpanExporter()
     telemetry = Telemetry(exporter=exporter)
@@ -61,6 +63,7 @@ def test_http_parent_reaches_official_agent_run_and_agent_db() -> None:
     assert "INSERT INTO" not in serialized
 
 
+# 验证工具 span 和 HTTP 客户端向 Java 传播同一条 trace。
 @pytest.mark.asyncio
 async def test_tool_and_http_client_propagate_the_same_trace_to_java() -> None:
     exporter = InMemorySpanExporter()
@@ -71,6 +74,7 @@ async def test_tool_and_http_client_propagate_the_same_trace_to_java() -> None:
         "toExclusive": "2026-09-08T00:00:00+08:00",
     }
 
+    # 模拟一次业务工具选择及最终响应，供跨服务 trace 测试使用。
     async def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         results = [
             part
@@ -115,6 +119,7 @@ async def test_tool_and_http_client_propagate_the_same_trace_to_java() -> None:
             ]
         )
 
+    # 按当前测试场景提供 Java 聚合接口替身，检查调用路径及输入并返回受控事实。
     def java(request: httpx.Request) -> httpx.Response:
         headers.append(request.headers["traceparent"])
         return httpx.Response(

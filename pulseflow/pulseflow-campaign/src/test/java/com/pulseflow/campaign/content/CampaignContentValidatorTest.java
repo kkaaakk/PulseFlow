@@ -12,6 +12,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
+ * 验证 CampaignContentValidator 的业务行为和边界条件。
+ *
  * Pure unit tests for {@link CampaignContentValidator}.
  *
  * <p>Covers the design §9.3 guardrails: length limits, forbidden words,
@@ -22,6 +24,7 @@ class CampaignContentValidatorTest {
 
     private final CampaignContentValidator validator = new CampaignContentValidator();
 
+    /** 构造包含授权优惠和校验约束的文案输入夹具。 */
     private Map<String, Object> baseInput() {
         Map<String, Object> input = new java.util.LinkedHashMap<>();
         input.put("titleMaxLength", 24);
@@ -34,12 +37,14 @@ class CampaignContentValidatorTest {
         return input;
     }
 
+    /** 生成指定类型的候选文案，供长度、事实和内容测试复用。 */
     private ContentVariant variant(String type, String title, String body) {
         return ContentVariant.builder()
                 .type(type).title(title).body(body).strategy("s")
                 .build();
     }
 
+    /** 验证三个合法文案变体均可通过校验。 */
     @Test
     @DisplayName("three valid variants with distinct types pass")
     void threeValidVariants() {
@@ -54,6 +59,7 @@ class CampaignContentValidatorTest {
         assertThat(validated.getVariants()).hasSize(3);
     }
 
+    /** 验证标题超过长度上限时被拒绝。 */
     @Test
     @DisplayName("title exceeding maxLength is dropped")
     void titleTooLong() {
@@ -71,6 +77,7 @@ class CampaignContentValidatorTest {
                 .containsExactlyInAnyOrder("URGENCY", "PERSONALIZED");
     }
 
+    /** 验证正文超过长度上限时被拒绝。 */
     @Test
     @DisplayName("body exceeding maxLength is dropped")
     void bodyTooLong() {
@@ -86,6 +93,7 @@ class CampaignContentValidatorTest {
         assertThat(validated.getVariants().get(0).getType()).isEqualTo("URGENCY");
     }
 
+    /** 验证文案中虚构的优惠数字被识别并拒绝。 */
     @Test
     @DisplayName("fabricated discount number (全场7折) is dropped")
     void fabricatedDiscount() {
@@ -103,6 +111,7 @@ class CampaignContentValidatorTest {
         assertThat(validated.getVariants().get(0).getType()).isEqualTo("URGENCY");
     }
 
+    /** 验证没有事实支持的紧迫性描述被拒绝。 */
     @Test
     @DisplayName("fabricated urgency phrase '最后一天' is dropped when input has no stockLimited flag")
     void fabricatedUrgency() {
@@ -118,6 +127,7 @@ class CampaignContentValidatorTest {
         assertThat(validated.getVariants().get(0).getType()).isEqualTo("DIRECT_BENEFIT");
     }
 
+    /** 验证有库存限制事实支持时允许相应紧迫性描述。 */
     @Test
     @DisplayName("stockLimited flag allows urgency phrases")
     void stockLimitedAllowsUrgency() {
@@ -131,6 +141,7 @@ class CampaignContentValidatorTest {
         assertThat(validated.getVariants()).hasSize(1);
     }
 
+    /** 验证命中禁用词的文案不能通过校验。 */
     @Test
     @DisplayName("forbidden word causes variant to be dropped")
     void forbiddenWord() {
@@ -146,6 +157,7 @@ class CampaignContentValidatorTest {
         assertThat(validated.getVariants().get(0).getType()).isEqualTo("URGENCY");
     }
 
+    /** 验证未处理的模板变量不会作为有效文案通过。 */
     @Test
     @DisplayName("un-substituted template variable is dropped")
     void templateVariable() {
@@ -160,6 +172,7 @@ class CampaignContentValidatorTest {
         assertThat(validated.getVariants().get(0).getType()).isEqualTo("URGENCY");
     }
 
+    /** 验证正文中的敏感个人信息受到内容校验约束。 */
     @Test
     @DisplayName("PII (phone number) causes variant to be dropped")
     void piiInBody() {
@@ -174,6 +187,7 @@ class CampaignContentValidatorTest {
         assertThat(validated.getVariants().get(0).getType()).isEqualTo("URGENCY");
     }
 
+    /** 验证重复文案类型不会被当成多个有效变体。 */
     @Test
     @DisplayName("duplicate types: second occurrence is dropped")
     void duplicateTypes() {
@@ -188,6 +202,7 @@ class CampaignContentValidatorTest {
         assertThat(validated.getVariants()).hasSize(2);
     }
 
+    /** 验证所有候选无效时结果明确失败。 */
     @Test
     @DisplayName("all variants invalid throws IllegalArgumentException")
     void allInvalid() {
@@ -202,6 +217,7 @@ class CampaignContentValidatorTest {
                 .hasMessageContaining("All content variants failed");
     }
 
+    /** 验证缺失候选列表时安全返回校验失败。 */
     @Test
     @DisplayName("null variants throws")
     void nullVariants() {
@@ -210,6 +226,7 @@ class CampaignContentValidatorTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    /** 验证不支持的文案变体类型被拒绝。 */
     @Test
     @DisplayName("invalid type is dropped")
     void invalidType() {

@@ -7,6 +7,7 @@ import urllib.request
 BASE = "http://127.0.0.1:8080"
 
 
+# 调用 Java 演示与 Agent 网关接口，按需附带登录令牌并解析 JSON 响应。
 def call(path, body=None, token=None):
     headers = {"Content-Type": "application/json"}
     if token:

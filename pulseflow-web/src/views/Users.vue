@@ -14,13 +14,18 @@ const page = ref(1)
 const pageSize = ref(10)
 const result = ref<PageResponse<UserListItem>>({ items: [], page: 1, pageSize: 10, total: 0, totalPages: 0 })
 
+/** 按页码和关键字加载用户列表，统一维护加载状态与错误提示。 */
 const load = async () => {
   loading.value = true
   try { result.value = await listUsers(page.value, pageSize.value, keyword.value || undefined) } catch (error) { ElMessage.error(error instanceof Error ? error.message : '用户数据加载失败') } finally { loading.value = false }
 }
+/** 筛选条件变化时回到第一页并重新加载列表。 */
 const filter = () => { page.value = 1; load() }
+/** 按用户 ID 导航到 User 360 详情页。 */
 const openUser = (userId: number) => router.push(`/users/${userId}`)
+/** 从表格行提取用户 ID，复用用户详情导航。 */
 const openUserRow = (row: UserListItem) => openUser(row.userId)
+/** 保存新页码并重新查询，保持分页器与列表结果一致。 */
 const changePage = (value: number) => { page.value = value; load() }
 onMounted(load)
 </script>

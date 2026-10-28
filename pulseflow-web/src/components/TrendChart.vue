@@ -20,6 +20,7 @@ const props = withDefaults(defineProps<{
 const chartElement = ref<HTMLElement>()
 let chart: echarts.ECharts | undefined
 
+/** 按最新数据初始化或更新 ECharts，设置系列、坐标轴和提示格式。 */
 const render = () => {
   if (!chartElement.value) return
   if (!chart) chart = echarts.init(chartElement.value)
@@ -31,6 +32,7 @@ const render = () => {
       backgroundColor: '#17213e',
       borderWidth: 0,
       textStyle: { color: '#fff', fontSize: 12 },
+      /** 按百分比或中文数字格式展示提示框数值。 */
       valueFormatter: (value: unknown) => props.percent ? `${(Number(value) * 100).toFixed(1)}%` : new Intl.NumberFormat('zh-CN').format(Number(value)),
     },
     xAxis: {
@@ -48,7 +50,7 @@ const render = () => {
       axisLine: { show: false },
       axisTick: { show: false },
       splitLine: { lineStyle: { color: '#edf0f5', type: 'dashed' } },
-      axisLabel: { color: '#8b95a8', fontSize: 11, formatter: (value: number) => props.percent ? `${(value * 100).toFixed(0)}%` : compactNumber(value) },
+      axisLabel: { color: '#8b95a8', fontSize: 11, /** 按指标类型格式化纵轴刻度，较大数值使用紧凑表示。 */ formatter: (value: number) => props.percent ? `${(value * 100).toFixed(0)}%` : compactNumber(value) },
     },
     series: [{
       type: 'line',
@@ -63,20 +65,25 @@ const render = () => {
   }, true)
 }
 
+/** 把千和百万级数值转换为 K/M 刻度，减少坐标轴文字宽度。 */
 const compactNumber = (value: number) => {
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
   if (Math.abs(value) >= 1_000) return `${Math.round(value / 1_000)}K`
   return String(value)
 }
 
+/** 容器尺寸变化时调整已有图表，尚未初始化时安全跳过。 */
 const resize = () => chart?.resize()
 
+// 组件挂载后创建图表并监听容器或窗口尺寸变化。
 onMounted(async () => {
   await nextTick()
   render()
   window.addEventListener('resize', resize)
 })
+// 数据或指标配置变化时重绘图表，保持视图与输入一致。
 watch(() => [props.points, props.color, props.area, props.percent], render, { deep: true })
+// 卸载时注销尺寸监听并销毁 ECharts，避免资源泄露。
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resize)
   chart?.dispose()

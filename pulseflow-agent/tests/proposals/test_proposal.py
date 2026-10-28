@@ -21,6 +21,7 @@ from pulseflow_agent.workspace.repository import SqlAlchemyInvestigationReposito
 from pulseflow_agent.workspace.service import InvestigationService
 
 
+# 构造带授权优惠事实和证据引用的合法活动方案夹具。
 def proposal(evidence_id: str) -> dict[str, Any]:
     return {
         "campaign_name": "Recall review",
@@ -41,6 +42,7 @@ def proposal(evidence_id: str) -> dict[str, Any]:
     }
 
 
+# 构造隔离测试配置，使用测试数据库和虚拟机器令牌，避免依赖开发环境凭据。
 def settings(database_url: str) -> AgentSettings:
     return AgentSettings.model_validate({
         "pulseflow_agent_env": "test",
@@ -50,6 +52,7 @@ def settings(database_url: str) -> AgentSettings:
     })
 
 
+# 创建带业务证据的已完成调查，供方案生成测试复用。
 async def seed(repo: SqlAlchemyInvestigationRepository) -> tuple[str, str]:
     created = await repo.create("Investigate recall")
     workspace = InvestigationWorkspace(goal=created.goal, id=created.id, repository=repo)
@@ -69,10 +72,13 @@ async def seed(repo: SqlAlchemyInvestigationRepository) -> tuple[str, str]:
     return created.id, evidence.id
 
 
+# 用于方案授权与持久化测试的脚本化模型替身。
 class ProposalModel:
+    # 保存测试方案与模型调用进度，用于脚本化模拟生成流程。
     def __init__(self, evidence_id: str) -> None:
         self.evidence_id = evidence_id
 
+    # 按工具返回推进方案模型，模拟持久化工具调用及最终结构化响应。
     async def respond(self, messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         tool_names = {tool.name for tool in info.function_tools}
         assert "create_campaign_draft" not in tool_names
@@ -97,6 +103,7 @@ class ProposalModel:
         })])
 
 
+# 验证方案可重新加载，生成阶段不会调用 Java 业务写接口。
 @pytest.mark.asyncio
 async def test_proposal_is_durable_and_java_write_is_absent(database_url: str) -> None:
     engine = create_async_engine(database_url)
@@ -105,6 +112,7 @@ async def test_proposal_is_durable_and_java_write_is_absent(database_url: str) -
     config = settings(database_url)
     java_calls: list[str] = []
 
+    # 按当前测试场景提供 Java 聚合接口替身，检查调用路径及输入并返回受控事实。
     def java(request: httpx.Request) -> httpx.Response:
         java_calls.append(request.url.path)
         return httpx.Response(500)
@@ -137,6 +145,7 @@ async def test_proposal_is_durable_and_java_write_is_absent(database_url: str) -
     await engine.dispose()
 
 
+# 验证模型不能引入操作员未授权的优惠事实。
 @pytest.mark.asyncio
 async def test_agent_cannot_invent_promotion_facts(database_url: str) -> None:
     engine = create_async_engine(database_url)

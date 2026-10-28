@@ -1,9 +1,12 @@
+// 控制台 API 的统一响应、分页及各业务页面视图契约。
+/** 统一后端响应封装，业务 code 为成功时才可使用 data。 */
 export interface ApiEnvelope<T> {
   code: number
   message: string
   data: T
 }
 
+/** 统一分页结果，包含条目、页码、每页数量、总数和总页数。 */
 export interface PageResponse<T> {
   items: T[]
   page: number
@@ -12,6 +15,7 @@ export interface PageResponse<T> {
   totalPages: number
 }
 
+/** 仪表盘当天业务指标和比率摘要。 */
 export interface DashboardSummary {
   todayEvents: number
   activeUsers: number
@@ -23,17 +27,20 @@ export interface DashboardSummary {
   todayAttributions: number
 }
 
+/** 趋势图中的一个时间标签及对应数值。 */
 export interface TrendPoint {
   label: string
   value: number
 }
 
+/** 事件、触达及转化的趋势序列集合。 */
 export interface DashboardTrends {
   events: TrendPoint[]
   deliveries: TrendPoint[]
   conversions: TrendPoint[]
 }
 
+/** 活动列表中的配置与绩效摘要。 */
 export interface CampaignListItem {
   id: number
   name: string
@@ -48,6 +55,7 @@ export interface CampaignListItem {
   createdBy?: number
 }
 
+/** 控制台活动基础配置视图。 */
 export interface CampaignView {
   id: number
   name: string
@@ -69,6 +77,7 @@ export interface CampaignView {
   createdBy?: number
 }
 
+/** 活动规则的展示视图，包含解析后的配置。 */
 export interface RuleView {
   id: number
   name: string
@@ -78,6 +87,7 @@ export interface RuleView {
   enabled: boolean
 }
 
+/** 活动人群预估视图，保留人数与版本口径。 */
 export interface AudienceView {
   estimatedCount: number
   dataVersion?: string
@@ -85,6 +95,7 @@ export interface AudienceView {
   warnings: string[]
 }
 
+/** 活动触达计数及状态摘要。 */
 export interface DeliverySummary {
   sent: number
   delivered: number
@@ -95,12 +106,14 @@ export interface DeliverySummary {
   conversionRate: number
 }
 
+/** 活动归因计数与相关业务摘要。 */
 export interface AttributionSummary {
   attributedConversions: number
   model?: string
   windowHours?: number
 }
 
+/** 活动详情组合，包含基础配置、规则、人群及触达归因摘要。 */
 export interface CampaignDetail {
   campaign: CampaignView
   rules: RuleView[]
@@ -109,6 +122,7 @@ export interface CampaignDetail {
   attributionSummary: AttributionSummary
 }
 
+/** 活动绩效展示数据，统一发送、点击和转化口径。 */
 export interface PerformanceView {
   campaignId: number
   targetAudienceCount: number
@@ -124,6 +138,7 @@ export interface PerformanceView {
   calculatedAt?: string
 }
 
+/** 用户列表中的档案、活跃和消费摘要及标签。 */
 export interface UserListItem {
   userId: number
   nickname?: string
@@ -135,6 +150,7 @@ export interface UserListItem {
   tags: string[]
 }
 
+/** 面向页面的用户基础档案。 */
 export interface UserProfileView {
   userId: number
   nickname?: string
@@ -144,6 +160,7 @@ export interface UserProfileView {
   updatedAt?: string
 }
 
+/** 事件事实展示视图，区分原始时间和有效时间。 */
 export interface EventView {
   id: number
   eventId: string
@@ -157,6 +174,7 @@ export interface EventView {
   properties: Record<string, any>
 }
 
+/** 用户全景组合，包含基础资料、实时和窗口画像、标签及事件。 */
 export interface UserDetail {
   profile: UserProfileView
   realtimeMetrics: Record<string, string>
@@ -167,6 +185,7 @@ export interface UserDetail {
   recentEvents: PageResponse<EventView>
 }
 
+/** 触达任务列表视图，包含渠道、用户及发送状态。 */
 export interface DeliveryListItem {
   taskId: number
   campaignId: number
@@ -181,6 +200,7 @@ export interface DeliveryListItem {
   sentAt?: string
 }
 
+/** 单次渠道发送记录的展示视图。 */
 export interface DeliveryRecordView {
   id: number
   taskId: number
@@ -192,6 +212,7 @@ export interface DeliveryRecordView {
   errorMessage?: string
 }
 
+/** 触达点击事实及扩展属性视图。 */
 export interface ClickView {
   id: number
   taskId?: number
@@ -201,6 +222,7 @@ export interface ClickView {
   properties: Record<string, any>
 }
 
+/** 目标事件到活动触达的归因展示视图。 */
 export interface AttributionView {
   id: number
   userId: number
@@ -214,6 +236,7 @@ export interface AttributionView {
   creditedAt?: string
 }
 
+/** 触达任务及发送、点击和归因记录的组合详情。 */
 export interface DeliveryDetail {
   task: DeliveryListItem
   record?: DeliveryRecordView | null
@@ -221,6 +244,7 @@ export interface DeliveryDetail {
   attributions: AttributionView[]
 }
 
+/** 后端与各基础设施的健康状态。 */
 export interface SystemStatus {
   backend: string
   mysql: string
@@ -228,6 +252,7 @@ export interface SystemStatus {
   kafka: string
 }
 
+/** 前端恢复认证所需的操作员展示信息和令牌元数据。 */
 export interface AuthSession {
   operatorId: number
   role: string

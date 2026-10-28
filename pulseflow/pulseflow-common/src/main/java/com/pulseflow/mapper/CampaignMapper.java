@@ -5,6 +5,7 @@ import com.pulseflow.entity.Campaign;
 import org.apache.ibatis.annotations.Mapper;
 import org.springframework.stereotype.Repository;
 
+/** Campaign 的数据库映射接口，提供基础 CRUD 和所声明的业务查询。 */
 @Mapper
 @Repository
 public interface CampaignMapper extends BaseMapper<Campaign> {

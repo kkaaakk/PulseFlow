@@ -15,6 +15,7 @@
 
 . (Join-Path $PSScriptRoot 'common.ps1')
 
+# 把子脚本退出码映射为统一 PASS、FAIL 或 NOT_RUN 状态。
 function Convert-ExitCodeToStatus {
     param([int]$ExitCode)
     if ($ExitCode -eq 0) { return 'PASS' }
@@ -22,6 +23,7 @@ function Convert-ExitCodeToStatus {
     return 'FAIL'
 }
 
+# 读取子流程 JSON 报告状态，缺失或不可读时使用约定降级结果。
 function Read-ReportStatus {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -41,6 +43,7 @@ function Read-ReportStatus {
     return $Fallback
 }
 
+# 安全读取可选 JSON 属性，缺失时返回默认值。
 function Get-JsonProperty {
     param([object]$Object, [string]$Name)
     if ($null -eq $Object) { return $null }
@@ -49,6 +52,7 @@ function Get-JsonProperty {
     return $null
 }
 
+# 格式化总报告中的数值，缺失值明确显示为未提供。
 function Format-SummaryMetric {
     param([object]$Value, [string]$Unit = '', [switch]$Integer)
     if ($null -eq $Value) { return '—' }
@@ -60,12 +64,14 @@ function Format-SummaryMetric {
     }
 }
 
+# 将汇总比率转换为百分比文本，保留无数据语义。
 function Format-SummaryPercent {
     param([object]$Value)
     if ($null -eq $Value) { return '—' }
     try { return '{0:P2}' -f [double]$Value } catch { return [string]$Value }
 }
 
+# 合并功能与性能结果，输出整体验证 Markdown 摘要和关键指标。
 function Write-RunAllSummary {
     param(
         [Parameter(Mandatory = $true)][string]$RunRoot,

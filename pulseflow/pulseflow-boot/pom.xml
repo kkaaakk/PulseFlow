@@ -68,6 +68,10 @@
             <groupId>com.pulseflow</groupId>
             <artifactId>pulseflow-job</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.pulseflow</groupId>
+            <artifactId>pulseflow-simulator</artifactId>
+        </dependency>
 
         <!-- Spring Boot -->
         <dependency>

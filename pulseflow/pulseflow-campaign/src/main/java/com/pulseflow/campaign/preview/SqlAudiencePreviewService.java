@@ -29,6 +29,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
+ * 在有界候选用户集合上评估 DSL 条件，生成带版本的人数快照。
+ *
  * SQL-based audience preview.
  *
  * <p>Strategy:</p>
@@ -55,6 +57,7 @@ public class SqlAudiencePreviewService implements AudiencePreviewService {
     private final CampaignFieldRegistry fieldRegistry;
     private final DslToRuleConverter converter;
 
+    /** 在有界活跃用户候选集中评估 DSL 条件，返回人数快照与计算版本。 */
     @Override
     public AudiencePreviewResult preview(CampaignDsl dsl) {
         LocalDateTime now = LocalDateTime.now();
@@ -111,6 +114,7 @@ public class SqlAudiencePreviewService implements AudiencePreviewService {
                 .build();
     }
 
+    /** 先检查预估规模；当前实现返回空列表，用户集合由下游聚合流程自行计算。 */
     @Override
     public List<Long> previewUserIds(CampaignDsl dsl, int limit) {
         AudiencePreviewResult r = preview(dsl);
@@ -122,6 +126,7 @@ public class SqlAudiencePreviewService implements AudiencePreviewService {
         return Collections.emptyList();
     }
 
+    /** 逐项计算命中集合，再按 AND 求交集或按 OR 求并集。 */
     private Set<Long> evaluateConditions(List<AudienceCondition> conditions,
                                           Set<Long> candidateIds, String logic) {
         List<Set<Long>> perCondition = new ArrayList<>();
@@ -141,6 +146,7 @@ public class SqlAudiencePreviewService implements AudiencePreviewService {
         return result;
     }
 
+    /** 按字段白名单执行标签或最新窗口指标条件，结果限定在候选用户集合中。 */
     private Set<Long> evalOne(AudienceCondition c, Set<Long> candidateIds) {
         CampaignFieldRegistry.FieldDescriptor fd = fieldRegistry.get(c.getField());
         if (fd == null) return Set.of();
@@ -188,6 +194,7 @@ public class SqlAudiencePreviewService implements AudiencePreviewService {
         return matched;
     }
 
+    /** 执行数值比较，未支持的操作符返回 false。 */
     private boolean compare(double left, String op, double right) {
         return switch (op) {
             case "EQ"  -> left == right;
@@ -200,12 +207,14 @@ public class SqlAudiencePreviewService implements AudiencePreviewService {
         };
     }
 
+    /** 转换阈值为浮点数，无法解析时按零处理。 */
     private double toDouble(Object v) {
         if (v instanceof Number n) return n.doubleValue();
         try { return Double.parseDouble(String.valueOf(v)); }
         catch (NumberFormatException e) { return 0.0; }
     }
 
+    /** 构造无活跃候选用户的零人数快照，并保留时间、版本及原因。 */
     private AudiencePreviewResult emptyResult(LocalDateTime now, String dataVersion) {
         return AudiencePreviewResult.builder()
                 .estimatedCount(0)

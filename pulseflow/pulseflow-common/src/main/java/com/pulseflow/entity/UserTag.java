@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/** 带计算时间的用户标签结果，保留命中和未命中历史。 */
 @Data
 @Builder
 @NoArgsConstructor

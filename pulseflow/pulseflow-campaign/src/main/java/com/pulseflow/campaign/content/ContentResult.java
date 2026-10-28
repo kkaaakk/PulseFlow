@@ -9,6 +9,8 @@ import lombok.NoArgsConstructor;
 import java.util.List;
 
 /**
+ * 包含不同类型候选文案及其校验状态的结构化结果。
+ *
  * Structured Campaign content with differentiated variants.
  *
  * <p>Variant types are fixed: DIRECT_BENEFIT, URGENCY, PERSONALIZED.</p>

@@ -29,6 +29,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
+ * 验证 DecisionEngine 的业务行为和边界条件。
+ *
  * Unit tests for {@link DecisionEngine} — the core rule-matching and delivery
  * dispatch logic. All external dependencies (mappers, Redis, profile service)
  * are mocked so these run without Docker/MySQL/Redis.
@@ -47,6 +49,7 @@ class DecisionEngineTest {
     private UserPreferenceService userPreferenceService;
     private DecisionEngine decisionEngine;
 
+    /** 初始化当前测试的实体、依赖替身和数据，使各场景之间保持隔离。 */
     @BeforeEach
     void setUp() {
         campaignMapper = mock(CampaignMapper.class);
@@ -65,7 +68,9 @@ class DecisionEngineTest {
 
     // ---------- helpers ----------
 
-    /** Build an ACTIVE EVENT-trigger campaign active right now. */
+    /**
+     * 构造即时触发活动夹具，供决策测试选择命中场景。
+     * Build an ACTIVE EVENT-trigger campaign active right now. */
     private Campaign eventCampaign(Long id, String eventTypes) {
         return Campaign.builder()
                 .id(id)
@@ -80,7 +85,9 @@ class DecisionEngineTest {
                 .build();
     }
 
-    /** Build an ACTIVE DELAYED-trigger campaign (e.g. cart-abandon recall). */
+    /**
+     * 构造带延迟配置的活动，供购物车延迟任务测试使用。
+     * Build an ACTIVE DELAYED-trigger campaign (e.g. cart-abandon recall). */
     private Campaign delayedCampaign(Long id, String eventTypes, int delaySeconds) {
         return Campaign.builder()
                 .id(id)
@@ -96,6 +103,7 @@ class DecisionEngineTest {
                 .build();
     }
 
+    /** 按指定规则类型和 JSON 配置构造规则夹具。 */
     private CampaignRule rule(Long campaignId, String type, String configJson) {
         return CampaignRule.builder()
                 .id(1L)
@@ -108,6 +116,7 @@ class DecisionEngineTest {
                 .build();
     }
 
+    /** 创建含用户、事件类型和属性的决策上下文。 */
     private Map<String, Object> eventMap(String eventId, Long userId, String eventType,
                                           Map<String, Object> properties) {
         Map<String, Object> map = new HashMap<>();
@@ -120,6 +129,7 @@ class DecisionEngineTest {
 
     // ---------- tests ----------
 
+    /** 验证画像标签条件命中后创建触达任务。 */
     @Test
     @DisplayName("PROFILE tag EQ rule matches → creates DeliveryTask")
     void profileTagRuleMatches() {
@@ -134,6 +144,7 @@ class DecisionEngineTest {
         verify(deliveryService).createDeliveryTask(any(DeliveryTaskDto.class));
     }
 
+    /** 验证画像指标大于等于阈值时规则命中。 */
     @Test
     @DisplayName("PROFILE metric GTE threshold rule matches → creates DeliveryTask")
     void profileMetricRuleGteThreshold() {
@@ -149,6 +160,7 @@ class DecisionEngineTest {
         verify(deliveryService).createDeliveryTask(any(DeliveryTaskDto.class));
     }
 
+    /** 验证事件属性满足条件时触发活动。 */
     @Test
     @DisplayName("EVENT property equals rule matches → creates DeliveryTask")
     void eventPropertyRuleMatches() {
@@ -164,6 +176,7 @@ class DecisionEngineTest {
         verify(deliveryService).createDeliveryTask(any(DeliveryTaskDto.class));
     }
 
+    /** 验证频控规则超限时不生成触达任务。 */
     @Test
     @DisplayName("FREQUENCY rule over limit → rule does NOT match → no DeliveryTask")
     void frequencyRuleBlocksOverLimit() {
@@ -180,6 +193,7 @@ class DecisionEngineTest {
         verify(deliveryService, never()).createDeliveryTask(any());
     }
 
+    /** 验证重复幂等键被当作业务跳过，不传播为基础设施故障。 */
     @Test
     @DisplayName("DuplicateKeyException from delivery is a business skip — no re-throw")
     void dedupDuplicateKeySkipsSilently() {
@@ -198,6 +212,7 @@ class DecisionEngineTest {
         verify(deliveryService).createDeliveryTask(any(DeliveryTaskDto.class));
     }
 
+    /** 验证延迟任务包含购物车项标识并按配置排程。 */
     @Test
     @DisplayName("DELAYED campaign with cartItemId → schedules delayed task")
     void delayedTaskScheduledWithCartItemId() {

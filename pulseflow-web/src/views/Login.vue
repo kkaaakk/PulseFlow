@@ -12,6 +12,7 @@ const auth = useAuthStore()
 const loading = ref(false)
 const form = reactive({ operatorId: 1024, password: 'pulseflow-local' })
 
+/** 检查登录字段，认证成功后跳到原请求页面或首页，失败展示错误并释放加载状态。 */
 const submit = async () => {
   if (!form.operatorId || !form.password) {
     ElMessage.warning('请输入 Operator ID 和本地访问口令')

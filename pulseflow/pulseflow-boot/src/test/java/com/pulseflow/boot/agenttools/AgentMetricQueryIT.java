@@ -18,7 +18,9 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Runs against the actual Flyway schema in CI; local Docker tests are opt-in. */
+/**
+ * 验证 AgentMetricQuery 的业务行为和边界条件。
+ * Runs against the actual Flyway schema in CI; local Docker tests are opt-in. */
 @EnabledIfEnvironmentVariable(named = "PULSEFLOW_TEST_DOCKER", matches = "true")
 @Testcontainers
 class AgentMetricQueryIT {
@@ -31,6 +33,7 @@ class AgentMetricQueryIT {
 
     static AgentMetricService service;
 
+    /** 初始化当前测试的实体、依赖替身和数据，使各场景之间保持隔离。 */
     @BeforeAll
     static void prepare() {
         Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
@@ -59,6 +62,7 @@ class AgentMetricQueryIT {
                 + "(203,'agent-conversion-2',1002,9,102,'2026-09-02 12:05:00')");
     }
 
+    /** 验证周期比率沿用权威计算口径，归因接口只返回聚合结果。 */
     @Test
     void periodRatesMatchCalculatorSemanticsAndAttributionIsAggregateOnly() {
         TimeRange range = new TimeRange(OffsetDateTime.parse("2026-09-01T00:00:00+08:00"),

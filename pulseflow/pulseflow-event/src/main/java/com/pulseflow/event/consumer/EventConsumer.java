@@ -55,6 +55,7 @@ public class EventConsumer {
     /** Events that represent a conversion goal and therefore seed attribution. */
     private static final Set<String> ATTRIBUTION_TARGET_EVENTS = Set.of("ORDER_PAID");
 
+    /** 依次完成事务落库、实时画像和决策；后两阶段失败时持久化补偿再结束消费。 */
     @KafkaListener(topics = "pulseflow.raw.events", groupId = "pulseflow-event-group",
             concurrency = "4")
     public void consume(ConsumerRecord<String, String> record) {
@@ -64,6 +65,7 @@ public class EventConsumer {
 
         log.info("Consuming event: eventId={}, offset={}", eventId, record.offset());
 
+        // 第一阶段由独立 Spring 服务开启事务，事件事实与小时统计必须一起提交。
         // Phase 1: MySQL transaction (event + hourly metric, single tx, atomic upsert)
         EventPersistenceService.PersistResult phase1 =
                 eventPersistenceService.persist(rawEventMap);
@@ -72,6 +74,7 @@ public class EventConsumer {
             throw new RuntimeException("Phase 1 failed for event: " + eventId);
         }
 
+        // 重复消息可能携带不同属性；后续阶段只能读取首次落库的规范事实，避免画像与统计分歧。
         // Downstream phases use the canonical context sourced from MySQL,
         // never the raw Kafka replay payload (MySQL is the single source of truth).
         Map<String, Object> ctx = phase1.getContext();
@@ -80,12 +83,14 @@ public class EventConsumer {
         // Phase 2: Redis Lua atomic update (委托共享服务，与补偿重放共用同一份 Lua)
         boolean phase2Ok = executePhase2(ctx);
 
+        // Redis 更新成功后再执行决策，避免使用尚未收敛的画像创建触达。
         // Phase 3: Decision engine (only if Redis state is consistent)
         boolean phase3Ok = false;
         if (phase2Ok) {
             phase3Ok = executePhase3(ctx);
         }
 
+        // 目标事件另行创建归因等待任务；此处归因异常仅记录日志，不作为 EVENT_REPLAY 补偿内容。
         // Attribution seeding for target (conversion) events. Best-effort: its own
         // delay queue + DB persistence handle reliability; a failure here does not
         // block the event pipeline (it is logged, not compensated as EVENT_REPLAY).
@@ -102,6 +107,7 @@ public class EventConsumer {
             }
         }
 
+        // 画像或决策失败时，必须先确认补偿落库；补偿也写失败则抛异常，交由 Kafka 重新投递。
         // If Phase 2 or 3 failed, durably record a compensation task then ack.
         if (!phase2Ok || !phase3Ok) {
             boolean compensationWritten = writeCompensationTask(ctx);
@@ -118,6 +124,8 @@ public class EventConsumer {
     }
 
     /**
+     * 委托共享实时画像服务执行幂等 Lua 更新，与补偿回放保持相同口径。
+     *
      * Phase 2: Redis Lua atomic update for realtime metrics.
      * 委托给 {@link RealtimeProfileUpdateService}，与 CompensationJob 重放共用同一份 Lua。
      */
@@ -126,6 +134,8 @@ public class EventConsumer {
     }
 
     /**
+     * 调用决策引擎匹配活动，基础设施错误由上层记录补偿任务。
+     *
      * Phase 3: Evaluate rules and create delivery tasks via DecisionEngine.
      * 基础设施异常（DB / Redis / Kafka）会从 DecisionEngine 向外抛，由上层写补偿任务。
      */
@@ -141,6 +151,8 @@ public class EventConsumer {
     }
 
     /**
+     * 原子保存 EVENT_REPLAY 补偿载荷，重复任务恢复为 PENDING 以重新执行。
+     *
      * Durably record an EVENT_REPLAY compensation task (atomic upsert).
      * On duplicate (event_id, task_type) the row is restored to PENDING.
      */
@@ -162,6 +174,7 @@ public class EventConsumer {
 
     // --- Helpers ---
 
+    /** 将 Kafka JSON 载荷解析为事件上下文，供各处理阶段使用。 */
     @SuppressWarnings("unchecked")
     private Map<String, Object> parseEvent(String json) {
         try {

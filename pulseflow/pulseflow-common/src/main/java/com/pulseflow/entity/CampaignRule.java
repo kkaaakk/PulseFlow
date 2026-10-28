@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/** 活动的人群或事件匹配规则及 JSON 配置。 */
 @Data
 @Builder
 @NoArgsConstructor

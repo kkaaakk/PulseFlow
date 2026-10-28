@@ -1,3 +1,4 @@
+// 配置 Vue 构建、模块别名及本地 Java API 代理。
 import { fileURLToPath, URL } from 'node:url'
 
 import vue from '@vitejs/plugin-vue'

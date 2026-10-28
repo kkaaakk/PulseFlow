@@ -14,17 +14,20 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+/** 验证 AttributionTaskConsumer 的业务行为和边界条件。 */
 class AttributionTaskConsumerTest {
 
     private AttributionService attributionService;
     private AttributionTaskConsumer consumer;
 
+    /** 初始化当前测试的实体、依赖替身和数据，使各场景之间保持隔离。 */
     @BeforeEach
     void setUp() {
         attributionService = mock(AttributionService.class);
         consumer = new AttributionTaskConsumer(attributionService);
     }
 
+    /** 验证归因成功后清理领取记录。 */
     @Test
     @DisplayName("successful attribution completes the processing claim")
     void successfulAttributionCompletesClaim() {
@@ -38,6 +41,7 @@ class AttributionTaskConsumerTest {
         verify(attributionService, never()).requeueClaimedTask("target-evt-1");
     }
 
+    /** 验证执行异常时重新排队且不误标完成。 */
     @Test
     @DisplayName("a temporarily invisible DB task requeues and never completes the claim")
     void attributionExceptionRequeuesInsteadOfCompleting() {
@@ -53,6 +57,7 @@ class AttributionTaskConsumerTest {
         verify(attributionService, never()).completeClaimedTask("target-evt-1");
     }
 
+    /** 验证定时协调任务调用待处理调度修复流程。 */
     @Test
     @DisplayName("scheduled reconciliation restores orphaned PENDING tasks")
     void scheduledReconciliationRestoresOrphanedTasks() {
@@ -63,6 +68,7 @@ class AttributionTaskConsumerTest {
         verify(attributionService).reconcilePendingTasks();
     }
 
+    /** 验证首次失败重排后，下一轮轮询可成功完成。 */
     @Test
     @DisplayName("a later poll can retry a failed task and complete it after success")
     void laterPollRetriesThenCompletes() {
@@ -80,6 +86,7 @@ class AttributionTaskConsumerTest {
         verify(attributionService).completeClaimedTask("target-evt-1");
     }
 
+    /** 验证清理领取标记失败时保留重试机会。 */
     @Test
     @DisplayName("cleanup failure keeps the task discoverable through requeue")
     void cleanupFailureRequeuesClaimedTask() {

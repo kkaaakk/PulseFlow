@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
+/** 恢复处理超时的 Redis 延迟任务。 */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -16,6 +17,7 @@ public class DelayTaskRecoveryJob {
 
     private final DelayedTaskManager delayedTaskManager;
 
+    /** 扫描并恢复 processing 中超时的延迟任务，使其重新进入待执行队列。 */
     @XxlJob("delayTaskRecoveryJob")
     public void execute() {
         log.info("DelayTaskRecoveryJob started");

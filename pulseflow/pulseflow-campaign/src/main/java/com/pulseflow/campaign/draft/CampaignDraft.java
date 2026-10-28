@@ -13,6 +13,8 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
+ * 保存待人工审核的 DSL、校验结果、预估快照及已确认活动关联。
+ *
  * Campaign draft persisted in the historical campaign_ai_draft table.
  */
 @Data

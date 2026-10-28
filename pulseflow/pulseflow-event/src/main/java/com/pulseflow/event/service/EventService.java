@@ -19,6 +19,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+/** 规范化接入时间及偏差标记，发布 Kafka 并等待确认。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -31,6 +32,8 @@ public class EventService {
     private static final long KAFKA_SEND_TIMEOUT_SECONDS = 10;
 
     /**
+     * 接收行为事件并校验时钟偏差，生成有效事件时间后发布 Kafka。
+     *
      * Accepts an incoming event request, validates the event time for clock skew,
      * and sends it to the Kafka topic for downstream processing.
      *
@@ -69,6 +72,8 @@ public class EventService {
     }
 
     /**
+     * 把接入请求、接收时间、有效时间和偏差标记构造成下游统一 JSON。
+     *
      * Builds the JSON payload to be sent to Kafka.
      */
     private String buildEventPayload(EventRequest request, LocalDateTime receivedAt,
@@ -90,6 +95,8 @@ public class EventService {
     }
 
     /**
+     * 发送事件并等待 broker 确认，失败或超时抛出业务异常。
+     *
      * Sends the event JSON to Kafka and waits for broker acknowledgment.
      *
      * @throws PulseFlowException if the send fails or times out

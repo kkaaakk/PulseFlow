@@ -21,12 +21,15 @@ const initials = computed(() => (profile.value?.nickname || String(profile.value
 const realtime = computed(() => user.value?.realtimeMetrics ?? {})
 const windowMetrics = computed(() => user.value?.windowMetrics ?? {})
 
+/** 读取当前路由用户的资料、画像和事件，失败显示提示并恢复加载状态。 */
 const load = async () => {
   loading.value = true
   try { user.value = await getUser(userId.value) } catch (error) { ElMessage.error(error instanceof Error ? error.message : 'User 360 加载失败') } finally { loading.value = false }
 }
 
+/** 保存选中的事件并打开 JSON 详情抽屉。 */
 const openEvent = (event: EventView) => { selectedEvent.value = event; drawerVisible.value = true }
+/** 优先展示规范有效事件时间，缺失时回退原始事件时间。 */
 const eventTime = (event: EventView) => formatDateTime(event.effectiveEventTime || event.eventTime)
 onMounted(load)
 </script>

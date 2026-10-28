@@ -5,6 +5,7 @@ import com.pulseflow.entity.UserBehaviorSummary;
 import org.apache.ibatis.annotations.Mapper;
 import org.springframework.stereotype.Repository;
 
+/** UserBehaviorSummary 的数据库映射接口，提供基础 CRUD 和所声明的业务查询。 */
 @Mapper
 @Repository
 public interface UserBehaviorSummaryMapper extends BaseMapper<UserBehaviorSummary> {

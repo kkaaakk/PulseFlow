@@ -11,7 +11,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+/** 验证 PerformanceSummaryCalculator 的业务行为和边界条件。 */
 class PerformanceSummaryCalculatorTest {
+    /** 验证发送、点击和归因事实生成正确绩效计数及比率。 */
     @Test
     void computesCountsAndRatesFromDeliveryClickAndAttributionFacts() {
         CampaignMapper campaigns = mock(CampaignMapper.class);

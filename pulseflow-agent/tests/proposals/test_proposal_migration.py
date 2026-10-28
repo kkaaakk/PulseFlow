@@ -10,6 +10,7 @@ from alembic import command
 from alembic.config import Config
 
 
+# 验证旧方案迁移后被隔离，同时保留已有 Java 草稿关联。
 def test_old_proposal_is_quarantined_with_its_draft_link(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

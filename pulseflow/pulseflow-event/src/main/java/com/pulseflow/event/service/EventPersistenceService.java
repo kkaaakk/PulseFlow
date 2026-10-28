@@ -22,6 +22,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
+ * 在独立事务中保存事件与小时统计，重复事件复用数据库规范事实。
+ *
  * Persists an event and its hourly metric bucket inside a single MySQL transaction.
  *
  * <p>Placed in a dedicated {@code @Service} (instead of inside {@code EventConsumer})
@@ -47,6 +49,8 @@ public class EventPersistenceService {
             .registerModule(new JavaTimeModule());
 
     /**
+     * 同事务保存事件与小时统计；重复事件读取数据库规范事实，避免重复累加。
+     *
      * Persist event + hourly metric in one transaction.
      *
      * @return result holding the canonical event (freshly inserted or loaded from DB on duplicate)
@@ -81,6 +85,8 @@ public class EventPersistenceService {
     }
 
     /**
+     * 以原子 upsert 累加小时桶，保证并发消费和回放下统计一致。
+     *
      * Atomic upsert via INSERT ... ON DUPLICATE KEY UPDATE so concurrent
      * consumers / replays accumulate correctly without a select-then-write race.
      */
@@ -110,6 +116,8 @@ public class EventPersistenceService {
     }
 
     /**
+     * 从数据库规范事件重建上下文，使画像和决策不依赖重复消息中的变化字段。
+     *
      * Rebuild a normalized context map from the canonical DB event so Phase 2/3
      * always use MySQL-sourced values (not the Kafka replay payload).
      */
@@ -124,6 +132,7 @@ public class EventPersistenceService {
         return ctx;
     }
 
+    /** 将接入映射转换为事件实体，规范化标识、时间和属性。 */
     private UserEvent buildUserEvent(Map<String, Object> eventMap) {
         return UserEvent.builder()
                 .eventId((String) eventMap.get("eventId"))
@@ -138,6 +147,7 @@ public class EventPersistenceService {
                 .build();
     }
 
+    /** 读取事件上下文中的扩展属性，兼容后续统计所需的数据结构。 */
     @SuppressWarnings("unchecked")
     private Map<String, Object> getProperties(Map<String, Object> eventMap) {
         Object props = eventMap.get("properties");
@@ -147,6 +157,7 @@ public class EventPersistenceService {
         return Collections.emptyMap();
     }
 
+    /** 将数据库保存的属性 JSON 还原为映射。 */
     @SuppressWarnings("unchecked")
     private Map<String, Object> parseProperties(String json) {
         if (json == null || json.isEmpty() || "{}".equals(json)) {
@@ -159,6 +170,7 @@ public class EventPersistenceService {
         }
     }
 
+    /** 将接入属性统一序列化为数据库存储格式。 */
     private String propsToJson(Object props) {
         if (props == null) return "{}";
         try {
@@ -168,6 +180,7 @@ public class EventPersistenceService {
         }
     }
 
+    /** 解析事件时间字符串，供规范事件构建使用。 */
     private LocalDateTime parseDateTime(String dt) {
         if (dt == null) return LocalDateTime.now();
         // LocalDateTime.toString() 在秒数为 0 时会省略秒（例如
@@ -177,12 +190,14 @@ public class EventPersistenceService {
         return LocalDateTime.parse(normalized, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
     }
 
+    /** 把必需数值字段转换为 Long。 */
     private Long toLong(Object val) {
         if (val == null) return 0L;
         if (val instanceof Number) return ((Number) val).longValue();
         return Long.parseLong(String.valueOf(val));
     }
 
+    /** 转换可选数值字段，保留 null 而不误当成零。 */
     private Long toNullableLong(Object val) {
         if (val == null) return null;
         if (val instanceof Number) return ((Number) val).longValue();
@@ -191,6 +206,8 @@ public class EventPersistenceService {
     }
 
     /**
+     * 事件落库阶段的结果，供后续画像与决策阶段复用规范事实。
+     *
      * Result of Phase 1 persistence.
      */
     public static class PersistResult {
@@ -198,22 +215,28 @@ public class EventPersistenceService {
         private final UserEvent event;
         private final Map<String, Object> context;
 
+        /** 保存落库是否成功、数据库规范事件及后续阶段使用的上下文。 */
         private PersistResult(boolean ok, UserEvent event, Map<String, Object> context) {
             this.ok = ok;
             this.event = event;
             this.context = context;
         }
 
+        /** 构造成功结果，携带规范事件和画像、决策所需的上下文。 */
         static PersistResult ok(UserEvent event, Map<String, Object> context) {
             return new PersistResult(true, event, context);
         }
 
+        /** 构造落库失败结果，使消费流程停止后续业务阶段。 */
         static PersistResult fail() {
             return new PersistResult(false, null, null);
         }
 
+        /** 返回落库阶段是否完成，供消费者决定是否继续。 */
         public boolean isOk() { return ok; }
+        /** 返回首次落库或重复查询得到的数据库规范事件。 */
         public UserEvent getEvent() { return event; }
+        /** 返回由规范事件生成的上下文，供实时画像和决策复用。 */
         public Map<String, Object> getContext() { return context; }
     }
 }

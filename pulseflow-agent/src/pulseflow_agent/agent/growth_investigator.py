@@ -2,15 +2,18 @@
 
 from asyncio import CancelledError, shield
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Literal
 
+import httpx
 from opentelemetry import trace
 from pydantic_ai import Agent, ModelResponse, ModelRetry, RunContext, ToolDefinition
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.models import Model
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.models.test import TestModel
-from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.profiles.openai import OpenAIModelProfile
+from pydantic_ai.providers.deepseek import DeepSeekProvider
 from pydantic_ai.usage import RunUsage, UsageLimits
 
 from pulseflow_agent.agent.dependencies import (
@@ -57,7 +60,10 @@ from pulseflow_agent.workspace.context import (
 )
 
 
-def create_model(settings: AgentSettings) -> TestModel | OpenAIModel:
+# 创建显式离线测试模型或 DeepSeek 模型，复用受管理的 HTTP 客户端。
+def create_model(
+    settings: AgentSettings, http_client: httpx.AsyncClient | None = None
+) -> TestModel | OpenAIChatModel:
     if settings.is_test_model:
         # Offline startup is honest about having gathered no business evidence.
         # Scenario tests override this with FunctionModel to exercise tool choice.
@@ -77,17 +83,22 @@ def create_model(settings: AgentSettings) -> TestModel | OpenAIModel:
         )
     api_key = settings.pulseflow_agent_api_key
     assert api_key is not None  # validated by AgentSettings
-    provider = OpenAIProvider(
-        api_key=api_key.get_secret_value(),
-        base_url=(
-            str(settings.pulseflow_agent_base_url) if settings.pulseflow_agent_base_url else None
-        ),
-    )
+    provider = DeepSeekProvider(api_key=api_key.get_secret_value(), http_client=http_client)
+    if settings.pulseflow_agent_base_url:
+        provider.client.base_url = str(settings.pulseflow_agent_base_url)
+    provider.client.timeout = settings.pulseflow_agent_run_timeout_seconds
     # Wire retries are otherwise invisible to PydanticAI UsageLimits.
     provider.client.max_retries = 0
-    return OpenAIModel(settings.pulseflow_agent_model.removeprefix("openai:"), provider=provider)
+    model_name = settings.pulseflow_agent_model.removeprefix("deepseek:")
+    profile = provider.model_profile(model_name)
+    assert isinstance(profile, OpenAIModelProfile)
+    # Thinking mode rejects required/forced tool choice. Preserve DeepSeek's
+    # reasoning_content round trips while allowing the model to choose a tool.
+    profile = replace(profile, openai_supports_tool_choice_required=False)
+    return OpenAIChatModel(model_name, provider=provider, profile=profile)
 
 
+# 把请求次数、工具调用次数及输入输出 token 上限转换为本次运行的预算。
 def create_usage_limits(settings: AgentSettings) -> UsageLimits:
     return UsageLimits(
         request_limit=settings.pulseflow_agent_max_model_requests,
@@ -97,7 +108,9 @@ def create_usage_limits(settings: AgentSettings) -> UsageLimits:
     )
 
 
+# 自主选择聚合工具的调查 Agent，返回经过证据及 PII 校验的诊断。
 class GrowthInvestigator:
+    # 注入业务客户端、PII 防线和遥测组件，构建返回 Diagnosis 的 Agent 并注册工具。
     def __init__(
         self,
         settings: AgentSettings,
@@ -121,6 +134,7 @@ class GrowthInvestigator:
         )
         self._register_tools()
 
+    # 检查 Java 聚合观察文本后记录带数据版本的证据，返回模型可引用的证据 ID 和摘要。
     async def _save(
         self,
         ctx: RunContext[AgentDependencies],
@@ -151,9 +165,11 @@ class GrowthInvestigator:
             evidence_id=evidence.id, observation=observation, warnings=list(metadata.warnings)
         )
 
+    # 注册只读查询、假设管理和方案持久化工具，以及动态上下文与最终诊断校验器。
     def _register_tools(self) -> None:
         agent = self._agent
 
+        # 把已有证据、假设和调查范围注入本轮提示，并在发给模型前执行 PII 检查。
         @agent.instructions
         async def investigation_context(ctx: RunContext[AgentDependencies]) -> str:
             builder = ctx.deps.context_builder
@@ -182,6 +198,7 @@ class GrowthInvestigator:
             await ctx.deps.guardrail.check(context)
             return context
 
+        # 记录指标查询轨迹，调用 Java 聚合接口并将结果转换为可引用的调查证据。
         @agent.tool
         async def query_metric(
             ctx: RunContext[AgentDependencies], request: QueryMetricArgs
@@ -196,6 +213,7 @@ class GrowthInvestigator:
             except ToolClientError as error:
                 return ToolObservation(evidence_id=None, observation=error.code)
 
+        # 查询当前期与基准期的差异，保留 Java 返回的口径和警告作为证据。
         @agent.tool
         async def compare_metric(
             ctx: RunContext[AgentDependencies], request: CompareMetricArgs
@@ -210,6 +228,7 @@ class GrowthInvestigator:
             except ToolClientError as error:
                 return ToolObservation(evidence_id=None, observation=error.code)
 
+        # 按白名单维度拆解指标，将分组聚合结果保存为证据。
         @agent.tool
         async def breakdown_metric(
             ctx: RunContext[AgentDependencies], request: BreakdownMetricArgs
@@ -224,6 +243,7 @@ class GrowthInvestigator:
             except ToolClientError as error:
                 return ToolObservation(evidence_id=None, observation=error.code)
 
+        # 读取权威活动绩效，清理返回内容后生成摘要证据；失败返回安全错误码。
         @agent.tool
         async def get_campaign_performance(
             ctx: RunContext[AgentDependencies], campaign_id: int
@@ -246,6 +266,7 @@ class GrowthInvestigator:
             except ToolClientError as error:
                 return ToolObservation(evidence_id=None, observation=error.code)
 
+        # 获取聚合归因结果，保存查询条件、来源和摘要供推理引用。
         @agent.tool
         async def get_attribution_breakdown(
             ctx: RunContext[AgentDependencies], request: AttributionArgs
@@ -264,6 +285,7 @@ class GrowthInvestigator:
             except ToolClientError as error:
                 return ToolObservation(evidence_id=None, observation=error.code)
 
+        # 调用 Java 校验并预估 DSL 人群，将人数与警告记录为证据。
         @agent.tool
         async def preview_audience(
             ctx: RunContext[AgentDependencies], request: PreviewAudienceArgs
@@ -278,6 +300,7 @@ class GrowthInvestigator:
             except ToolClientError as error:
                 return ToolObservation(evidence_id=None, observation=error.code)
 
+        # 检查假设文本和证据引用，创建当前范围内的待验证假设；非法引用要求模型重试。
         @agent.tool
         async def propose_hypothesis(
             ctx: RunContext[AgentDependencies],
@@ -296,6 +319,7 @@ class GrowthInvestigator:
             except ValueError:
                 raise ModelRetry("Hypothesis evidence must exist in the current scope.") from None
 
+        # 依据支持及反对证据更新当前范围的假设状态、理由和置信度。
         @agent.tool
         async def update_hypothesis(
             ctx: RunContext[AgentDependencies],
@@ -323,6 +347,7 @@ class GrowthInvestigator:
             except ValueError:
                 raise ModelRetry("Hypothesis or Evidence is not in the current scope.") from None
 
+        # 检查假设文本后返回工作区假设，帮助模型复用已有推理进度。
         @agent.tool
         async def list_hypotheses(ctx: RunContext[AgentDependencies]) -> list[Hypothesis]:
             """List hypotheses already recorded in this Investigation Workspace."""
@@ -337,6 +362,7 @@ class GrowthInvestigator:
             )
             return ctx.deps.workspace.hypotheses
 
+        # 应用用户请求的范围变更；旧范围证据降为背景，不能直接证明新范围结论。
         @agent.tool
         async def update_scope(ctx: RunContext[AgentDependencies], description: str) -> str:
             """Apply a user-requested investigation scope change within the same ID."""
@@ -348,6 +374,7 @@ class GrowthInvestigator:
                 raise ModelRetry("Scope must be a nonempty user-requested description.") from None
             return f"scopeVersion={version}; previous scoped evidence is historical background"
 
+        # 授权归属匹配、有当前证据且本轮尚未生成方案时，才向模型开放方案工具。
         async def prepare_proposal(
             ctx: RunContext[AgentDependencies], definition: ToolDefinition
         ) -> ToolDefinition | None:
@@ -361,6 +388,7 @@ class GrowthInvestigator:
                 return None
             return definition
 
+        # 核对证据和操作员授权的优惠事实，持久化本轮唯一方案并返回方案 ID。
         @agent.tool(prepare=prepare_proposal, sequential=True)
         async def persist_campaign_proposal(
             ctx: RunContext[AgentDependencies], proposal: CampaignProposal
@@ -382,6 +410,7 @@ class GrowthInvestigator:
             ctx.deps.proposal_created = True
             return f"proposalId={record.id}; status=GENERATED"
 
+        # 验证结论只引用当前范围的真实证据；证据不足时要求低置信度和未解决问题。
         @agent.output_validator
         def validate_diagnosis(ctx: RunContext[AgentDependencies], output: Diagnosis) -> Diagnosis:
             known = ctx.deps.workspace.evidence_ids
@@ -406,6 +435,8 @@ class GrowthInvestigator:
             self.telemetry.metrics.reference_check(True)
             return output
 
+    # 检查输入后执行受预算约束的调查，持久化终态与诊断；取消和异常记录后继续抛出。
+    # 最终摘要也须通过 PII 检查，避免被拦截的输出进入业务结论。
     async def run(
         self,
         prompt: str,
@@ -441,7 +472,7 @@ class GrowthInvestigator:
             "agent.investigation", record_exception=False, set_status_on_exception=False
         ) as span:
             span.set_attribute(
-                "agent.model_provider", "test" if self._settings.is_test_model else "openai"
+                "agent.model_provider", "test" if self._settings.is_test_model else "deepseek"
             )
             span.set_attribute("investigation.id", workspace.id or "ephemeral")
             try:

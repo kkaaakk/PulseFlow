@@ -24,6 +24,8 @@ import java.util.List;
 import java.util.Set;
 
 /**
+ * 按字段白名单校验活动人群、渠道、排程和频控。
+ *
  * Full validator for a proposed {@link CampaignDsl}.
  *
  * <p>Runs all checks per design §7.5:</p>
@@ -53,6 +55,8 @@ public class CampaignDslValidator {
     private final CampaignFieldRegistry fieldRegistry;
 
     /**
+     * 综合校验人群、渠道、排程和频控，区分有效、需人工确认和无效三类结果。
+     *
      * Validate the given DSL. Returns a result with:
      * <ul>
      *   <li>{@code valid=true} → status=VALIDATED</li>
@@ -128,6 +132,7 @@ public class CampaignDslValidator {
         return DslValidationResult.ok(warnings);
     }
 
+    /** 检查人群逻辑和条件列表，并逐条件累积错误及警告。 */
     private void validateAudience(AudienceGroup audience, List<String> errors, List<String> warnings) {
         if (audience.getLogic() == null || !VALID_LOGIC.contains(audience.getLogic())) {
             errors.add("audience.logic must be AND or OR");
@@ -150,6 +155,7 @@ public class CampaignDslValidator {
         }
     }
 
+    /** 根据注册字段检查条件来源、操作符和值，拒绝不在白名单内的条件。 */
     private void validateCondition(AudienceCondition c, String prefix,
                                    List<String> errors, List<String> warnings) {
         if (c.getField() == null || c.getField().isBlank()) {
@@ -204,6 +210,7 @@ public class CampaignDslValidator {
         validateValue(c, fd, prefix, errors, warnings);
     }
 
+    /** 按字段类型校验条件值的格式与范围，记录可定位到条件的错误。 */
     private void validateValue(AudienceCondition c, CampaignFieldRegistry.FieldDescriptor fd,
                                String prefix, List<String> errors, List<String> warnings) {
         Object value = c.getValue();
@@ -276,6 +283,7 @@ public class CampaignDslValidator {
         }
     }
 
+    /** 校验触发类型、时间及定时配置，缺失但可补齐的信息列入待确认字段。 */
     private void validateSchedule(CampaignSchedule schedule, List<String> errors,
                                    List<String> missingFields, List<String> warnings) {
         if (schedule.getType() == null || !VALID_SCHEDULE_TYPES.contains(schedule.getType())) {
@@ -317,6 +325,7 @@ public class CampaignDslValidator {
         }
     }
 
+    /** 检查频控窗口和次数限制，防止无效或越界配置进入执行链路。 */
     private void validateFrequencyCap(FrequencyCap cap, List<String> errors) {
         if (cap.getMaxTimes() == null || cap.getMaxTimes() <= 0) {
             errors.add("frequencyCap.maxTimes must be > 0");
@@ -326,6 +335,7 @@ public class CampaignDslValidator {
         }
     }
 
+    /** 判断渠道是否属于系统支持的触达渠道。 */
     private boolean isValidChannel(String channel) {
         for (ChannelType ct : ChannelType.values()) {
             if (ct.name().equals(channel)) return true;
@@ -333,6 +343,7 @@ public class CampaignDslValidator {
         return false;
     }
 
+    /** 解析带时区的排程时间，格式无效时返回校验流程可处理的结果。 */
     private OffsetDateTime parseOffsetDateTime(String s) {
         try {
             return OffsetDateTime.parse(s);
@@ -341,6 +352,7 @@ public class CampaignDslValidator {
         }
     }
 
+    /** 判断条件值能否表示合法整数，供字段类型校验使用。 */
     private boolean isParsableInteger(Object v) {
         try {
             Long.parseLong(String.valueOf(v));
@@ -350,6 +362,7 @@ public class CampaignDslValidator {
         }
     }
 
+    /** 判断条件值能否表示合法小数，避免执行阶段才发现格式错误。 */
     private boolean isParsableDecimal(Object v) {
         try {
             new BigDecimal(String.valueOf(v));
@@ -359,11 +372,13 @@ public class CampaignDslValidator {
         }
     }
 
+    /** 把已经校验的条件值转换为整数阈值。 */
     private long toLong(Object v) {
         if (v instanceof Number n) return n.longValue();
         return Long.parseLong(String.valueOf(v));
     }
 
+    /** 把已经校验的条件值转换为精确小数阈值。 */
     private BigDecimal toBigDecimal(Object v) {
         if (v instanceof BigDecimal bd) return bd;
         if (v instanceof Number n) return BigDecimal.valueOf(n.doubleValue());

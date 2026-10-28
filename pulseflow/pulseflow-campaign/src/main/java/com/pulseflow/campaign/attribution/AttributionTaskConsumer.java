@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Set;
 
+/** 轮询到期归因任务，并协调执行、重排及孤立调度恢复。 */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -15,6 +16,8 @@ public class AttributionTaskConsumer {
     private final AttributionService attributionService;
 
     /**
+     * 轮询并原子领取到期归因任务，成功清理领取记录，失败重新排队。
+     *
      * Poll every 30 seconds for attribution tasks whose grace window has expired.
      *
      * <p>用 {@link AttributionService#claimExpiredTasks()} 原子领取（pending → processing），
@@ -72,6 +75,8 @@ public class AttributionTaskConsumer {
     }
 
     /**
+     * 从 MySQL 待处理任务重建 Redis 调度，修复提交后写缓存失败的窗口。
+     *
      * Rebuild Redis scheduling from MySQL PENDING rows. This closes the
      * unavoidable DB-commit-to-Redis-write failure window without reviving
      * MATCHED/EXPIRED tasks (the service query only selects PENDING rows).

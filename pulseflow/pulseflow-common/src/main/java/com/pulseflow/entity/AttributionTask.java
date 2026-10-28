@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/** 记录等待宽限期结束后执行的归因任务及终态。 */
 @Data
 @Builder
 @NoArgsConstructor

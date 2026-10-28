@@ -13,7 +13,9 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
+/** 验证 AgentProposalGateway 的业务行为和边界条件。 */
 class AgentProposalGatewayTest {
+    /** 验证调查方案归属取自 Java 登录会话，生成方案阶段不会创建草稿。 */
     @Test void javaSessionBindsProposalToOwnerWithoutCreatingDraft() throws Exception {
         String id = UUID.randomUUID().toString();
         AgentInvestigationOwnership ownership = mock(AgentInvestigationOwnership.class);

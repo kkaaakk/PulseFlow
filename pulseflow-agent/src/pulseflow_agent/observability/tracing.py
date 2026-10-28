@@ -18,9 +18,11 @@ from pydantic_ai.models.instrumented import InstrumentationSettings
 from pydantic_ai.usage import RunUsage
 
 
+# 跨调查累计的质量和官方用量统计，以锁保护并发更新。
 class QualityMetrics:
     """Cross-run aggregate values; run usage comes from Pydantic AI, not a token counter."""
 
+    # 初始化运行、用量、引用和延迟计数，使用线程锁保护一致性。
     def __init__(self) -> None:
         self._lock = Lock()
         self.runs = self.successes = self.budgets = self.pii_blocks = 0
@@ -31,6 +33,7 @@ class QualityMetrics:
         self.cost_total = 0.0
         self.cost_count = 0
 
+    # 累计调查终态和官方用量；费用未知时保留缺失语义，不按零费用计算。
     def record_status(
         self, status: str, usage: RunUsage | None = None, cost: float | None = None
     ) -> None:
@@ -47,25 +50,30 @@ class QualityMetrics:
                 self.cost_total += cost
                 self.cost_count += 1
 
+    # 累计 Java 调用数及失败数，用于计算下游错误率。
     def java_call(self, error: bool) -> None:
         with self._lock:
             self.java_calls += 1
             self.java_errors += error
 
+    # 记录证据引用校验结果，供质量面板计算引用有效率。
     def reference_check(self, valid: bool) -> None:
         with self._lock:
             self.reference_checks += 1
             self.reference_errors += not valid
 
+    # 记录 HTTP 成功但响应契约不符的错误，不重复增加调用次数。
     def java_contract_error(self) -> None:
         with self._lock:
             self.java_errors += 1
 
+    # 累计调查耗时与样本数，供平均延迟计算使用。
     def latency(self, seconds: float) -> None:
         with self._lock:
             self.latency_total += seconds
             self.latency_count += 1
 
+    # 返回质量指标；无样本或运行数据无法评估的指标返回 None。
     def snapshot(self) -> dict[str, float | None]:
         with self._lock:
             return {
@@ -92,10 +100,13 @@ class QualityMetrics:
             }
 
 
+# 从官方 Agent span 统计运行耗时的遥测处理器。
 class AgentLatencyProcessor(SpanProcessor):
+    # 保存指标收集器，等待 Agent span 结束时记录耗时。
     def __init__(self, metrics: QualityMetrics) -> None:
         self.metrics = metrics
 
+    # 只统计 invoke_agent span，将纳秒差换算为秒记录延迟。
     def on_end(self, span: ReadableSpan) -> None:
         attributes = span.attributes or {}
         if (
@@ -106,12 +117,15 @@ class AgentLatencyProcessor(SpanProcessor):
             self.metrics.latency((span.end_time - span.start_time) / 1_000_000_000)
 
 
+# 在委托实际导出器前清理 span 业务内容和敏感属性。
 class SafeSpanExporter(SpanExporter):
     """Export only operational metadata, even if an instrumentor captures content."""
 
+    # 包装实际导出器，统一在遥测离开进程前过滤内容。
     def __init__(self, wrapped: SpanExporter) -> None:
         self.wrapped = wrapped
 
+    # 复制 span，只保留元数据与用量白名单，清空事件、链接和状态描述后导出。
     def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
         allowed = {
             "gen_ai.operation.name",
@@ -173,11 +187,14 @@ class SafeSpanExporter(SpanExporter):
         ]
         return self.wrapped.export(safe)
 
+    # 关闭被包装的导出器，释放其资源。
     def shutdown(self) -> None:
         self.wrapped.shutdown()
 
 
+# 管理 tracer provider、隐私过滤导出及聚合指标。
 class Telemetry:
+    # 创建或复用 provider，注册延迟处理器和经过过滤的导出器。
     def __init__(
         self,
         endpoint: str | None = None,
@@ -198,6 +215,7 @@ class Telemetry:
         if exporter is not None:
             self.provider.add_span_processor(SimpleSpanProcessor(SafeSpanExporter(exporter)))
 
+    # 返回官方 instrumentation 配置，关闭文本和二进制内容采集。
     def agent_instrumentation(self) -> Instrumentation:
         return Instrumentation(
             settings=InstrumentationSettings(
@@ -208,6 +226,7 @@ class Telemetry:
             )
         )
 
+    # 为 OTLP 地址注册批量处理器，所有 span 经安全过滤后再发送。
     def configure_endpoint(self, endpoint: str) -> None:
         self.provider.add_span_processor(
             BatchSpanProcessor(
@@ -219,5 +238,6 @@ class Telemetry:
             )
         )
 
+    # 关闭 tracer provider，完成处理器与导出器资源清理。
     def shutdown(self) -> None:
         self.provider.shutdown()

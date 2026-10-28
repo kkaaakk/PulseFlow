@@ -1,3 +1,4 @@
+# 调查 Agent 的固定行为指令；运行时原文保持不变，避免改变模型决策契约。
 """Public behavioral instructions for the single investigation agent."""
 
 GROWTH_INVESTIGATOR_INSTRUCTIONS = """

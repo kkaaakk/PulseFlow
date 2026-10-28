@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// 按统一中文标签与颜色映射展示业务状态。
 import { computed } from 'vue'
 
 import { getStatusLabel, statusTone } from '@/utils/status'

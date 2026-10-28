@@ -13,6 +13,7 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+/** 按用户、小时和事件类型聚合的小时桶指标。 */
 @Data
 @Builder
 @NoArgsConstructor

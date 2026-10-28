@@ -67,6 +67,7 @@ const pacingSeconds = Number(__ENV.PACE_SECONDS || selectedConfig.pacingSeconds)
 
 export const options = selectedConfig.options;
 
+/** 每轮生成并提交一个事件，累计业务失败率与断言结果，再按场景节奏暂停。 */
 export default function () {
   const response = http.post(
     `${baseUrl}/api/events`,
@@ -79,7 +80,9 @@ export default function () {
   const accepted = isAccepted(response);
   apiFailures.add(!accepted);
   check(response, {
+    /** 检查事件接入 HTTP 状态为成功。 */
     'event ingress returns HTTP 200': (res) => res.status === 200,
+    /** 检查统一响应中的业务状态及接收标志有效。 */
     'ApiResponse code and accepted flag are valid': () => accepted,
   });
   if (pacingSeconds > 0) sleep(pacingSeconds);

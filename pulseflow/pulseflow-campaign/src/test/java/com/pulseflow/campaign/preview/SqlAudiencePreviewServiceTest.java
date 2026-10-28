@@ -18,7 +18,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+/** 验证 SqlAudiencePreviewService 的业务行为和边界条件。 */
 class SqlAudiencePreviewServiceTest {
+    /** 验证人数预估基于画像事实并携带数据版本。 */
     @Test
     void returnsEstimatedAudienceAndDataVersionFromProfileFacts() {
         UserProfileMapper profiles = mock(UserProfileMapper.class);

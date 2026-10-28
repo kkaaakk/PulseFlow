@@ -15,11 +15,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/** 验证 AgentToolAuth 的业务行为和边界条件。 */
 class AgentToolAuthTest {
     private final AgentMetricService metrics = mock(AgentMetricService.class);
     private final AgentToolService business = mock(AgentToolService.class);
     private final AgentToolController controller = new AgentToolController(metrics, business);
 
+    /** 构建独立 MockMvc 并安装待测过滤器，避免启动完整业务应用。 */
     private MockMvc mvc(String configuredToken) {
         return MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new AgentToolExceptionHandler())
@@ -27,6 +29,7 @@ class AgentToolAuthTest {
                 .build();
     }
 
+    /** 验证缺失或错误令牌在业务代码执行前被拦截。 */
     @Test
     void missingAndWrongTokenAreRejectedBeforeBusinessCode() throws Exception {
         MockMvc mvc = mvc("a-long-internal-machine-token");
@@ -38,6 +41,7 @@ class AgentToolAuthTest {
         verifyNoInteractions(metrics, business);
     }
 
+    /** 验证正确令牌放行，而未配置令牌时接口拒绝访问。 */
     @Test
     void correctTokenPassesAndUnconfiguredApiFailsClosed() throws Exception {
         when(business.performance(7L)).thenReturn(new PerformanceResponse(
@@ -52,6 +56,7 @@ class AgentToolAuthTest {
                 .andExpect(status().isServiceUnavailable());
     }
 
+    /** 验证未知指标和维度返回参数错误且不回显输入。 */
     @Test
     void unknownMetricAndDimensionReturnBadRequestWithoutEchoingInput() throws Exception {
         String body = """

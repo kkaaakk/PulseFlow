@@ -17,11 +17,13 @@ const detail = ref<CampaignDetailData>()
 const deliveryTrend = ref<TrendPoint[]>([])
 const campaignId = computed(() => Number(route.params.id))
 const campaign = computed(() => detail.value?.campaign)
+/** 并行读取活动详情和触达趋势，减少页面等待并统一处理加载状态。 */
 const load = async () => {
   loading.value = true
   try { const [campaignResult, trendResult] = await Promise.all([getCampaign(campaignId.value), getCampaignDeliveryTrend(campaignId.value)]); detail.value = campaignResult; deliveryTrend.value = trendResult } catch (error) { ElMessage.error(error instanceof Error ? error.message : 'Campaign 详情加载失败') } finally { loading.value = false }
 }
 
+/** 按规则名查找配置，转换为 JSON 文本供详情页展示，缺失时返回占位符。 */
 const configValue = (key: string) => {
   const config = detail.value?.rules.find((rule) => rule.name === key)?.config
   return typeof config === 'object' && config !== null ? JSON.stringify(config) : '—'

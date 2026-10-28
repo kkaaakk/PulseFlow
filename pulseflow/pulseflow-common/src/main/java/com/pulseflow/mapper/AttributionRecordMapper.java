@@ -5,6 +5,7 @@ import com.pulseflow.entity.AttributionRecord;
 import org.apache.ibatis.annotations.Mapper;
 import org.springframework.stereotype.Repository;
 
+/** AttributionRecord 的数据库映射接口，提供基础 CRUD 和所声明的业务查询。 */
 @Mapper
 @Repository
 public interface AttributionRecordMapper extends BaseMapper<AttributionRecord> {

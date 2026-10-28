@@ -19,6 +19,7 @@
 
 . (Join-Path $PSScriptRoot '..\common.ps1')
 
+# 根据命令行场景构造功能验证计划，关联数据集、规模与下游检查。
 function Get-ScenarioPlan {
     param([string]$SelectedScenario, [string]$SelectedScale)
     $scaleName = $SelectedScale.ToLowerInvariant()
@@ -52,6 +53,7 @@ function Get-ScenarioPlan {
     }
 }
 
+# 从验证计划提取需要生成的夹具场景，避免重复生成相同数据。
 function Get-GeneratorScenarios {
     param([string]$SelectedScenario)
     switch ($SelectedScenario) {
@@ -65,6 +67,7 @@ function Get-GeneratorScenarios {
     }
 }
 
+# 将功能子进程退出码转为统一结果状态。
 function Get-StatusFromExitCode {
     param([int]$ExitCode)
     if ($ExitCode -eq 0) { return 'PASS' }
@@ -72,6 +75,7 @@ function Get-StatusFromExitCode {
     return 'NOT_RUN'
 }
 
+# 调用限定测试所有权范围的清理或验证命令，保存状态结果供后续步骤检查。
 function Invoke-FunctionalStateCommand {
     param(
         [Parameter(Mandatory = $true)][ValidateSet('reset', 'verify')][string]$Mode,
@@ -154,6 +158,7 @@ $script:ReportScenarioLabels = @{
     campaign = 'Campaign 营销 / 频控 / 归因'
 }
 
+# 把功能检查状态转换为中文标签。
 function Get-ReportStatusLabel {
     param([string]$Status, [switch]$Partial)
     if ($Partial -and $Status -eq 'NOT_RUN') { return '⚠️ NOT_RUN（部分未执行）' }
@@ -161,6 +166,7 @@ function Get-ReportStatusLabel {
     return $Status
 }
 
+# 将业务模块标识转换为功能报告中的中文分组。
 function Get-ReportModuleLabel {
     param([string]$Module)
     if ($script:ReportModuleLabels.ContainsKey($Module)) { return $script:ReportModuleLabels[$Module] }
@@ -168,6 +174,7 @@ function Get-ReportModuleLabel {
     return '未知模块'
 }
 
+# 将检查项代码转换为报告说明，便于读者理解验证目标。
 function Get-ReportCheckLabel {
     param([string]$CheckId, [string]$Description = '')
     if ($script:ReportCheckLabels.ContainsKey($CheckId)) { return $script:ReportCheckLabels[$CheckId] }
@@ -176,6 +183,7 @@ function Get-ReportCheckLabel {
     return '未命名校验'
 }
 
+# 为各功能场景生成统一展示名称。
 function Get-ReportScenarioLabel {
     param([string]$Scenario)
     if ($script:ReportScenarioLabels.ContainsKey($Scenario)) { return $script:ReportScenarioLabels[$Scenario] }
@@ -183,6 +191,7 @@ function Get-ReportScenarioLabel {
     return '未知场景'
 }
 
+# 把期望或实际值压缩为有界展示文本，避免报告表格过长。
 function Get-ReportShortValue {
     param([object]$Value)
     if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) { return '—' }
@@ -195,6 +204,7 @@ function Get-ReportShortValue {
     return $text
 }
 
+# 汇总通过、失败和未运行检查数量，形成场景结果摘要。
 function Get-ReportCheckCountText {
     param([object]$Summary)
     if ($null -eq $Summary -or $null -eq $Summary.checkCounts) { return '—' }
@@ -203,6 +213,7 @@ function Get-ReportCheckCountText {
     return "通过 $($Summary.checkCounts.PASS) / 失败 $($Summary.checkCounts.FAIL) / 未执行 $($Summary.checkCounts.NOT_RUN)"
 }
 
+# 整理场景状态与逐项检查，输出功能验证 Markdown 报告。
 function Write-FunctionalMarkdown {
     param(
         [Parameter(Mandatory = $true)][string]$ReportRoot,
@@ -254,6 +265,7 @@ function Write-FunctionalMarkdown {
     }
 }
 
+# 在确认测试环境与数据库后装载专用活动夹具，为频控、延迟和归因场景做准备。
 function Prepare-CampaignFixture {
     param([string]$MysqlDatabase)
     $mysqlBin = if ($env:PULSEFLOW_TEST_MYSQL_BIN) { $env:PULSEFLOW_TEST_MYSQL_BIN } else { 'mysql' }

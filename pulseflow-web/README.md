@@ -4,6 +4,8 @@ Vue 3 + TypeScript + Vite console for the PulseFlow event → profile → Campai
 
 ## Local development
 
+Run `.\start.ps1` from the repository root for the complete Docker stack, including the web console at `http://127.0.0.1:5173`. For frontend source development, stop the Docker web service with `docker compose stop web` before using the same port locally.
+
 ```powershell
 npm install
 npm run dev
@@ -18,7 +20,7 @@ mvn spring-boot:run -pl pulseflow-boot -am
 
 The local login defaults are Operator ID `1024` and password `pulseflow-local`. Replace them with `PULSEFLOW_OPERATOR_PASSWORD` (and the related auth properties) outside a demo environment.
 
-For a single-node local run, auth sessions use the in-memory Sa-Token store by default so User 360 can still use its MySQL realtime fallback when Redis is stopped. Set `PULSEFLOW_AUTH_SESSION_STORE=redis` when distributed sessions are required.
+Auth sessions use Redis by default, including in the Docker stack. Set `PULSEFLOW_AUTH_SESSION_STORE=memory` explicitly for isolated single-node tests that stop Redis while checking the User 360 MySQL fallback.
 
 ## Deterministic UI demo
 

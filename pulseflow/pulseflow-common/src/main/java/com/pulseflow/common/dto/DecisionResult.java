@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 
 import java.util.Map;
 
+/** 规则决策结果，保存匹配与执行相关信息。 */
 @Data
 @Builder
 @NoArgsConstructor

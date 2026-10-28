@@ -7,6 +7,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
+ * 单个人群条件，字段、类型和操作符均受注册表约束。
+ *
  * A single condition in a Campaign audience rule.
  *
  * <p>{@code field} MUST exist in {@link com.pulseflow.campaign.validation.CampaignFieldRegistry}.

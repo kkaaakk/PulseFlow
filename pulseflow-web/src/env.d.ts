@@ -1,3 +1,4 @@
+// 声明 Vite 环境变量和 Vue 文件模块类型，供类型检查使用。
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {

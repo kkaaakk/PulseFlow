@@ -17,6 +17,7 @@ from pulseflow_agent.workspace.service import InvestigationService
 from tests.test_foundation import settings
 
 
+# 验证并发和分钟速率限制直接拒绝超限请求，运行名额保持有界。
 @pytest.mark.asyncio
 async def test_admission_has_no_queue_and_rate_limit_is_bounded() -> None:
     limit = RunAdmission(
@@ -32,6 +33,7 @@ async def test_admission_has_no_queue_and_rate_limit_is_bounded() -> None:
         await limit.acquire()
 
 
+# 验证后台取消、超时及关停都能释放容量。
 @pytest.mark.asyncio
 @pytest.mark.parametrize("timeout", [False, True])
 async def test_background_cancel_timeout_and_shutdown_release_capacity(
@@ -49,6 +51,7 @@ async def test_background_cancel_timeout_and_shutdown_release_capacity(
         investigator = GrowthInvestigator(config, guard, PulseFlowApiClient(config, client))
         entered = asyncio.Event()
 
+        # 模拟耗时调查，供取消与超时测试触发任务中断。
         async def slow(*args: object, **kwargs: object) -> None:
             entered.set()
             await asyncio.sleep(30)
@@ -76,6 +79,7 @@ async def test_background_cancel_timeout_and_shutdown_release_capacity(
     await engine.dispose()
 
 
+# 验证重启后遗留 RUNNING 记录变成可恢复状态。
 @pytest.mark.asyncio
 async def test_restart_marks_running_investigations_recoverable() -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -88,10 +92,12 @@ async def test_restart_marks_running_investigations_recoverable() -> None:
     await engine.dispose()
 
 
+# 验证连续失败触发熔断，客户端不会偷偷重复发送请求。
 @pytest.mark.asyncio
 async def test_tool_circuit_breaker_stops_requests_and_never_retries_writes() -> None:
     calls = 0
 
+    # 模拟 Java 服务失败，统计请求次数以验证熔断效果。
     def failed(_request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
@@ -109,6 +115,7 @@ async def test_tool_circuit_breaker_stops_requests_and_never_retries_writes() ->
         assert calls == 3
 
 
+# 验证异步调查、SSE、内部鉴权、PII 拦截及健康状态的完整接口契约。
 def test_async_api_sse_auth_pii_and_readiness(monkeypatch: pytest.MonkeyPatch) -> None:
     app = create_app(settings())
     headers = {"X-PulseFlow-Agent-Token": "fake-internal-token"}

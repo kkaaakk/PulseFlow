@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/** 画像或决策失败后的事件重放任务及重试状态。 */
 @Data
 @Builder
 @NoArgsConstructor

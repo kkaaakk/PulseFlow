@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/** 定时活动某次触发的执行实例，用于幂等及失败恢复。 */
 @Data
 @Builder
 @NoArgsConstructor

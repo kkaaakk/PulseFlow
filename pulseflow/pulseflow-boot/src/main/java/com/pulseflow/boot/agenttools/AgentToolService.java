@@ -26,7 +26,9 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-/** Read-only adapters over existing Java business services and summaries. */
+/**
+ * 将已有 Java 业务服务适配为 Agent 聚合工具响应。
+ * Read-only adapters over existing Java business services and summaries. */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -36,6 +38,7 @@ public class AgentToolService {
     private final CampaignDslValidator validator;
     private final AudiencePreviewService previewService;
 
+    /** 读取活动绩效并映射为内部工具契约，附带可追溯查询元数据。 */
     @WithSpan("agent-tools.performance")
     public PerformanceResponse performance(Long campaignId) {
         if (campaignId == null || campaignId <= 0) throw new IllegalArgumentException("invalid_campaign_id");
@@ -62,6 +65,7 @@ public class AgentToolService {
                 summary.getConversionRate(), calculatedAt);
     }
 
+    /** 先校验 DSL，仅在有效时执行预估，将错误、警告和人数统一返回。 */
     @WithSpan("agent-tools.audience-preview")
     public AudienceResponse audience(AudienceRequest request) {
         if (request == null || request.dsl() == null) throw new IllegalArgumentException("invalid_campaign_dsl");
@@ -85,6 +89,7 @@ public class AgentToolService {
         return new AudienceResponse(meta, failed ? null : result.getEstimatedCount(), validation);
     }
 
+    /** 把本地业务时间转换为带时区语义的 Instant，供跨服务契约使用。 */
     private Instant toInstant(LocalDateTime value) {
         return value == null ? null : value.atZone(AgentMetricService.BUSINESS_ZONE).toInstant();
     }

@@ -9,6 +9,8 @@ import lombok.NoArgsConstructor;
 import java.util.List;
 
 /**
+ * 类型化活动配置，串联人群、渠道、排程、频控和授权优惠事实。
+ *
  * Root DSL object validated before draft save.
  *
  * <p>v1 constraints (enforced by {@link com.pulseflow.campaign.validation.CampaignDslValidator}):</p>

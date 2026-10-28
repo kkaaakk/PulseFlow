@@ -22,6 +22,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
 
 /**
+ * 验证 EventPersistenceService 的业务行为和边界条件。
+ *
  * Unit test for {@link EventPersistenceService} — Phase 1 of the event
  * consumption pipeline. Verifies the idempotent duplicate-event handling
  * that protects against Kafka replays.
@@ -37,6 +39,7 @@ class EventPersistenceServiceTest {
     private UserMetricHourlyMapper userMetricHourlyMapper;
     private EventPersistenceService service;
 
+    /** 初始化当前测试的实体、依赖替身和数据，使各场景之间保持隔离。 */
     @BeforeEach
     void setUp() {
         userEventMapper = mock(UserEventMapper.class);
@@ -44,6 +47,7 @@ class EventPersistenceServiceTest {
         service = new EventPersistenceService(userEventMapper, userMetricHourlyMapper);
     }
 
+    /** 验证重复事件 ID 不重复写入事实和统计。 */
     @Test
     @DisplayName("duplicate eventId → load canonical record from DB → ok=true (idempotent)")
     void duplicateEventIdIsIdempotent() {
@@ -95,6 +99,7 @@ class EventPersistenceServiceTest {
                 .upsertAccumulate(any(), any(), any(), anyInt(), anyLong(), any());
     }
 
+    /** 验证分钟精度与小数秒精度 ISO 时间均可持久化。 */
     @Test
     @DisplayName("支持 LocalDateTime 的分钟格式和小数秒格式")
     void acceptsIsoMinuteAndFractionalSecondTimestamps() {
@@ -122,6 +127,7 @@ class EventPersistenceServiceTest {
                 any(), any(), any(), anyInt(), anyLong(), any());
     }
 
+    /** 验证事件落库保留 null 目标标识。 */
     @Test
     @DisplayName("缺少 targetId 时保留数据库 NULL 语义")
     void preservesNullTargetId() {
@@ -143,6 +149,7 @@ class EventPersistenceServiceTest {
         assertThat(eventCaptor.getValue().getTargetId()).isNull();
     }
 
+    /** 验证数值目标标识在事件转换后保持不变。 */
     @ParameterizedTest(name = "targetId={0}")
     @ValueSource(longs = {0L, 123L})
     @DisplayName("非空 targetId 保持原始数值")

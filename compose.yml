@@ -1,0 +1,249 @@
+name: pulseflow
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: "no"
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_DATABASE: pulseflow
+      MYSQL_USER: pulseflow
+      MYSQL_PASSWORD: ${PULSEFLOW_MYSQL_PASSWORD:?run start.ps1 first}
+      MYSQL_ROOT_PASSWORD: ${PULSEFLOW_MYSQL_ROOT_PASSWORD:?run start.ps1 first}
+    ports: ["127.0.0.1:${PULSEFLOW_MYSQL_PORT:-13307}:3306"]
+    volumes: [mysql-data:/var/lib/mysql]
+    networks: [business]
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$${MYSQL_PASSWORD}\" mysql --protocol=TCP -h127.0.0.1 -upulseflow -Dpulseflow -e 'SELECT 1' >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  redis:
+    image: redis:7.2-alpine
+    restart: "no"
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["127.0.0.1:${PULSEFLOW_REDIS_PORT:-16380}:6379"]
+    volumes: [redis-data:/data]
+    networks: [business]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  kafka:
+    image: apache/kafka:3.7.0
+    restart: "no"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:19092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:${PULSEFLOW_KAFKA_PORT:-19093}
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports: ["127.0.0.1:${PULSEFLOW_KAFKA_PORT:-19093}:19092"]
+    volumes: [kafka-data:/tmp/kraft-combined-logs]
+    networks: [business]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      start_period: 30s
+      retries: 30
+
+  agent-mysql:
+    image: mysql:8.0
+    restart: "no"
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_DATABASE: pulseflow_agent
+      MYSQL_USER: pulseflow_agent
+      MYSQL_PASSWORD: ${PULSEFLOW_AGENT_DB_PASSWORD:?run start.ps1 first}
+      MYSQL_ROOT_PASSWORD: ${PULSEFLOW_AGENT_DB_ROOT_PASSWORD:?run start.ps1 first}
+    volumes: [agent-mysql-data:/var/lib/mysql]
+    networks: [agent-internal]
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$${MYSQL_PASSWORD}\" mysql --protocol=TCP -h127.0.0.1 -upulseflow_agent -Dpulseflow_agent -e 'SELECT 1' >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  agent-migrate:
+    build: ./pulseflow-agent
+    image: pulseflow-agent:local
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      PULSEFLOW_AGENT_DATABASE_URL: mysql+asyncmy://pulseflow_agent:${PULSEFLOW_AGENT_DB_PASSWORD}@agent-mysql:3306/pulseflow_agent
+    networks: [agent-internal]
+    depends_on:
+      agent-mysql: { condition: service_healthy }
+    healthcheck: { disable: true }
+
+  xxl-job-mysql:
+    image: mysql:8.0
+    restart: "no"
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_DATABASE: xxl_job
+      MYSQL_USER: xxl_job
+      MYSQL_PASSWORD: ${XXL_JOB_DB_PASSWORD:?run start.ps1 first}
+      MYSQL_ROOT_PASSWORD: ${XXL_JOB_DB_ROOT_PASSWORD:?run start.ps1 first}
+    volumes:
+      - xxl-job-mysql-data:/var/lib/mysql
+      - ./deploy/xxl-job/schema-2.4.1.sql:/docker-entrypoint-initdb.d/00-schema.sql:ro
+    networks: [scheduler]
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$${MYSQL_PASSWORD}\" mysql --protocol=TCP -h127.0.0.1 -uxxl_job -Dxxl_job -e 'SELECT 1 FROM xxl_job_lock' >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  xxl-job-admin:
+    image: xuxueli/xxl-job-admin:2.4.1
+    restart: "no"
+    environment:
+      TZ: Asia/Shanghai
+      JAVA_OPTS: -Xms128m -Xmx256m
+      SPRING_DATASOURCE_URL: jdbc:mysql://xxl-job-mysql:3306/xxl_job?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: xxl_job
+      SPRING_DATASOURCE_PASSWORD: ${XXL_JOB_DB_PASSWORD}
+      XXL_JOB_ACCESSTOKEN: ${XXL_JOB_ACCESS_TOKEN:?run start.ps1 first}
+    ports: ["127.0.0.1:${XXL_JOB_ADMIN_PORT:-8081}:8080"]
+    volumes: [xxl-job-logs:/data/applogs]
+    networks: [scheduler]
+    depends_on:
+      xxl-job-mysql: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/8080; printf \"GET /xxl-job-admin/toLogin HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n\" >&3; read -r status <&3; [[ \"$$status\" == *\" 200 \"* ]]'"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 30
+
+  jaeger:
+    image: cr.jaegertracing.io/jaegertracing/jaeger:2.17.0
+    restart: "no"
+    ports: ["127.0.0.1:${JAEGER_UI_PORT:-16687}:16686"]
+    networks: [telemetry]
+
+  java:
+    build: ./pulseflow
+    restart: "no"
+    environment:
+      TZ: Asia/Shanghai
+      JAVA_TOOL_OPTIONS: -Duser.timezone=Asia/Shanghai
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/pulseflow?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: pulseflow
+      SPRING_DATASOURCE_PASSWORD: ${PULSEFLOW_MYSQL_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_REDIS_HOST: redis
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      PULSEFLOW_AUTH_SESSION_STORE: redis
+      PULSEFLOW_AGENT_SERVICE_URL: http://agent:8001
+      PULSEFLOW_AGENT_INTERNAL_TOKEN: ${PULSEFLOW_AGENT_INTERNAL_TOKEN:?run start.ps1 first}
+      PULSEFLOW_OPERATOR_PASSWORD: ${PULSEFLOW_OPERATOR_PASSWORD:-pulseflow-local}
+      PULSEFLOW_ADMIN_PASSWORD: ${PULSEFLOW_ADMIN_PASSWORD:-pulseflow-admin}
+      PULSEFLOW_SIMULATOR_ENABLED: "true"
+      XXL_JOB_ADMIN_ADDRESSES: http://xxl-job-admin:8080/xxl-job-admin
+      XXL_JOB_ACCESS_TOKEN: ${XXL_JOB_ACCESS_TOKEN}
+      XXL_JOB_EXECUTOR_ADDRESS: http://java:9999/
+      PULSEFLOW_OTEL_DISABLED: "false"
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    ports: ["127.0.0.1:${PULSEFLOW_API_PORT:-8080}:8080"]
+    volumes: [java-job-logs:/data/applogs]
+    networks: [business, agent-internal, scheduler, telemetry]
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      xxl-job-admin: { condition: service_healthy }
+      jaeger: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 30
+    stop_grace_period: 30s
+
+  agent:
+    build: ./pulseflow-agent
+    image: pulseflow-agent:local
+    restart: "no"
+    init: true
+    environment:
+      TZ: Asia/Shanghai
+      PULSEFLOW_AGENT_ENV: production
+      PULSEFLOW_AGENT_MODEL: ${PULSEFLOW_AGENT_MODEL:?set a real model in .env}
+      PULSEFLOW_AGENT_MAX_MODEL_REQUESTS: ${PULSEFLOW_AGENT_MAX_MODEL_REQUESTS:-8}
+      PULSEFLOW_AGENT_API_KEY: ${PULSEFLOW_AGENT_API_KEY:?set the model key in .env}
+      PULSEFLOW_AGENT_BASE_URL: ${PULSEFLOW_AGENT_BASE_URL:-}
+      AZURE_LANGUAGE_ENDPOINT: ${AZURE_LANGUAGE_ENDPOINT:?set the Azure PII endpoint in .env}
+      AZURE_LANGUAGE_KEY: ${AZURE_LANGUAGE_KEY:?set the Azure PII key in .env}
+      AZURE_LANGUAGE_PII_LANGUAGE: ${AZURE_LANGUAGE_PII_LANGUAGE:-zh-hans}
+      PULSEFLOW_AGENT_DATABASE_URL: mysql+asyncmy://pulseflow_agent:${PULSEFLOW_AGENT_DB_PASSWORD}@agent-mysql:3306/pulseflow_agent
+      PULSEFLOW_JAVA_BASE_URL: http://java:8080
+      PULSEFLOW_AGENT_INTERNAL_TOKEN: ${PULSEFLOW_AGENT_INTERNAL_TOKEN}
+      PULSEFLOW_AGENT_OTEL_ENDPOINT: http://jaeger:4318
+    networks: [agent-internal, agent-egress, telemetry]
+    depends_on:
+      agent-migrate: { condition: service_completed_successfully }
+      java: { condition: service_healthy }
+    stop_grace_period: 30s
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  xxl-job-bootstrap:
+    image: mysql:8.0
+    entrypoint: ["sh", "/bootstrap/bootstrap.sh"]
+    environment:
+      MYSQL_PWD: ${XXL_JOB_DB_PASSWORD}
+      XXL_JOB_ADMIN_PASSWORD: ${XXL_JOB_ADMIN_PASSWORD:?run start.ps1 first}
+    volumes: [./deploy/xxl-job:/bootstrap:ro]
+    networks: [scheduler]
+    depends_on:
+      xxl-job-admin: { condition: service_healthy }
+      java: { condition: service_healthy }
+
+  web:
+    build: ./pulseflow-web
+    restart: "no"
+    ports: ["127.0.0.1:${PULSEFLOW_WEB_PORT:-5173}:80"]
+    networks: [business]
+    depends_on:
+      java: { condition: service_healthy }
+      agent: { condition: service_healthy }
+      xxl-job-bootstrap: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+networks:
+  business: {}
+  scheduler: {}
+  agent-internal: { internal: true }
+  agent-egress: {}
+  telemetry: {}
+
+volumes:
+  mysql-data:
+  redis-data:
+  kafka-data:
+  agent-mysql-data:
+  xxl-job-mysql-data:
+  xxl-job-logs:
+  java-job-logs:

@@ -15,6 +15,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/** 根据近期日指标批量重算并保存用户标签。 */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -24,6 +25,7 @@ public class TagRecalcJob {
     private final UserTagMapper userTagMapper;
     private final List<TagStrategy> tagStrategies;
 
+    /** 遍历用户近期日指标，调用标签策略计算结果并保存最新标签记录。 */
     @XxlJob("tagRecalcJob")
     public void execute() {
         log.info("TagRecalcJob started, {} strategies registered", tagStrategies.size());

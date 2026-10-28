@@ -12,5 +12,6 @@ public final class DelayedTaskConstants {
     /** 营销延迟任务（如购物车放弃召回）的统一 taskType。 */
     public static final String CAMPAIGN_TASK_TYPE = "DELAYED_CAMPAIGN";
 
+    /** 隐藏工具类构造入口，避免创建没有状态的工具类实例。 */
     private DelayedTaskConstants() {}
 }

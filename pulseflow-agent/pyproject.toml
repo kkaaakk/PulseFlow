@@ -52,3 +52,4 @@ packages = ["pulseflow_agent"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = ["real_provider: explicitly opted-in paid provider evaluation"]

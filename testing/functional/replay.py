@@ -27,10 +27,12 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[2]
 
 
+# 以稳定键顺序和紧凑格式输出 JSON，保证数据集摘要与回放记录可重复比较。
 def stable_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+# 要求回放目标为本机 HTTP/HTTPS 地址，避免误向外部服务发送测试事件。
 def assert_safe_base_url(base_url: str) -> None:
     parsed = urlparse(base_url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -48,6 +50,7 @@ def assert_safe_base_url(base_url: str) -> None:
         )
 
 
+# 从耗时样本计算指定分位值，供回放延迟统计使用。
 def percentile(values: list[float], fraction: float) -> float | None:
     if not values:
         return None
@@ -61,6 +64,7 @@ def percentile(values: list[float], fraction: float) -> float | None:
     return round(ordered[lower] * (1 - weight) + ordered[upper] * weight, 3)
 
 
+# 解析数据集、目标地址、并发、节奏、超时与报告输出参数。
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", required=True, type=Path)
@@ -83,6 +87,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# 读取数据集清单并解析关联数据路径，供回放或事实校验使用。
 def load_manifest(dataset: Path) -> dict[str, Any] | None:
     manifest = dataset.with_name(dataset.stem + ".manifest.json")
     if not manifest.exists():
@@ -95,6 +100,7 @@ def load_manifest(dataset: Path) -> dict[str, Any] | None:
     return json.loads(manifest.read_text(encoding="utf-8"))
 
 
+# 按清单时间基准平移事件时间，保留相对时间与边界关系，使历史夹具可在当天回放。
 def rebase_event_time(body: Any, manifest: dict[str, Any] | None) -> Any:
     """Preserve relative event time while making boundary fixtures runnable today."""
     if not isinstance(body, dict) or not isinstance(body.get("eventTime"), str) or not manifest:
@@ -116,6 +122,7 @@ def rebase_event_time(body: Any, manifest: dict[str, Any] | None) -> Any:
     return result
 
 
+# 兼容普通事件和带预期状态的测试包装，按需平移时间并返回请求及预期结果。
 def request_body(record: dict[str, Any], manifest: dict[str, Any] | None,
                  rebase: bool) -> tuple[Any, int, str | None]:
     if "body" in record:
@@ -125,6 +132,7 @@ def request_body(record: dict[str, Any], manifest: dict[str, Any] | None,
     return body, 200, None
 
 
+# 向事件接入接口发送 JSON，返回 HTTP 状态、响应、错误和耗时。
 def send_json(base_url: str, body: Any, timeout: float) -> tuple[int | None, Any, str | None, float]:
     payload = body if isinstance(body, str) else stable_json(body)
     request = Request(
@@ -146,6 +154,7 @@ def send_json(base_url: str, body: Any, timeout: float) -> tuple[int | None, Any
         return None, None, str(error), (time.perf_counter() - started) * 1000
 
 
+# 解析响应 JSON，解析失败时保留有界原始文本以便定位。
 def parse_response_body(raw: str) -> Any:
     if not raw:
         return None
@@ -155,6 +164,7 @@ def parse_response_body(raw: str) -> Any:
         return {"raw": raw[:4_096], "parseError": True}
 
 
+# 限制失败报告中的输入大小，并标记是否截断，防止超大载荷膨胀报告。
 def compact_input(body: Any) -> tuple[Any, bool]:
     text = body if isinstance(body, str) else stable_json(body)
     if len(text) <= 16_384:
@@ -162,6 +172,7 @@ def compact_input(body: Any) -> tuple[Any, bool]:
     return text[:16_384], True
 
 
+# 同时检查 HTTP 状态和统一业务响应；成功事件还需 accepted=true。
 def response_passed(expected_status: int, status: int | None, response_body: Any) -> bool:
     """Apply the shared ingress contract used by functional and performance tests."""
     if status != expected_status or not isinstance(response_body, dict):
@@ -174,6 +185,7 @@ def response_passed(expected_status: int, status: int | None, response_body: Any
     return True
 
 
+# 解析单条 JSONL 并准备回放参数，损坏记录转为带行号的失败明细。
 def parse_record(line_number: int, line: str, manifest: dict[str, Any] | None,
                  rebase: bool, dataset_id: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     try:
@@ -213,6 +225,7 @@ def parse_record(line_number: int, line: str, manifest: dict[str, Any] | None,
     }, None
 
 
+# 执行单条回放或 dry-run，比较实际与预期，返回结果及可选失败记录。
 def execute_record(prepared: dict[str, Any], args: argparse.Namespace,
                    dataset: Path) -> tuple[dict[str, Any], dict[str, Any] | None]:
     body = prepared["body"]
@@ -277,6 +290,7 @@ def execute_record(prepared: dict[str, Any], args: argparse.Namespace,
     return result, failure
 
 
+# 流式读取非空 JSONL 行，保留原始行号便于报告定位。
 def iter_lines(dataset: Path) -> Iterator[tuple[int, str]]:
     with dataset.open("r", encoding="utf-8") as source:
         for line_number, line in enumerate(source, start=1):
@@ -284,6 +298,7 @@ def iter_lines(dataset: Path) -> Iterator[tuple[int, str]]:
                 yield line_number, line
 
 
+# 校验目标与并发参数，流式或并发回放数据并输出汇总与失败报告。
 def main() -> int:
     args = parse_args()
     if args.concurrency < 1:
@@ -316,6 +331,7 @@ def main() -> int:
     lines_read = 0
     started_at = datetime.now(timezone.utc).isoformat()
 
+    # 写入单条结果并累计状态、耗时和失败信息，定期报告进度。
     def record_result(output: Any, result: dict[str, Any], failure: dict[str, Any] | None) -> None:
         nonlocal processed
         output.write(stable_json(result) + "\n")

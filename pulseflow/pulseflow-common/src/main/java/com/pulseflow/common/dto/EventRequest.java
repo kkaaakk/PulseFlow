@@ -10,6 +10,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 import java.util.Map;
 
+/** 事件接入请求，承载行为标识、用户、目标、时间和属性。 */
 @Data
 @Builder
 @NoArgsConstructor

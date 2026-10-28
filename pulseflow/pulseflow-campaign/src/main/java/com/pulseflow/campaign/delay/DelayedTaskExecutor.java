@@ -49,6 +49,8 @@ public class DelayedTaskExecutor {
     private static final int BATCH_SIZE = 50;
 
     /**
+     * 周期性原子领取到期延迟任务并逐个执行，完成后清理 processing 记录。
+     *
      * Claim and execute due delayed tasks every second.
      */
     @Scheduled(fixedDelay = 1000)
@@ -77,6 +79,8 @@ public class DelayedTaskExecutor {
     }
 
     /**
+     * 解析延迟任务中的活动、用户、购物车项及源事件，复核条件后执行触达。
+     *
      * Process a single claimed delayed task.
      * taskId format = {campaignId}:{userId}:{cartItemId}:{addCartEventId}
      * (identical to {@link DedupKeyUtil#forDelayed}).
@@ -147,6 +151,7 @@ public class DelayedTaskExecutor {
         // 那种情况 task 已落库，可以视为成功创建，此处不会进 catch。
     }
 
+    /** 查询用户购物车状态，决定延迟触达时原加购条件是否仍成立。 */
     private boolean isCartItemPresent(Long userId, String cartItemId) {
         // user:cart:{userId} is a Redis HASH; field == cartItemId.
         // REMOVE_CART / ORDER_PAID both HDEL the field, so a paid/removed

@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/** 活动主配置，包含触发、渠道、有效期与频控限制。 */
 @Data
 @Builder
 @NoArgsConstructor

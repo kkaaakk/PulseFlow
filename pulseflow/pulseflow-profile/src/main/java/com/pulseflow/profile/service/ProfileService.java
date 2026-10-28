@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+/** 统一读取实时画像、窗口指标和用户标签。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -29,6 +30,8 @@ public class ProfileService {
     private final UserTagMapper userTagMapper;
 
     /**
+     * 读取 Redis 实时画像字段，供规则判断与控制台展示使用。
+     *
      * Get realtime metrics from Redis.
      */
     public Map<String, String> getRealtimeMetrics(Long userId) {
@@ -53,6 +56,8 @@ public class ProfileService {
     }
 
     /**
+     * 优先读取 Redis 窗口画像，缺失时回退 MySQL 并按计算时间保留每项最新值。
+     *
      * Get window metrics (cached in Redis, fallback to MySQL).
      *
      * <p>MySQL fallback 按 calculated_at DESC 排序，<b>必须用 putIfAbsent</b>：
@@ -91,6 +96,8 @@ public class ProfileService {
     }
 
     /**
+     * 按用户读取标签记录，供画像展示和规则判断使用。
+     *
      * Get user tags.
      */
     public List<UserTag> getUserTags(Long userId) {
@@ -101,6 +108,8 @@ public class ProfileService {
     }
 
     /**
+     * 取得指定画像指标的数值，统一规则执行所需的指标访问。
+     *
      * Get specific metric value for rule evaluation.
      */
     public Long getMetricValue(Long userId, String metricType) {
@@ -113,6 +122,8 @@ public class ProfileService {
     }
 
     /**
+     * 按标签最新记录判断值是否为 1，避免历史命中过的标签继续误触达。
+     *
      * Check if user has a specific tag (latest value must be "1").
      *
      * <p>标签策略无论命中与否都会插入记录（值为 "1" 或 "0"），且表保留历史

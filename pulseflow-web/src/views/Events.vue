@@ -17,12 +17,16 @@ const result = ref<PageResponse<EventView>>({ items: [], page: 1, pageSize: 20, 
 const drawerVisible = ref(false)
 const selectedEvent = ref<EventView>()
 
+/** 按事件类型和用户筛选分页查询事件，维护加载状态并展示失败信息。 */
 const load = async () => {
   loading.value = true
   try { result.value = await listEvents(page.value, pageSize.value, eventType.value || undefined, userId.value ? Number(userId.value) : undefined) } catch (error) { ElMessage.error(error instanceof Error ? error.message : '事件数据加载失败') } finally { loading.value = false }
 }
+/** 筛选条件变化时回到第一页并重新加载列表。 */
 const filter = () => { page.value = 1; load() }
+/** 保存选中的事件并打开 JSON 详情抽屉。 */
 const openEvent = (event: EventView) => { selectedEvent.value = event; drawerVisible.value = true }
+/** 保存新页码并重新查询，保持分页器与列表结果一致。 */
 const changePage = (value: number) => { page.value = value; load() }
 onMounted(load)
 </script>

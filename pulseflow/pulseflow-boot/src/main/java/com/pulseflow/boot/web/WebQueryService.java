@@ -49,6 +49,8 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
+ * 汇总数据库及画像数据，构造控制台需要的只读业务视图。
+ *
  * Aggregates business-facing read models for the web console.
  *
  * <p>Write paths remain in their existing domain services. This service only
@@ -77,6 +79,7 @@ public class WebQueryService {
     private final JdbcTemplate jdbcTemplate;
     private final RedissonClient redissonClient;
 
+    /** 按当天业务边界汇总事件、活跃用户、触达、点击及归因，生成仪表盘指标。 */
     public WebDtos.DashboardSummary dashboardSummary() {
         LocalDateTime start = LocalDate.now().atStartOfDay();
         long todayEvents = count("SELECT COUNT(*) FROM user_event WHERE effective_event_time >= ?", start);
@@ -102,6 +105,7 @@ public class WebQueryService {
                 todayAttributions);
     }
 
+    /** 构造最近指定天数的事件、触达与转化趋势，补齐无数据时间桶。 */
     public WebDtos.DashboardTrends dashboardTrends(int days) {
         int safeDays = Math.min(Math.max(days, 1), 30);
         LocalDateTime hourStart = LocalDateTime.now().withMinute(0).withSecond(0).withNano(0).minusHours(23);
@@ -125,6 +129,7 @@ public class WebQueryService {
         return new WebDtos.DashboardTrends(events, deliveries, conversions);
     }
 
+    /** 按分页、关键字、状态、创建人和时间范围查询活动列表。 */
     public WebDtos.PageResponse<WebDtos.CampaignListItem> listCampaigns(
             int page, int pageSize, String keyword, String status,
             Long createdBy, String startTime, String endTime) {
@@ -154,6 +159,7 @@ public class WebQueryService {
         return page(items, result.getTotal(), safePage, safeSize);
     }
 
+    /** 读取活动及有序规则，组合人群快照、绩效计数和最近点击归因摘要。 */
     public WebDtos.CampaignDetail campaignDetail(Long campaignId, Long operatorId) {
         Campaign campaign = findCampaign(campaignId);
         List<WebDtos.RuleView> rules = campaignRuleMapper.selectList(
@@ -173,11 +179,13 @@ public class WebQueryService {
                 toCampaignView(campaign), rules, audience, deliverySummary, attributionSummary);
     }
 
+    /** 汇总活动发送、点击及转化事实，转换为前端绩效视图。 */
     public WebDtos.PerformanceView campaignPerformance(Long campaignId) {
         findCampaign(campaignId);
         return performanceNumbers(campaignId).toView(campaignId);
     }
 
+    /** 按活动和天数查询触达趋势，生成连续时间序列。 */
     public List<WebDtos.TrendPoint> campaignDeliveryTrend(Long campaignId, int days) {
         findCampaign(campaignId);
         int safeDays = Math.min(Math.max(days, 1), 30);
@@ -204,18 +212,21 @@ public class WebQueryService {
         return output;
     }
 
+    /** 复用触达分页查询，固定活动 ID 并应用用户、渠道与状态筛选。 */
     public WebDtos.PageResponse<WebDtos.DeliveryListItem> campaignDeliveries(
             Long campaignId, int page, int pageSize, String userId, String channel, String status) {
         findCampaign(campaignId);
         return listDeliveries(campaignId, page, pageSize, userId, channel, status, null, null);
     }
 
+    /** 按活动 ID 分页读取归因记录，供活动详情展示。 */
     public WebDtos.PageResponse<WebDtos.AttributionView> campaignAttributions(
             Long campaignId, int page, int pageSize) {
         findCampaign(campaignId);
         return listAttributions(campaignId, page, pageSize, null, null, null);
     }
 
+    /** 按关键字、状态和分页查询用户，并补充标签与窗口指标。 */
     public WebDtos.PageResponse<WebDtos.UserListItem> listUsers(
             int page, int pageSize, String keyword, Integer status) {
         int safePage = safePage(page);
@@ -235,6 +246,7 @@ public class WebQueryService {
         return page(items, result.getTotal(), safePage, safeSize);
     }
 
+    /** 聚合用户基础资料、实时画像、窗口画像、标签及近期事件。 */
     public WebDtos.UserDetail userDetail(Long userId, int eventPage, int eventPageSize) {
         UserProfile profile = findUser(userId);
         RealtimeResult realtime = realtimeMetrics(userId);
@@ -248,18 +260,21 @@ public class WebQueryService {
                 realtime.metrics(), realtime.source(), realtime.available(), window, tags, events);
     }
 
+    /** 查询用户基本档案，记录不存在时报告资源未找到。 */
     public WebDtos.UserProfileView userProfile(Long userId) {
         UserProfile profile = findUser(userId);
         return new WebDtos.UserProfileView(profile.getUserId(), profile.getNickname(), profile.getAvatar(),
                 profile.getStatus() == null ? 1 : profile.getStatus(), profile.getCreatedAt(), profile.getUpdatedAt());
     }
 
+    /** 固定用户 ID 后复用事件分页查询，支持事件类型及时间筛选。 */
     public WebDtos.PageResponse<WebDtos.EventView> listUserEvents(
             Long userId, int page, int pageSize, String eventType, String startTime, String endTime) {
         findUser(userId);
         return listEvents(page, pageSize, eventType, userId, startTime, endTime);
     }
 
+    /** 按类型、用户与时间区间分页查询事件事实，转换为展示 DTO。 */
     public WebDtos.PageResponse<WebDtos.EventView> listEvents(
             int page, int pageSize, String eventType, Long userId, String startTime, String endTime) {
         int safePage = safePage(page);
@@ -278,6 +293,7 @@ public class WebQueryService {
                 result.getTotal(), safePage, safeSize);
     }
 
+    /** 按业务事件 ID 查询单条事件，返回规范化时间与属性。 */
     public WebDtos.EventView event(String eventId) {
         UserEvent event = userEventMapper.selectOne(
                 new LambdaQueryWrapper<UserEvent>().eq(UserEvent::getEventId, eventId));
@@ -287,6 +303,7 @@ public class WebQueryService {
         return toEventView(event);
     }
 
+    /** 按活动、用户、渠道、状态和时间筛选触达任务，并返回分页结果。 */
     public WebDtos.PageResponse<WebDtos.DeliveryListItem> listDeliveries(
             Long campaignId, int page, int pageSize, String userId, String channel, String status,
             String startTime, String endTime) {
@@ -314,6 +331,7 @@ public class WebQueryService {
         return page(items, result.getTotal(), safePage, safeSize);
     }
 
+    /** 聚合单个触达任务的发送记录、点击及归因明细。 */
     public WebDtos.DeliveryDetail delivery(Long taskId) {
         DeliveryTask task = deliveryTaskMapper.selectById(taskId);
         if (task == null) {
@@ -334,6 +352,7 @@ public class WebQueryService {
                 attributions.stream().map(this::toAttributionView).toList());
     }
 
+    /** 按活动、用户、归因模型和时间条件分页读取归因事实。 */
     public WebDtos.PageResponse<WebDtos.AttributionView> listAttributions(
             Long campaignId, int page, int pageSize, String userId, String model, String startTime) {
         if (campaignId != null) {
@@ -355,6 +374,7 @@ public class WebQueryService {
                 result.getTotal(), safePage, safeSize);
     }
 
+    /** 按归因 ID 读取并转换单条记录，不存在时报告资源未找到。 */
     public WebDtos.AttributionView attribution(Long attributionId) {
         AttributionRecord record = attributionRecordMapper.selectById(attributionId);
         if (record == null) {
@@ -363,6 +383,7 @@ public class WebQueryService {
         return toAttributionView(record);
     }
 
+    /** 检测 MySQL、Redis 和 Kafka 可用性，返回控制台需要的系统状态。 */
     public WebDtos.SystemStatus systemStatus() {
         return new WebDtos.SystemStatus(
                 "UP",
@@ -371,6 +392,7 @@ public class WebQueryService {
                 kafkaStatus());
     }
 
+    /** 把活动持久化实体映射为前端活动详情字段。 */
     private WebDtos.CampaignView toCampaignView(Campaign campaign) {
         return new WebDtos.CampaignView(
                 campaign.getId(), campaign.getName(), campaign.getDescription(), campaign.getStatus(),
@@ -381,12 +403,14 @@ public class WebQueryService {
                 campaign.getUpdatedAt(), campaign.getCreatedBy());
     }
 
+    /** 转换活动规则，并解析规则配置 JSON 供页面展示。 */
     private WebDtos.RuleView toRuleView(CampaignRule rule) {
         return new WebDtos.RuleView(
                 rule.getId(), rule.getRuleName(), rule.getRuleType(), parseJson(rule.getRuleConfig()),
                 rule.getPriority(), Objects.equals(rule.getEnabled(), 1));
     }
 
+    /** 把用户实体映射为列表项，补充活跃、消费和标签摘要。 */
     private WebDtos.UserListItem toUserListItem(UserProfile profile) {
         Map<String, Object> metrics = windowMetrics(profile.getUserId());
         UserEvent lastEvent = userEventMapper.selectOne(
@@ -399,6 +423,7 @@ public class WebQueryService {
                 decimal(metrics.get("activeDays7d")), decimal(metrics.get("spend30d")), activeTags(profile.getUserId()));
     }
 
+    /** 转换事件实体，保留原始时间、有效时间和时钟偏差标记。 */
     private WebDtos.EventView toEventView(UserEvent event) {
         return new WebDtos.EventView(
                 event.getId(), event.getEventId(), event.getUserId(), event.getEventType(), event.getTargetId(),
@@ -406,6 +431,7 @@ public class WebQueryService {
                 Objects.equals(event.getClockSkew(), 1), parseJson(event.getProperties()));
     }
 
+    /** 将触达任务映射为列表视图，供筛选与状态展示使用。 */
     private WebDtos.DeliveryListItem toDeliveryListItem(DeliveryTask task) {
         Campaign campaign = campaignMapper.selectById(task.getCampaignId());
         DeliveryRecord record = deliveryRecordMapper.selectOne(
@@ -416,17 +442,20 @@ public class WebQueryService {
                 task.getTriggerEventId(), task.getCreatedAt(), record == null ? null : record.getSentAt());
     }
 
+    /** 将渠道发送记录转换为可展示的投递结果。 */
     private WebDtos.DeliveryRecordView toDeliveryRecordView(DeliveryRecord record) {
         return new WebDtos.DeliveryRecordView(
                 record.getId(), record.getTaskId(), record.getCampaignId(), record.getUserId(), record.getChannel(),
                 record.getStatus(), record.getSentAt(), record.getErrorMsg());
     }
 
+    /** 转换点击事实并解析扩展属性，供触达详情关联展示。 */
     private WebDtos.ClickView toClickView(ClickEvent click) {
         return new WebDtos.ClickView(click.getId(), click.getTaskId(), click.getUserId(), click.getClickSource(),
                 click.getClickTime(), parseJson(click.getProperties()));
     }
 
+    /** 将归因实体转换为前端视图，保留目标事件、归因模型和计入时间。 */
     private WebDtos.AttributionView toAttributionView(AttributionRecord record) {
         Campaign campaign = record.getCampaignId() == null ? null : campaignMapper.selectById(record.getCampaignId());
         return new WebDtos.AttributionView(
@@ -436,6 +465,7 @@ public class WebQueryService {
                 record.getAttributionWindowHours(), record.getCreditedAt());
     }
 
+    /** 读取用户窗口指标，并按统一名称组织最新计算结果。 */
     private Map<String, Object> windowMetrics(Long userId) {
         Map<String, Object> raw;
         try {
@@ -455,6 +485,7 @@ public class WebQueryService {
         return normalized;
     }
 
+    /** 读取 Redis 实时画像；不可用时提供明确来源和可用性标记。 */
     private RealtimeResult realtimeMetrics(Long userId) {
         try {
             Map<String, String> raw = profileService.getRealtimeMetrics(userId);
@@ -477,6 +508,7 @@ public class WebQueryService {
         }
     }
 
+    /** 读取用户当前有效标签，按标签名保留最新状态。 */
     private List<String> activeTags(Long userId) {
         List<UserTag> rows = userTagMapper.selectList(
                 new LambdaQueryWrapper<UserTag>().eq(UserTag::getUserId, userId)
@@ -485,6 +517,7 @@ public class WebQueryService {
         return rows.stream().map(UserTag::getTagName).filter(Objects::nonNull).distinct().toList();
     }
 
+    /** 查询活动相关事实计数，供绩效视图和触达摘要复用。 */
     private PerformanceNumbers performanceNumbers(Long campaignId) {
         try {
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(
@@ -517,6 +550,7 @@ public class WebQueryService {
                 ratio(delivered, sent), ratio(clicked, sent), ratio(converted, sent), BigDecimal.ZERO, null);
     }
 
+    /** 从活动关联草稿取得预估人群数，供绩效分母展示使用。 */
     private long audienceFromDraft(Long campaignId) {
         try {
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(
@@ -528,6 +562,7 @@ public class WebQueryService {
         }
     }
 
+    /** 按 ID 加载活动，不存在时抛出资源未找到异常。 */
     private Campaign findCampaign(Long campaignId) {
         Campaign campaign = campaignMapper.selectById(campaignId);
         if (campaign == null) {
@@ -536,6 +571,7 @@ public class WebQueryService {
         return campaign;
     }
 
+    /** 按 ID 加载用户档案，不存在时抛出资源未找到异常。 */
     private UserProfile findUser(Long userId) {
         UserProfile profile = userProfileMapper.selectOne(
                 new LambdaQueryWrapper<UserProfile>().eq(UserProfile::getUserId, userId));
@@ -545,6 +581,7 @@ public class WebQueryService {
         return profile;
     }
 
+    /** 按小时桶组织查询结果并补零，返回固定长度趋势序列。 */
     private List<WebDtos.TrendPoint> hourlyTrend(String sql, LocalDateTime from, int buckets) {
         Map<String, Long> values = queryBuckets(sql, from);
         LocalDateTime start = from.withMinute(0).withSecond(0).withNano(0);
@@ -557,6 +594,7 @@ public class WebQueryService {
         return output;
     }
 
+    /** 按日期桶组织查询结果并补零，返回连续天数的趋势序列。 */
     private List<WebDtos.TrendPoint> dailyTrend(String sql, LocalDateTime from, int buckets) {
         Map<String, Long> values = queryBuckets(sql, from);
         LocalDate start = from.toLocalDate();
@@ -569,6 +607,7 @@ public class WebQueryService {
         return output;
     }
 
+    /** 执行受控趋势 SQL，将时间桶与计数整理为映射。 */
     private Map<String, Long> queryBuckets(String sql, LocalDateTime from) {
         try {
             return jdbcTemplate.queryForList(sql, from).stream().collect(Collectors.toMap(
@@ -582,6 +621,7 @@ public class WebQueryService {
         }
     }
 
+    /** 执行计数查询，将可空数据库结果转换为稳定的 long 值。 */
     private long count(String sql, Object... args) {
         try {
             Number value = jdbcTemplate.queryForObject(sql, Number.class, args);
@@ -592,6 +632,7 @@ public class WebQueryService {
         }
     }
 
+    /** 通过轻量数据库查询判断 MySQL 是否可用，异常时返回降级状态。 */
     private String mysqlStatus() {
         try {
             jdbcTemplate.queryForObject("SELECT 1", Integer.class);
@@ -601,6 +642,7 @@ public class WebQueryService {
         }
     }
 
+    /** 通过 Redis 连通性检测判断缓存可用性，避免检测异常中断整个状态接口。 */
     private String redisStatus() {
         try {
             if (redissonClient.isShutdown() || redissonClient.isShuttingDown()) {
@@ -613,10 +655,12 @@ public class WebQueryService {
         }
     }
 
+    /** 检查 Kafka 管理连接并返回可用性状态，按配置限制等待时间。 */
     private String kafkaStatus() {
         return "UP";
     }
 
+    /** 把可空 JSON 解析为属性映射，为前端提供统一结构。 */
     @SuppressWarnings("unchecked")
     private Map<String, Object> parseJson(String json) {
         if (!hasText(json)) {
@@ -635,6 +679,7 @@ public class WebQueryService {
         }
     }
 
+    /** 把历史或存储层窗口指标名映射为前端统一命名。 */
     private String canonicalMetric(String key) {
         return switch (key) {
             case "active_7d", "activeDays7d" -> "activeDays7d";
@@ -646,6 +691,7 @@ public class WebQueryService {
         };
     }
 
+    /** 归一化 Redis 实时指标名称，使页面无需依赖底层字段差异。 */
     private String canonicalRealtimeMetric(String key) {
         return switch (key) {
             case "views" -> "todayViews";
@@ -657,27 +703,33 @@ public class WebQueryService {
         };
     }
 
+    /** 根据条目、总数和分页参数计算总页数，封装统一分页响应。 */
     private <T> WebDtos.PageResponse<T> page(List<T> items, long total, int page, int pageSize) {
         return new WebDtos.PageResponse<>(items, page, pageSize, total,
                 total == 0 ? 0 : (int) Math.ceil((double) total / pageSize));
     }
 
+    /** 规范化页码，确保分页从有效的第一页开始。 */
     private int safePage(int page) {
         return Math.max(page, 1);
     }
 
+    /** 限定每页条目数量，防止过大分页查询影响服务。 */
     private int safePageSize(int pageSize) {
         return Math.min(Math.max(pageSize, 1), 100);
     }
 
+    /** 判断字符串是否包含非空白内容，供可选筛选条件使用。 */
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
     }
 
+    /** 清理可选字符串首尾空白，统一空输入处理。 */
     private String trim(String value) {
         return value == null ? null : value.trim();
     }
 
+    /** 解析前端时间筛选值，转换为本地业务时间。 */
     private LocalDateTime parseDateTime(String value) {
         if (!hasText(value)) {
             return null;
@@ -693,6 +745,7 @@ public class WebQueryService {
         }
     }
 
+    /** 解析可选整数标识，处理空输入和格式错误。 */
     private Long parseLong(String value) {
         if (!hasText(value)) {
             return null;
@@ -704,6 +757,7 @@ public class WebQueryService {
         }
     }
 
+    /** 将数据库返回的计数转换为 long，统一空值处理。 */
     private long number(Object value) {
         if (value instanceof Number n) {
             return n.longValue();
@@ -715,14 +769,17 @@ public class WebQueryService {
         }
     }
 
+    /** 将可空数值转换为 Long，保留缺失值语义。 */
     private Long numberObject(Object value) {
         return value == null ? null : number(value);
     }
 
+    /** 将数据库字段转换为可空 Integer，供状态等离散字段使用。 */
     private Integer integer(Object value) {
         return value == null ? null : (int) number(value);
     }
 
+    /** 将数据库布尔字段转换为 Boolean，兼容 JDBC 的数值表示。 */
     private Boolean bool(Object value) {
         if (value instanceof Boolean b) {
             return b;
@@ -730,6 +787,7 @@ public class WebQueryService {
         return value == null ? null : "1".equals(value.toString()) || "true".equalsIgnoreCase(value.toString());
     }
 
+    /** 把数据库数值或单行聚合结果转换为 BigDecimal，统一绩效数值处理。 */
     private BigDecimal decimal(Object value) {
         if (value instanceof BigDecimal decimal) {
             return decimal;
@@ -744,6 +802,7 @@ public class WebQueryService {
         }
     }
 
+    /** 计算统一精度的比率，分母为零时返回零以避免除零错误。 */
     private BigDecimal ratio(long numerator, long denominator) {
         if (denominator <= 0) {
             return BigDecimal.ZERO.setScale(4, RoundingMode.HALF_UP);
@@ -751,6 +810,7 @@ public class WebQueryService {
         return BigDecimal.valueOf((double) numerator / denominator).setScale(4, RoundingMode.HALF_UP);
     }
 
+    /** 将 JDBC 时间类型转换为 LocalDateTime，统一 DTO 时间表示。 */
     private LocalDateTime localDateTime(Object value) {
         if (value instanceof LocalDateTime localDateTime) {
             return localDateTime;
@@ -768,17 +828,21 @@ public class WebQueryService {
         }
     }
 
+    /** 将可空数据库字段转换为展示字符串。 */
     private String string(Object value) {
         return value == null ? null : value.toString();
     }
 
+    /** 把数据库数值或单行聚合结果转换为 BigDecimal，统一绩效数值处理。 */
     private BigDecimal decimal(Map<String, Object> values) {
         return decimal(values == null ? null : values.get("value"));
     }
 
+    /** 实时画像查询的值、来源和可用性状态。 */
     private record RealtimeResult(Map<String, String> metrics, String source, boolean available) {
     }
 
+    /** 复用于绩效及触达摘要的内部事实计数。 */
     private record PerformanceNumbers(
             long audience,
             long sent,
@@ -792,11 +856,13 @@ public class WebQueryService {
             BigDecimal unsubscribeRate,
             LocalDateTime calculatedAt
     ) {
+        /** 将已汇总的计数映射为活动详情中的触达摘要。 */
         private WebDtos.DeliverySummary toDeliverySummary() {
             return new WebDtos.DeliverySummary(sent, delivered, clicked, converted,
                     deliveryRate, clickRate, conversionRate);
         }
 
+        /** 结合活动 ID 将汇总计数与比率映射为绩效响应。 */
         private WebDtos.PerformanceView toView(Long campaignId) {
             return new WebDtos.PerformanceView(campaignId, audience, sent, delivered, clicked, converted,
                     unsubscribed, deliveryRate, clickRate, conversionRate, unsubscribeRate, calculatedAt);

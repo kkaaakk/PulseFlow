@@ -16,7 +16,9 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+/** 验证 AgentGatewaySecurity 的业务行为和边界条件。 */
 class AgentGatewaySecurityTest {
+    /** 验证查询、写入和事件流均先检查 Java 归属，再访问 Agent。 */
     @Test void everyReadWriteAndStreamChecksJavaOwnershipBeforeUpstreamAccess() throws Exception {
         String id = UUID.randomUUID().toString();
         AgentInvestigationOwnership drafts = mock(AgentInvestigationOwnership.class);
@@ -33,6 +35,7 @@ class AgentGatewaySecurityTest {
         }
     }
 
+    /** 验证容量有界且操作员超限直接拒绝，不积压等待队列。 */
     @Test void capacityIsBoundedAndOperatorRateLimitsDoNotQueue() throws Exception {
         AgentGatewayLimit limit = new AgentGatewayLimit();
         for (int i = 0; i < 6; i++) try (AutoCloseable slot = limit.acquire(1024L)) { }
@@ -44,6 +47,7 @@ class AgentGatewaySecurityTest {
         try (AutoCloseable slot = limit.acquire(9999L)) { }
     }
 
+    /** 验证公开快照与 SSE 不传递隐藏字段或机器密钥。 */
     @Test void publicProjectionAndSseNeverForwardHiddenFieldsOrMachineSecrets() throws Exception {
         String id = UUID.randomUUID().toString();
         var projected = AgentProposalGateway.publicView(JsonUtil.fromJson("""

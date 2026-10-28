@@ -11,6 +11,7 @@ export const http = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+// 每次请求从当前标签页读取登录令牌，统一注入 Java 认证头。
 http.interceptors.request.use((config) => {
   const token = sessionStorage.getItem(TOKEN_KEY)
   if (token) {
@@ -19,6 +20,7 @@ http.interceptors.request.use((config) => {
   return config
 })
 
+// 未授权时清除本地令牌并跳转登录，其余错误继续交给调用页面处理。
 http.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -31,12 +33,14 @@ http.interceptors.response.use(
 )
 
 export class ApiError extends Error {
+  /** 保存统一业务错误码和展示消息，便于调用方识别失败响应。 */
   constructor(public readonly code: number, message: string) {
     super(message)
     this.name = 'ApiError'
   }
 }
 
+/** 校验统一响应 code，失败抛出 ApiError，通过后返回业务 data。 */
 export const unwrapApiResponse = <T>(envelope: ApiEnvelope<T>): T => {
   if (envelope.code !== 200) {
     throw new ApiError(envelope.code, envelope.message || '请求失败')
@@ -44,6 +48,7 @@ export const unwrapApiResponse = <T>(envelope: ApiEnvelope<T>): T => {
   return envelope.data
 }
 
+/** 演示模式返回独立数据副本，真实模式发送 Axios 请求并解包业务响应。 */
 export const apiRequest = async <T>(config: AxiosRequestConfig, demoValue: T | (() => T)): Promise<T> => {
   if (isDemoMode) {
     return demoResolve(demoValue)
@@ -52,6 +57,7 @@ export const apiRequest = async <T>(config: AxiosRequestConfig, demoValue: T | (
   return unwrapApiResponse(response.data)
 }
 
+/** 设置或移除当前标签页的会话令牌，供请求拦截器自动附带。 */
 export const setToken = (token?: string | null) => {
   if (token) sessionStorage.setItem(TOKEN_KEY, token)
   else sessionStorage.removeItem(TOKEN_KEY)

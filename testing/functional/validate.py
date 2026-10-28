@@ -103,29 +103,35 @@ CHECK_NAMES = {
 STATUS_SORT_ORDER = {"FAIL": 0, "NOT_RUN": 1, "PASS": 2}
 
 
+# 以稳定键顺序和紧凑格式输出 JSON，保证数据集摘要与回放记录可重复比较。
 def stable_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+# 输出带缩进的中文友好 JSON，供验证报告阅读。
 def pretty_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
 
 
+# 把检查状态代码转换为报告中的展示标签。
 def status_label(status: Any) -> str:
     value = str(status)
     return STATUS_LABELS.get(value, value)
 
 
+# 将模块标识转换为报告可读名称，统一检查结果分组。
 def module_label(module: Any) -> str:
     value = str(module or "未知模块")
     return MODULE_NAMES.get(value, value)
 
 
+# 将检查项标识映射为中文描述，便于定位验证目标。
 def check_label(check: dict[str, Any]) -> str:
     check_id = str(check.get("checkId") or "")
     return CHECK_NAMES.get(check_id, str(check.get("description") or check_id or "未命名校验"))
 
 
+# 把结构化检查值格式化并转义为 Markdown 单元格内容。
 def markdown_value(value: Any, limit: int = 180) -> str:
     if value is None or value == "":
         return "—"
@@ -137,10 +143,12 @@ def markdown_value(value: Any, limit: int = 180) -> str:
     return text
 
 
+# 整理并转义检查原因，避免换行或分隔符破坏报告表格。
 def markdown_reason(value: Any) -> str:
     return markdown_value(value, limit=240)
 
 
+# 解析数据清单、报告目录、存储连接及等待时间等验证参数。
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", required=True, type=Path)
@@ -172,6 +180,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# 检查测试环境、数据库名和存储地址，防止验证或清理访问非测试实例。
 def assert_safe_store_target(args: argparse.Namespace) -> None:
     test_env = os.environ.get("PULSEFLOW_TEST_ENV", "").lower() == "test"
     loopback_hosts = {"127.0.0.1", "localhost", "::1"}
@@ -188,14 +197,17 @@ def assert_safe_store_target(args: argparse.Namespace) -> None:
             raise ValueError("Refusing non-loopback MySQL/Redis target without explicit test opt-in.")
 
 
+# 检测所需命令是否在 PATH 中可用，供依赖检查和未执行状态判断。
 def command_exists(command: str) -> bool:
     return Path(command).exists() if Path(command).is_absolute() else shutil.which(command) is not None
 
 
+# 对文本值进行 SQL 字面量转义，供受控测试查询使用。
 def sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+# 按测试配置执行 MySQL CLI，返回解析后的行和错误信息，保留 SQL NULL 标记。
 def run_mysql(args: argparse.Namespace, query: str) -> tuple[list[list[str]] | None, str | None]:
     if not command_exists(args.mysql_bin):
         return None, f"MySQL client not found: {args.mysql_bin}"
@@ -228,6 +240,7 @@ def run_mysql(args: argparse.Namespace, query: str) -> tuple[list[list[str]] | N
     return rows, None
 
 
+# 按测试配置执行 Redis CLI，返回输出与错误供调用方判定依赖状态。
 def run_redis(args: argparse.Namespace, command_args: list[str]) -> tuple[list[str] | None, str | None]:
     if not command_exists(args.redis_bin):
         return None, f"Redis CLI not found: {args.redis_bin}"
@@ -255,6 +268,7 @@ def run_redis(args: argparse.Namespace, command_args: list[str]) -> tuple[list[s
     return result.stdout.splitlines(), None
 
 
+# 统一追加检查结果，保存期望值、实际值、状态及定位信息。
 def add_check(checks: list[dict[str, Any]], check_id: str, module: str, description: str,
               status: str, expected: Any = None, actual: Any = None, query: str | None = None,
               reason: str | None = None) -> None:
@@ -273,6 +287,7 @@ def add_check(checks: list[dict[str, Any]], check_id: str, module: str, descript
     checks.append(check)
 
 
+# 读取数据集清单并解析关联数据路径，供回放或事实校验使用。
 def load_manifest(manifest_path: Path) -> tuple[dict[str, Any], Path]:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     data_path = manifest_path.parent / manifest["dataFile"]
@@ -284,6 +299,7 @@ def load_manifest(manifest_path: Path) -> tuple[dict[str, Any], Path]:
     return manifest, data_path
 
 
+# 从清单中提取本数据集事件前缀，使查询限定在对应测试范围。
 def event_prefix(manifest: dict[str, Any]) -> str | None:
     samples = manifest.get("sampleEventIds") or []
     if not samples:
@@ -291,6 +307,7 @@ def event_prefix(manifest: dict[str, Any]) -> str | None:
     return str(samples[0]).rsplit("-", 1)[0] + "-"
 
 
+# 规范化小数文本，用于比较金额统计并避免浮点表示差异。
 def decimal_text(value: Any) -> str:
     try:
         return format(Decimal(str(value or "0")).quantize(Decimal("0.01")), "f")
@@ -298,12 +315,14 @@ def decimal_text(value: Any) -> str:
         return str(value)
 
 
+# 从清单及规范事件计算期望的事件数、时长和金额聚合。
 def expected_metrics(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return manifest.get("expected", {}).get("mysql", {}).get(
         "metricTotalsByEventType", manifest.get("metricTotalsByEventType", {})
     )
 
 
+# 解析事件属性 JSON，兼容数据库 CLI 返回的文本表示。
 def parse_json_value(value: Any) -> Any:
     if not isinstance(value, str):
         return value
@@ -313,6 +332,7 @@ def parse_json_value(value: Any) -> Any:
         return value
 
 
+# 将 SQL NULL 标记映射为 None，数值零仍保留为零。
 def nullable_int(value: Any) -> int | None:
     """Parse a nullable integer without conflating SQL NULL with numeric zero."""
     if value is None:
@@ -323,6 +343,7 @@ def nullable_int(value: Any) -> int | None:
     return int(text)
 
 
+# 抽样对照数据库规范事件，检查属性、目标标识和时间是否与期望一致。
 def validate_canonical_samples(args: argparse.Namespace, manifest: dict[str, Any],
                                checks: list[dict[str, Any]]) -> None:
     expected = manifest.get("expected", {}).get("mysql", {}).get("canonicalSamples", [])
@@ -404,6 +425,7 @@ def validate_canonical_samples(args: argparse.Namespace, manifest: dict[str, Any
     )
 
 
+# 检查测试事件关联补偿任务的状态，识别失败或未收敛的重放。
 def validate_compensation(args: argparse.Namespace, manifest: dict[str, Any],
                           checks: list[dict[str, Any]]) -> None:
     prefix = event_prefix(manifest)
@@ -437,6 +459,7 @@ def validate_compensation(args: argparse.Namespace, manifest: dict[str, Any],
     )
 
 
+# 对比日桶与小时桶聚合，检查事件数、时长及金额是否一致。
 def validate_daily_metrics(args: argparse.Namespace, user_min: int, user_max: int,
                            checks: list[dict[str, Any]]) -> None:
     expected_query = (
@@ -465,6 +488,7 @@ def validate_daily_metrics(args: argparse.Namespace, user_min: int, user_max: in
                   reason=expected_error or actual_error)
         return
 
+    # 将日桶查询行转为日期和事件类型索引，统一数值类型供逐项比较。
     def rows_to_map(rows: list[list[str]] | None) -> dict[str, dict[str, Any]]:
         result: dict[str, dict[str, Any]] = {}
         for row in rows or []:
@@ -494,6 +518,7 @@ def validate_daily_metrics(args: argparse.Namespace, user_min: int, user_max: in
               expected=expected, actual=actual, query=actual_query, reason=reason)
 
 
+# 对照日桶和小时桶重算期望窗口值，验证用户画像快照。
 def validate_window_metrics(args: argparse.Namespace, user_min: int, user_max: int,
                             checks: list[dict[str, Any]]) -> None:
     daily_query = (
@@ -578,6 +603,7 @@ def validate_window_metrics(args: argparse.Namespace, user_min: int, user_max: i
               expected=expected, actual=actual, query=actual_query, reason=reason)
 
 
+# 按标签策略口径计算期望标签值，供真实标签结果比对。
 def expected_tag_values(metrics: list[dict[str, Any]]) -> dict[str, str]:
     total = sum(item["eventCount"] for item in metrics)
     search = sum(item["eventCount"] for item in metrics if item["eventType"] == "SEARCH")
@@ -599,6 +625,7 @@ def expected_tag_values(metrics: list[dict[str, Any]]) -> dict[str, str]:
     }
 
 
+# 从近期日指标计算期望标签，并对照各用户最新标签记录。
 def validate_user_tags(args: argparse.Namespace, user_min: int, user_max: int,
                        checks: list[dict[str, Any]]) -> None:
     daily_query = (
@@ -659,6 +686,7 @@ def validate_user_tags(args: argparse.Namespace, user_min: int, user_max: int,
               expected=expected, actual=actual, query=actual_query, reason=reason)
 
 
+# 校验清单声明的日聚合、窗口画像和标签等定时任务产物。
 def validate_scheduled_outputs(args: argparse.Namespace, manifest: dict[str, Any],
                                checks: list[dict[str, Any]]) -> None:
     scheduled = manifest.get("expected", {}).get("scheduledOutputs", {})
@@ -679,6 +707,7 @@ def validate_scheduled_outputs(args: argparse.Namespace, manifest: dict[str, Any
         validate_user_tags(args, int(user_min), int(user_max), checks)
 
 
+# 检查活动执行实例、触达和归因等派生记录是否满足场景期望。
 def validate_campaign_derived_outputs(args: argparse.Namespace, campaign_details: dict[str, Any],
                                       campaign_ids: list[int], checks: list[dict[str, Any]]) -> None:
     stages = campaign_details.get("downstreamStages", {})
@@ -758,6 +787,7 @@ def validate_campaign_derived_outputs(args: argparse.Namespace, campaign_details
 
 
 
+# 对照已发送任务检查用户日与活动周频控计数及预留标记。
 def validate_campaign_frequency_redis(args: argparse.Namespace, campaign_details: dict[str, Any],
                                       campaign_id: int, checks: list[dict[str, Any]]) -> None:
     user_id = campaign_details.get("campaignUserId")
@@ -811,6 +841,7 @@ def validate_campaign_frequency_redis(args: argparse.Namespace, campaign_details
               query=task_query, reason=task_error or (reserved_errors[0] if reserved_errors else None))
 
 
+# 读取 Redis Hash 并把交替键值列表转换为映射。
 def redis_hash(args: argparse.Namespace, key: str) -> tuple[dict[str, str] | None, str | None]:
     output, error = run_redis(args, ["HGETALL", key])
     if error:
@@ -819,6 +850,7 @@ def redis_hash(args: argparse.Namespace, key: str) -> tuple[dict[str, str] | Non
     return {values[index]: values[index + 1] for index in range(0, len(values) - 1, 2)}, None
 
 
+# 检查目标任务标识是否出现在指定 Redis 有序集合中。
 def redis_zset_contains(args: argparse.Namespace, key: str, member: str) -> tuple[bool | None, str | None]:
     output, error = run_redis(args, ["ZRANGE", key, "0", "-1"])
     if error:
@@ -826,6 +858,7 @@ def redis_zset_contains(args: argparse.Namespace, key: str, member: str) -> tupl
     return any(member in str(item) for item in (output or [])), None
 
 
+# 在有界时间内轮询事件落库数量，保留每次尝试供报告定位消费延迟。
 def wait_for_expected_events(args: argparse.Namespace, query: str, expected: int) -> tuple[int | None, list[dict[str, Any]], str | None]:
     attempts: list[dict[str, Any]] = []
     deadline = time.monotonic() + max(0, args.wait_seconds)
@@ -843,6 +876,7 @@ def wait_for_expected_events(args: argparse.Namespace, query: str, expected: int
         time.sleep(max(0.1, args.poll_seconds))
 
 
+# 按数据集命名空间检查事件、指标及下游业务事实，记录失败或依赖未运行状态。
 def validate_mysql(args: argparse.Namespace, manifest: dict[str, Any], checks: list[dict[str, Any]]) -> str:
     expected_unique = int(manifest.get("expected", {}).get("mysql", {}).get(
         "uniqueUserEventCount", manifest.get("uniqueEventIds", 0)
@@ -1170,6 +1204,7 @@ def validate_mysql(args: argparse.Namespace, manifest: dict[str, Any], checks: l
     return "FAIL" if any(check["status"] == "FAIL" for check in checks) else "PASS"
 
 
+# 检查事件处理标记、实时画像和调度状态，限定在清单样本范围内。
 def validate_redis(args: argparse.Namespace, manifest: dict[str, Any], checks: list[dict[str, Any]]) -> str:
     sample_ids = manifest.get("sampleEventIds") or []
     sample_users = manifest.get("sampleUserIds") or []
@@ -1314,6 +1349,7 @@ def validate_redis(args: argparse.Namespace, manifest: dict[str, Any], checks: l
     return "FAIL" if any(check["status"] == "FAIL" for check in checks) else "PASS"
 
 
+# 读取回放失败报告，缺失时返回空列表，损坏时保留可定位的报告错误。
 def read_replay_failures(run_dir: Path | None) -> list[dict[str, Any]]:
     if not run_dir:
         return []
@@ -1329,6 +1365,7 @@ def read_replay_failures(run_dir: Path | None) -> list[dict[str, Any]]:
         return [{"module": "replay-report", "exceptionOrLog": "invalid failures.json"}]
 
 
+# 读取回放总状态，仅接受约定的 PASS、FAIL 或 NOT_RUN。
 def read_replay_status(run_dir: Path | None) -> str | None:
     if not run_dir:
         return None
@@ -1343,6 +1380,7 @@ def read_replay_status(run_dir: Path | None) -> str | None:
         return "NOT_RUN"
 
 
+# 合并回放与存储校验结果，生成 JSON、Markdown 和失败明细，返回验证退出码。
 def write_summary(report_dir: Path, manifest: dict[str, Any], checks: list[dict[str, Any]],
                   replay_failures: list[dict[str, Any]], dependency_not_run: bool) -> int:
     failures = list(replay_failures)
@@ -1491,6 +1529,7 @@ def write_summary(report_dir: Path, manifest: dict[str, Any], checks: list[dict[
     return 0 if status == "PASS" else (2 if status == "NOT_RUN" else 1)
 
 
+# 校验运行配置，执行 MySQL 与 Redis 检查并写出报告，返回总体退出状态。
 def main() -> int:
     args = parse_args()
     try:

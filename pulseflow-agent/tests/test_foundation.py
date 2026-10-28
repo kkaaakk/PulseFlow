@@ -19,10 +19,11 @@ from pulseflow_agent.main import create_app
 from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail, PiiBlockedError
 
 
+# 构造隔离测试配置，使用测试数据库和虚拟机器令牌，避免依赖开发环境凭据。
 def settings(real: bool = False, **overrides: object) -> AgentSettings:
     values: dict[str, object] = {
         "pulseflow_java_base_url": "http://localhost:8080",
-        "pulseflow_agent_model": "openai:sample-model" if real else "test",
+        "pulseflow_agent_model": "deepseek:deepseek-flash" if real else "test",
         "pulseflow_agent_env": "test",
         "pulseflow_agent_internal_token": SecretStr("fake-internal-token"),
         "pulseflow_agent_database_url": SecretStr("sqlite+aiosqlite:///:memory:"),
@@ -37,6 +38,7 @@ def settings(real: bool = False, **overrides: object) -> AgentSettings:
     return AgentSettings.model_validate(values)
 
 
+# 构造 Azure PII 返回结构，供实体检测及异常响应测试使用。
 def azure_response(entities: list[dict[str, object]] | None = None) -> dict[str, object]:
     return {
         "kind": "PiiEntityRecognitionResults",
@@ -44,6 +46,7 @@ def azure_response(entities: list[dict[str, object]] | None = None) -> dict[str,
     }
 
 
+# 验证离线模型返回结构化结果，并执行请求用量上限。
 @pytest.mark.asyncio
 async def test_offline_agent_structured_output_and_usage_limit(
     monkeypatch: pytest.MonkeyPatch,
@@ -79,10 +82,12 @@ async def test_offline_agent_structured_output_and_usage_limit(
         assert limited.diagnosis.summary == "Investigation stopped at its usage budget."
 
 
+# 验证敏感字段在访问 Azure 或模型前即被本地防线拦截。
 @pytest.mark.asyncio
 async def test_local_fields_block_before_azure_or_model() -> None:
     requests: list[httpx.Request] = []
 
+    # 模拟当前用例的 HTTP 响应并检查请求约定，隔离外部 Azure 或 Java 服务。
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         return httpx.Response(200, json=azure_response())
@@ -116,11 +121,13 @@ async def test_local_fields_block_before_azure_or_model() -> None:
             "根据 orderDetails 推送",
         ]
 
+        # 用于敏感字段扫描的嵌套 Pydantic 测试载荷。
         class Payload(BaseModel):
             nested: list[dict[str, str]]
 
         blocked.append(Payload(nested=[{"deviceId": "secret"}]))
 
+        # 使用字段别名的测试载荷，验证扫描同时检查 Python 名称和序列化别名。
         class AliasedPayload(BaseModel):
             identifier: str = Field(alias="userId")
 
@@ -134,6 +141,7 @@ async def test_local_fields_block_before_azure_or_model() -> None:
         assert len(requests) == 1
 
 
+# 验证 Azure 错误或不完整响应均拒绝放行。
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("response", "reason"),
@@ -161,10 +169,12 @@ async def test_azure_fail_closed(response: httpx.Response, reason: str | None) -
             assert "13800138000" not in str(error.value)
 
 
+# 验证 Azure 超时会拦截，而空白内容不会触发无效外部请求。
 @pytest.mark.asyncio
 async def test_azure_timeout_and_blank_input() -> None:
     calls = 0
 
+    # 模拟当前用例的 HTTP 响应并检查请求约定，隔离外部 Azure 或 Java 服务。
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
@@ -180,6 +190,7 @@ async def test_azure_timeout_and_blank_input() -> None:
         assert "sensitive" not in str(error.value)
 
 
+# 验证被 PII 防线拒绝的问题不会到达模型。
 @pytest.mark.asyncio
 async def test_blocked_prompt_never_reaches_model(monkeypatch: pytest.MonkeyPatch) -> None:
     config = settings()
@@ -194,6 +205,7 @@ async def test_blocked_prompt_never_reaches_model(monkeypatch: pytest.MonkeyPatc
         model_run.assert_not_awaited()
 
 
+# 验证健康检查接口及真实模型的必需配置校验。
 def test_health_and_invalid_real_configuration() -> None:
     with TestClient(create_app(settings())) as client:
         assert client.get("/health/live").json() == {"status": "live"}
@@ -209,6 +221,7 @@ def test_health_and_invalid_real_configuration() -> None:
             pass
 
 
+# 验证内部调查鉴权和 PII 检查在失败时都拒绝执行。
 def test_internal_investigation_auth_and_pii_are_fail_closed() -> None:
     with TestClient(create_app(settings())) as client:
         path = "/internal/v1/investigations"

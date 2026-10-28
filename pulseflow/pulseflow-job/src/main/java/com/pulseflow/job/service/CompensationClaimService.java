@@ -28,6 +28,8 @@ public class CompensationClaimService {
     private final DataCompensationTaskMapper compensationTaskMapper;
 
     /**
+     * 事务内用跳锁查询领取一个到期且未超重试上限的补偿任务，并标记 PROCESSING。
+     *
      * Atomically claim the oldest due PENDING task (under retry limit).
      *
      * @return the claimed task (status now PROCESSING), or {@code null} if none due.

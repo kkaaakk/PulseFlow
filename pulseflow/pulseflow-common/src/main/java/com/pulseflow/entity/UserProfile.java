@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/** 用户基础档案及活跃状态。 */
 @Data
 @Builder
 @NoArgsConstructor

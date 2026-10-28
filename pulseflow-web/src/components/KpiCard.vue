@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// 展示指标值、变化趋势和辅助说明的可复用卡片。
 import type { Component } from 'vue'
 
 defineProps<{

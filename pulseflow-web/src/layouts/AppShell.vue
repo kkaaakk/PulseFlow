@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// 控制台公共布局，提供导航、当前用户信息和退出入口。
 import { computed, markRaw, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import {

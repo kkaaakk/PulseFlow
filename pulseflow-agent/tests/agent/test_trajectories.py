@@ -29,6 +29,7 @@ QUESTION = "最近召回 Campaign 转化率下降了，帮我查原因。"
 EXPECTED = json.loads((Path(__file__).parent / "trajectories.json").read_text(encoding="utf-8"))
 
 
+# 生成可追溯的工具元数据夹具，包含查询 ID、来源和时间。
 def metadata(source: str = "campaign-facts") -> dict[str, Any]:
     return {
         "queryId": str(uuid4()),
@@ -39,6 +40,7 @@ def metadata(source: str = "campaign-facts") -> dict[str, Any]:
     }
 
 
+# 从消息历史整理工具返回内容，为证据响应模型提供依据。
 def tool_returns(messages: list[ModelMessage]) -> list[ToolObservation]:
     returns: list[ToolObservation] = []
     for message in messages:
@@ -51,9 +53,11 @@ def tool_returns(messages: list[ModelMessage]) -> list[ToolObservation]:
     return returns
 
 
+# 根据工具返回的证据动态分支的测试模型，验证工具路径不是预先固定的。
 class EvidenceResponsiveModel:
     """A test model: the branching policy lives here, outside production code."""
 
+    # 根据真实夹具返回选择下一项工具，使同一问题可走不同调查路径。
     async def __call__(self, messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         assert {tool.name for tool in info.function_tools} == {
             "query_metric", "compare_metric", "breakdown_metric",
@@ -101,13 +105,16 @@ class EvidenceResponsiveModel:
             return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, diagnosis)])
         return ModelResponse(parts=[TextPart(json.dumps(diagnosis))])
 
+    # 生成指定工具的调用响应，维护测试模型调用轨迹。
     def call(self, tool: str, metric: str) -> ModelResponse:
         return ModelResponse(parts=[ToolCallPart(tool, {"request": {
             "metric": metric, "current_period": CURRENT, "baseline_period": BASELINE,
         }})])
 
 
+# 创建按场景返回不同 Java 聚合事实的 HTTP 处理器。
 def java_handler(scenario: str, requests: list[str]) -> httpx.MockTransport:
+    # 返回当前轨迹场景对应的聚合事实，避免测试模型依赖真实 Java 服务。
     def respond(request: httpx.Request) -> httpx.Response:
         requests.append(request.url.path)
         assert request.headers["X-PulseFlow-Agent-Token"] == "test-internal-token"
@@ -148,6 +155,7 @@ def java_handler(scenario: str, requests: list[str]) -> httpx.MockTransport:
     return httpx.MockTransport(respond)
 
 
+# 验证相同问题会随证据差异选择不同工具路径。
 @pytest.mark.asyncio
 @pytest.mark.parametrize("scenario", ["ctr_decline", "conversion_decline", "no_anomaly"])
 async def test_same_question_uses_different_tool_paths(scenario: str) -> None:

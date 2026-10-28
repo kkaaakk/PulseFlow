@@ -29,6 +29,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
+ * 从触达、点击和归因事实计算权威活动绩效。
+ *
  * Computes campaign performance metrics from raw event tables.
  *
  * <p>Per design §10.2 / §10.5: core rates are computed by the Java backend,
@@ -57,6 +59,8 @@ public class PerformanceSummaryCalculator {
     private final CampaignPerformanceSummaryMapper summaryMapper;
 
     /**
+     * 计算并持久化活动绩效，已有有效汇总时复用缓存结果。
+     *
      * Compute (or return cached) summary for a campaign.
      */
     public CampaignPerformanceSummary compute(Long campaignId) {
@@ -159,6 +163,8 @@ public class PerformanceSummaryCalculator {
     }
 
     /**
+     * 对已有汇总的其他活动计算历史点击率和转化率均值，排除当前活动。
+     *
      * Coarse historical baseline: average click_rate and conversion_rate
      * across all campaigns that already have a performance summary.
      */
@@ -183,7 +189,9 @@ public class PerformanceSummaryCalculator {
         return out;
     }
 
-    /** Shared authoritative rate semantics for summaries and period aggregates. */
+    /**
+     * 以统一精度计算权威比率，分母为零时返回零。
+     * Shared authoritative rate semantics for summaries and period aggregates. */
     public static BigDecimal rate(long numerator, long denominator) {
         if (denominator == 0) return BigDecimal.ZERO;
         return BigDecimal.valueOf(numerator)

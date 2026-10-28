@@ -53,7 +53,7 @@ testing/
 └── reports/                # 运行时报告，已忽略
 ```
 
-架构边界决策见 [`docs/adr/ADR-004-functional-replay-and-performance-boundaries.md`](../docs/adr/ADR-004-functional-replay-and-performance-boundaries.md)。
+跨模块职责与调用关系见 [架构文档](../ARCHITECTURE.md)。
 
 ## 前置条件
 
@@ -125,22 +125,6 @@ Smoke 使用少量 VU 和短时长，阈值为错误率 `<5%`、P95 `<1000 ms`�
 
 k6 只判断 HTTP/API 接入、错误率、吞吐和延迟，不调用 Functional Validator，也不判断 MySQL、Redis 或 Campaign 最终业务状态。报告包含 `performance-report.md`、`performance-report.json` 和 `k6-summary.json`。
 
-
-AI 数据集静态完整性检查由 CI 自动执行；本地也可以从仓库根目录运行：
-
-```powershell
-```
-
-该检查验证 JSONL 格式、manifest 与 SHA-256、case 数量、case ID 唯一、required categories、required fields 以及 overlong case 合法性，不启动应用或调用 Provider。
-
-
-```powershell
-$env:PULSEFLOW_TOKEN = '<test-token>'
-  --base-url http://localhost:18080 `
-  --pii-enabled
-```
-
-它保留 loopback 安全限制、token/auth、PII enabled、HTTP status expectation、DSL/parser response shape、failure report、duration、case ID 和 category。API Evaluation 不提供离线模式；没有 token 或应用不可达时不会把数据集检查伪装成通过。
 
 ## 报告与状态
 

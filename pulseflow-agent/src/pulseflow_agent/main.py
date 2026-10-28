@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response, StreamingResponse
 
-from pulseflow_agent.agent.growth_investigator import GrowthInvestigator
+from pulseflow_agent.agent.growth_investigator import GrowthInvestigator, create_model
 from pulseflow_agent.clients.pulseflow_api import PulseFlowApiClient
 from pulseflow_agent.config import AgentSettings
 from pulseflow_agent.domain.campaign_proposal import ProposalRead, ProposalRecord
@@ -36,6 +36,7 @@ from pulseflow_agent.workspace.repository import (
 from pulseflow_agent.workspace.service import InvestigationService
 
 
+# 经过空白清理和长度约束的调查问题输入。
 class InvestigationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -44,27 +45,32 @@ class InvestigationRequest(BaseModel):
     ]
 
 
+# 追问请求，可附带新的调查范围。
 class FollowUpRequest(InvestigationRequest):
     scope: Annotated[
         str | None, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)
     ] = None
 
 
+# 方案生成请求，附带操作员授权的优惠事实。
 class ProposalRequest(InvestigationRequest):
     owner_id: int = Field(gt=0)
     promotion_facts: list[PromotionFact] = Field(default_factory=list, max_length=10)
 
 
+# Java 已创建草稿的回写请求，仅携带正数草稿 ID。
 class DraftCreatedRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     draft_id: int = Field(gt=0)
 
 
+# 创建 FastAPI 应用，注册内部鉴权、健康检查、调查接口和业务进度 SSE。
 def create_app(
     settings: AgentSettings | None = None, trace_runtime: Telemetry | None = None
 ) -> FastAPI:
     telemetry = trace_runtime or Telemetry()
 
+    # 启动时检查存储、恢复中断调查并构建依赖；退出时关闭任务、数据库和遥测。
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         configured = settings or AgentSettings()  # type: ignore[call-arg]
@@ -119,6 +125,7 @@ def create_app(
                     guardrail,
                     PulseFlowApiClient(configured, client, telemetry.metrics),
                     telemetry=telemetry,
+                    model=create_model(configured, client),
                 )
                 service = InvestigationService(repository, investigator, guardrail)
                 app.state.investigations = service
@@ -138,6 +145,7 @@ def create_app(
     app.state.ready = False
     app.state.streams = 0
 
+    # 把容量拒绝转为 429，告知客户端六十秒后重试。
     @app.exception_handler(AdmissionRejected)
     async def capacity_error(_request: Request, _error: AdmissionRejected) -> JSONResponse:
         return JSONResponse(
@@ -146,10 +154,12 @@ def create_app(
             headers={"Retry-After": "60"},
         )
 
+    # 统一返回不含原始输入的 422 错误，避免校验细节泄露正文。
     @app.exception_handler(RequestValidationError)
     async def invalid_request(_request: Request, _error: RequestValidationError) -> JSONResponse:
         return JSONResponse(status_code=422, content={"detail": "invalid_investigation_request"})
 
+    # 对内部路由以恒定时间比较校验机器令牌，失败直接返回 401。
     @app.middleware("http")
     async def internal_auth(request: Request, call_next: RequestResponseEndpoint) -> Response:
         if not request.url.path.startswith("/internal/v1/"):
@@ -165,14 +175,17 @@ def create_app(
             return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
         return await call_next(request)
 
+    # 返回进程存活状态，不访问数据库或触发调查。
     @app.get("/health/live")
     async def live() -> dict[str, str]:
         return {"status": "live"}
 
+    # 返回聚合质量指标，不包含单次调查的原始输入输出。
     @app.get("/internal/v1/agent-quality")
     async def agent_quality() -> dict[str, float | None]:
         return telemetry.metrics.snapshot()
 
+    # 检查启动状态及表可查询性，未就绪或存储异常返回 503。
     @app.get("/health/ready")
     async def ready() -> dict[str, str]:
         if not app.state.ready:
@@ -183,6 +196,7 @@ def create_app(
             raise HTTPException(status_code=503, detail="agent not ready") from None
         return {"status": "ready"}
 
+    # 以 202 接受新调查并后台执行，将安全检查失败和服务异常转为固定错误。
     @app.post("/internal/v1/investigations/start", status_code=202)
     async def start_investigation(body: InvestigationRequest, request: Request) -> Investigation:
         try:
@@ -194,6 +208,7 @@ def create_app(
         except Exception:
             raise HTTPException(status_code=503, detail="agent_unavailable") from None
 
+    # 在原 ID 上异步追问并可切换范围，映射未找到、运行冲突和 PII 拦截错误。
     @app.post("/internal/v1/investigations/{investigation_id}/resume", status_code=202)
     async def resume_investigation(
         investigation_id: str, body: FollowUpRequest, request: Request
@@ -212,6 +227,7 @@ def create_app(
         except Exception:
             raise HTTPException(status_code=503, detail="agent_unavailable") from None
 
+    # 取消调查并返回快照，将归属进程冲突与未找到映射为接口错误。
     @app.post("/internal/v1/investigations/{investigation_id}/cancel")
     async def cancel_investigation(investigation_id: str, request: Request) -> Investigation:
         try:
@@ -224,6 +240,7 @@ def create_app(
         except Exception:
             raise HTTPException(status_code=503, detail="agent_unavailable") from None
 
+    # 验证调查存在并限制连接数，返回不缓存的业务进度 SSE。
     @app.get("/internal/v1/investigations/{investigation_id}/events")
     async def events(investigation_id: str, request: Request) -> StreamingResponse:
         service: InvestigationService = request.app.state.investigations
@@ -235,10 +252,12 @@ def create_app(
             raise AdmissionRejected()
         app.state.streams += 1
 
+        # 把事件名、调查 ID 和安全状态字段编码为 SSE 帧，不输出推理正文。
         def frame(event: str, **data: str) -> str:
             payload = json.dumps({"investigation_id": investigation_id, **data})
             return f"event: {event}\ndata: {payload}\n\n"
 
+        # 轮询快照并增量发送工具、证据、假设和方案事件，终态或超时后释放名额。
         async def stream() -> AsyncIterator[str]:
             seen_tools = 0
             seen_evidence: set[str] = set()
@@ -292,6 +311,7 @@ def create_app(
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
 
+    # 同步创建并完成调查，安全检查或依赖失败时返回固定错误。
     @app.post("/internal/v1/investigations")
     async def investigate(body: InvestigationRequest, request: Request) -> Investigation:
         try:
@@ -304,6 +324,7 @@ def create_app(
         except Exception:
             raise HTTPException(status_code=503, detail="agent_unavailable") from None
 
+    # 按 ID 查询详情，区分记录不存在与服务不可用。
     @app.get("/internal/v1/investigations/{investigation_id}")
     async def get_investigation(investigation_id: str, request: Request) -> Investigation:
         try:
@@ -314,6 +335,7 @@ def create_app(
         except Exception:
             raise HTTPException(status_code=503, detail="agent_unavailable") from None
 
+    # 同步追问并可更新范围，将并发状态冲突转换为 409。
     @app.post("/internal/v1/investigations/{investigation_id}/follow-up")
     async def follow_up(
         investigation_id: str, body: FollowUpRequest, request: Request
@@ -332,6 +354,7 @@ def create_app(
         except Exception:
             raise HTTPException(status_code=503, detail="agent_unavailable") from None
 
+    # 接收 Java 传入的操作员和优惠事实，基于证据生成方案并返回结果。
     @app.post("/internal/v1/investigations/{investigation_id}/proposal")
     async def propose(
         investigation_id: str, body: ProposalRequest, request: Request
@@ -352,6 +375,7 @@ def create_app(
         except Exception:
             raise HTTPException(status_code=503, detail="agent_unavailable") from None
 
+    # 读取方案及可引用证据，供已鉴权的 Java 客户端创建草稿。
     @app.get("/internal/v1/proposals/{proposal_id}")
     async def get_proposal(proposal_id: str, request: Request) -> ProposalRead:
         try:
@@ -362,6 +386,7 @@ def create_app(
         except Exception:
             raise HTTPException(status_code=503, detail="agent_unavailable") from None
 
+    # 记录 Java 草稿 ID，重复关联不同草稿时返回 409。
     @app.put("/internal/v1/proposals/{proposal_id}/draft")
     async def mark_proposal_draft(
         proposal_id: str, body: DraftCreatedRequest, request: Request

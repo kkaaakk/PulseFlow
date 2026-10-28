@@ -12,7 +12,9 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.util.List;
 
-/** Persists deterministic delivery, click and attribution metrics for finished campaigns. */
+/**
+ * 定期计算活动绩效快照，供控制台和 Agent 查询。
+ * Persists deterministic delivery, click and attribution metrics for finished campaigns. */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -20,6 +22,7 @@ public class CampaignPerformanceSummaryJob {
     private final CampaignMapper campaignMapper;
     private final PerformanceSummaryCalculator calculator;
 
+    /** 批量更新活动绩效汇总，供控制台和 Agent 只读工具查询。 */
     @XxlJob("campaignPerformanceSummaryJob")
     public void execute() {
         LocalDateTime now = LocalDateTime.now();

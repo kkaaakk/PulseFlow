@@ -26,6 +26,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+/** 验证 AgentToolService 的业务行为和边界条件。 */
 class AgentToolServiceTest {
     private final CampaignMapper campaigns = mock(CampaignMapper.class);
     private final CampaignPerformanceSummaryMapper summaries = mock(CampaignPerformanceSummaryMapper.class);
@@ -33,6 +34,7 @@ class AgentToolServiceTest {
     private final AudiencePreviewService preview = mock(AudiencePreviewService.class);
     private final AgentToolService service = new AgentToolService(campaigns, summaries, validator, preview);
 
+    /** 验证绩效工具读取汇总结果，不执行额外业务写入。 */
     @Test
     void performanceReadsCalculatorSummaryWithoutWriting() {
         when(campaigns.selectById(9L)).thenReturn(Campaign.builder().id(9L).build());
@@ -49,6 +51,7 @@ class AgentToolServiceTest {
         verifyNoInteractions(validator, preview);
     }
 
+    /** 验证人群工具复用 DSL 校验器，并过滤不安全警告。 */
     @Test
     void audienceRunsExistingValidatorAndDoesNotEchoUnsafeWarning() {
         CampaignDsl dsl = CampaignDsl.builder().build();
@@ -65,6 +68,7 @@ class AgentToolServiceTest {
         verify(preview).preview(dsl);
     }
 
+    /** 验证预估失败时不会把零人数伪装成权威结果。 */
     @Test
     void failedPreviewDoesNotPretendZeroIsAnAuthoritativeCount() {
         CampaignDsl dsl = CampaignDsl.builder().build();
@@ -78,6 +82,7 @@ class AgentToolServiceTest {
         assertThat(response.toString()).doesNotContain("raw sensitive detail");
     }
 
+    /** 验证无效 DSL 直接返回错误，不执行人群预估。 */
     @Test
     void invalidAudienceSkipsPreview() {
         CampaignDsl dsl = CampaignDsl.builder().build();

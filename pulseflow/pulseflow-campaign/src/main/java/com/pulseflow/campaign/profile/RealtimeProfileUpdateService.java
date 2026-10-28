@@ -124,6 +124,7 @@ public class RealtimeProfileUpdateService {
         }
     }
 
+    /** 从规范事件上下文读取扩展属性，供实时画像 Lua 参数使用。 */
     @SuppressWarnings("unchecked")
     private Map<String, Object> getProperties(Map<String, Object> ctx) {
         Object props = ctx.get("properties");
@@ -133,6 +134,7 @@ public class RealtimeProfileUpdateService {
         return null;
     }
 
+    /** 统一事件时间文本格式，兼容接入与回放载荷。 */
     private String normalizeTime(String time) {
         if (time == null) {
             return LocalDateTime.now().toString().replace("T", " ");
@@ -141,6 +143,8 @@ public class RealtimeProfileUpdateService {
     }
 
     /**
+     * 解析规范化本地时间，兼容秒及小数秒精度。
+     *
      * Parses the canonical event time used by Kafka replay and EventPersistence.
      * ISO_LOCAL_DATE_TIME accepts both second precision and fractional seconds;
      * the latter is emitted by LocalDateTime.toString() for live events.
@@ -150,6 +154,7 @@ public class RealtimeProfileUpdateService {
                 DateTimeFormatter.ISO_LOCAL_DATE_TIME);
     }
 
+    /** 将事件字段转换为 Long，统一实时画像参数类型。 */
     private Long toLong(Object val) {
         if (val == null) return 0L;
         if (val instanceof Number) return ((Number) val).longValue();

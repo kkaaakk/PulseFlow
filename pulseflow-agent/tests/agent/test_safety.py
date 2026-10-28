@@ -16,6 +16,7 @@ from pulseflow_agent.config import AgentSettings
 from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail, PiiBlockedError
 
 
+# 构造隔离测试配置，使用测试数据库和虚拟机器令牌，避免依赖开发环境凭据。
 def settings() -> AgentSettings:
     return AgentSettings.model_validate({
         "pulseflow_java_base_url": "http://java.internal:8080",
@@ -24,16 +25,19 @@ def settings() -> AgentSettings:
     })
 
 
+# 构造结构化诊断模型响应，供安全校验场景使用。
 def final_response(info: AgentInfo, diagnosis: dict[str, object]) -> ModelResponse:
     if info.output_tools:
         return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, diagnosis)])
     return ModelResponse(parts=[TextPart(json.dumps(diagnosis))])
 
 
+# 验证模型虚构的证据 ID 无法通过最终诊断校验。
 @pytest.mark.asyncio
 async def test_invalid_evidence_reference_is_not_accepted() -> None:
     calls = 0
 
+    # 模拟包含虚构证据引用的模型输出，触发引用校验失败。
     async def invented(_: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         nonlocal calls
         calls += 1
@@ -57,10 +61,12 @@ async def test_invalid_evidence_reference_is_not_accepted() -> None:
     assert calls >= 2  # the validator rejected the first output and requested a retry
 
 
+# 验证 Java 返回的恶意维度文本在下一轮模型请求前被拦截。
 @pytest.mark.asyncio
 async def test_malicious_java_dimension_is_blocked_before_next_model_request() -> None:
     model_calls = 0
 
+    # 模拟只查询一次 Java 的模型，便于断言恶意结果不会回到模型。
     async def query_once(_: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
         nonlocal model_calls
         model_calls += 1
@@ -75,6 +81,7 @@ async def test_malicious_java_dimension_is_blocked_before_next_model_request() -
             "dimensions": ["CHANNEL"],
         }})])
 
+    # 按当前测试场景提供 Java 聚合接口替身，检查调用路径及输入并返回受控事实。
     def java(_: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={
             "metadata": {"queryId": str(uuid4()), "generatedAt": "2026-09-25T00:00:00Z",
@@ -99,8 +106,10 @@ async def test_malicious_java_dimension_is_blocked_before_next_model_request() -
     assert "123456" not in str(error.value)
 
 
+# 验证 Java 不可用时可诚实结束为证据不足。
 @pytest.mark.asyncio
 async def test_unavailable_java_tool_can_end_with_insufficient_evidence() -> None:
+    # 识别工具失败并返回低置信度诊断，避免捏造业务结论。
     async def stop_on_failure(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         failures = [part for message in messages for part in message.parts
                     if isinstance(part, ToolReturnPart)]

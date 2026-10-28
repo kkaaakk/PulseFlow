@@ -15,6 +15,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
+ * DSL 字段定义的统一来源，供校验、规则转换和预估共享。
+ *
  * Single source of truth for fields allowed in a Campaign DSL.
  *
  * <p>The same field definitions drive DSL validation and rule conversion.</p>
@@ -25,6 +27,7 @@ public class CampaignFieldRegistry {
 
     private final Map<String, FieldDescriptor> fields = new LinkedHashMap<>();
 
+    /** 初始化可供 DSL 使用的标签和指标字段白名单及其类型、操作符和启用状态。 */
     @PostConstruct
     public void init() {
         register(FieldDescriptor.builder()
@@ -176,27 +179,33 @@ public class CampaignFieldRegistry {
                 fields.size(), fields.values().stream().filter(FieldDescriptor::isEnabled).count());
     }
 
+    /** 登记字段描述，供 DSL 校验、规则转换和人群预估共享同一口径。 */
     private void register(FieldDescriptor descriptor) {
         fields.put(descriptor.getFieldCode(), descriptor);
     }
 
+    /** 按字段代码返回描述，不存在时返回 null。 */
     public FieldDescriptor get(String fieldCode) {
         return fields.get(fieldCode);
     }
 
+    /** 判断字段是否已登记在白名单中。 */
     public boolean contains(String fieldCode) {
         return fields.containsKey(fieldCode);
     }
 
+    /** 检查字段存在且已启用，避免使用停用字段创建规则。 */
     public boolean isEnabled(String fieldCode) {
         FieldDescriptor d = fields.get(fieldCode);
         return d != null && d.isEnabled();
     }
 
+    /** 返回所有启用的字段描述，供规划和前端字段选择使用。 */
     public List<FieldDescriptor> enabledFields() {
         return fields.values().stream().filter(FieldDescriptor::isEnabled).collect(Collectors.toList());
     }
 
+    /** 提取启用字段代码集合，供快速白名单校验使用。 */
     public Set<String> enabledFieldCodes() {
         return fields.values().stream()
                 .filter(FieldDescriptor::isEnabled)
@@ -204,6 +213,7 @@ public class CampaignFieldRegistry {
                 .collect(Collectors.toSet());
     }
 
+    /** 字段注册描述，约束值类型、范围、操作符和画像来源。 */
     @Data
     @lombok.Builder
     @lombok.NoArgsConstructor

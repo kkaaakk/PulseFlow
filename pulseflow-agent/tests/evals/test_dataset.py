@@ -30,6 +30,7 @@ CASES = [
 ]
 
 
+# 执行评测案例并按工具轨迹、证据引用和输出声明计算质量结果。
 async def evaluate(real: bool) -> dict[str, Any]:
     records: list[dict[str, Any]] = []
     for case in CASES:
@@ -153,6 +154,7 @@ async def evaluate(real: bool) -> dict[str, Any]:
     }
 
 
+# 用离线策略执行固定评测集，验证调查结果和安全边界可重复。
 @pytest.mark.asyncio
 async def test_offline_eval_dataset(tmp_path: Path) -> None:
     assert len(CASES) >= 20
@@ -161,13 +163,16 @@ async def test_offline_eval_dataset(tmp_path: Path) -> None:
     path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
 
+# 验证数值声明判定器拒绝证据中未出现的新数值。
 def test_numeric_claim_oracle_rejects_new_values() -> None:
     assert unsupported_numbers("CTR is 9999", ["CTR value=0.2 sampleSize=100"], "") == 1
     assert unsupported_numbers("CTR is 20%", ["CTR value=0.2 sampleSize=100"], "") == 0
 
 
+# 在显式启用真实 Provider 时运行评测集，记录模型实际质量。
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.getenv("REAL_AGENT_EVAL") != "true", reason="real eval is explicitly opt-in")
+@pytest.mark.real_provider
 async def test_real_provider_eval_dataset(tmp_path: Path) -> None:
     previous = models.ALLOW_MODEL_REQUESTS
     models.ALLOW_MODEL_REQUESTS = True

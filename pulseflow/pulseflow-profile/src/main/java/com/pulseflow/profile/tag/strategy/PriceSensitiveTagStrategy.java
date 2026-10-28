@@ -7,16 +7,20 @@ import java.math.BigDecimal;
 import java.util.List;
 
 /**
+ * 用户标签计算策略：以支付总额除以订单数计算客单价，低于五十元时返回 1，无订单时返回 0。
+ *
  * PRICE_SEN: Average order value < 50 CNY (price sensitive)
  */
 @Component
 public class PriceSensitiveTagStrategy implements TagStrategy {
 
+    /** 返回该策略负责计算的标签代码。 */
     @Override
     public String getTagName() {
         return "PRICE_SEN";
     }
 
+    /** 以支付总额除以订单数计算客单价，低于五十元时返回 1，无订单时返回 0。 */
     @Override
     public String compute(Long userId, List<UserMetricDaily> metrics) {
         List<UserMetricDaily> orders = metrics.stream()

@@ -22,6 +22,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 
+/** 消费触达任务，执行频控及渠道发送并维护重试状态。 */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -36,6 +37,7 @@ public class DeliveryConsumer {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .registerModule(new JavaTimeModule());
 
+    /** 消费触达消息，领取任务并执行频控和渠道发送，按结果更新发送及重试状态。 */
     @KafkaListener(topics = "pulseflow.delivery", groupId = "pulseflow-delivery-group",
             concurrency = "2")
     public void consume(ConsumerRecord<String, String> record) {
@@ -93,6 +95,8 @@ public class DeliveryConsumer {
     }
 
     /**
+     * 按渠道分派发送；站内信和 Push 用业务键幂等，邮件按记录及重试状态处理。
+     *
      * Channel-specific send with business_key idempotency.
      *
      * <p>Per design §4.3:
@@ -227,6 +231,7 @@ public class DeliveryConsumer {
         }
     }
 
+    /** 反序列化 Kafka 触达任务载荷，供消费流程定位业务任务。 */
     private DeliveryTask parseTask(String json) {
         try {
             return OBJECT_MAPPER.readValue(json, DeliveryTask.class);

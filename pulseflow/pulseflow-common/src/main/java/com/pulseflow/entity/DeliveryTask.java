@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/** 待发送触达任务，保存幂等键、调度和发送状态。 */
 @Data
 @Builder
 @NoArgsConstructor

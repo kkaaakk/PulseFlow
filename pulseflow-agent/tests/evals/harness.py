@@ -30,6 +30,7 @@ FAMILIES = {
 }
 
 
+# 对照证据数字识别无支持的数值声明，仅允许比例与百分比的等价展示。
 def unsupported_numbers(claim: str, observations: list[str], selectors: str) -> int:
     """Detect introduced numeric claims; permit ratio-to-percent presentation only."""
     pattern = r"(?<![A-Za-z0-9])\d+(?:\.\d+)?"
@@ -38,6 +39,7 @@ def unsupported_numbers(claim: str, observations: list[str], selectors: str) -> 
     return sum(Decimal(value) not in allowed for value in re.findall(pattern, claim))
 
 
+# 评测场景中的聚合事实输入，控制数值、样本量及错误模式。
 class Fixtures(BaseModel):
     mode: str
     metric: str
@@ -46,12 +48,14 @@ class Fixtures(BaseModel):
     sample_size: int
 
 
+# 评测对证据数量、范围和来源的约束。
 class EvidenceConstraints(BaseModel):
     minimum: int
     current_scope_only: bool
     java_source_only: bool
 
 
+# 单个调查评测案例，包含目标、夹具、预期状态与禁止结论。
 class EvalCase(BaseModel):
     id: str
     category: str
@@ -64,6 +68,7 @@ class EvalCase(BaseModel):
     max_tool_calls: int
 
 
+# 生成可追溯的工具元数据夹具，包含查询 ID、来源和时间。
 def metadata(source: str = "campaign-facts", warnings: list[str] | None = None) -> dict[str, Any]:
     return {
         "queryId": str(uuid4()),
@@ -74,11 +79,14 @@ def metadata(source: str = "campaign-facts", warnings: list[str] | None = None) 
     }
 
 
+# 根据评测案例返回确定性 Java 聚合事实的 HTTP 替身。
 class FixtureServer:
+    # 保存案例夹具和调用记录，为评测提供确定性的 Java HTTP 替身。
     def __init__(self, case: EvalCase) -> None:
         self.case = case
         self.calls = 0
 
+    # 按请求路径返回案例聚合事实，记录实际工具调用供评测断言。
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.calls += 1
         fixture = self.case.fixtures
@@ -179,6 +187,7 @@ class FixtureServer:
         return httpx.Response(200, json=body)
 
 
+# 从模型消息提取工具输出内容，供离线策略决定后续行动。
 def contents(messages: list[ModelMessage]) -> list[tuple[str, Any]]:
     result: list[tuple[str, Any]] = []
     for message in messages:
@@ -196,10 +205,13 @@ def contents(messages: list[ModelMessage]) -> list[tuple[str, Any]]:
     return result
 
 
+# 仅用于离线评测的固定策略模型，不参与生产调查决策。
 class OfflinePolicy:
+    # 保存评测案例和策略进度，使离线模型按固定路径执行。
     def __init__(self, case: EvalCase) -> None:
         self.case = case
 
+    # 根据已有工具结果选择查询、假设或诊断响应，模拟证据驱动的调查过程。
     async def respond(self, messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         items = contents(messages)
         mode = self.case.fixtures.mode
@@ -285,5 +297,6 @@ class OfflinePolicy:
             return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, output)])
         return ModelResponse(parts=[TextPart(json.dumps(output))])
 
+    # 构造一次模型工具调用消息，统一名称和参数编码。
     def call(self, name: str, request: dict[str, Any]) -> ModelResponse:
         return ModelResponse(parts=[ToolCallPart(name, {"request": request})])

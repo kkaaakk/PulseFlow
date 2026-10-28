@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+/** 从小时桶生成日聚合指标，供窗口画像和标签使用。 */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -14,6 +15,7 @@ public class DailyMetricJob {
 
     private final JdbcTemplate jdbcTemplate;
 
+    /** 把小时桶聚合为日指标，为窗口计算与标签重算提供基础数据。 */
     @XxlJob("dailyMetricJob")
     public void execute() {
         log.info("DailyMetricJob started");

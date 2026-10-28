@@ -30,6 +30,7 @@ const kpis = computed(() => {
   ]
 })
 
+/** 并行加载仪表盘指标、趋势和最新活动，统一提交页面数据并处理失败。 */
 const load = async () => {
   loading.value = true
   try {

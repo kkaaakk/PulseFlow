@@ -72,6 +72,11 @@
                 <artifactId>pulseflow-job</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>com.pulseflow</groupId>
+                <artifactId>pulseflow-simulator</artifactId>
+                <version>${project.version}</version>
+            </dependency>
 
             <!-- MyBatis-Plus -->
             <dependency>

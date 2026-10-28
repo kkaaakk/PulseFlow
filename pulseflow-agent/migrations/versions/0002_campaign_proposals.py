@@ -9,6 +9,7 @@ branch_labels = None
 depends_on = None
 
 
+# 创建活动方案表，记录调查关联、方案内容和 Java 草稿链接。
 def upgrade() -> None:
     op.create_table(
         "agent_campaign_proposal",
@@ -31,6 +32,7 @@ def upgrade() -> None:
     )
 
 
+# 移除方案表，回退方案持久化迁移。
 def downgrade() -> None:
     op.drop_index("idx_agent_proposal_investigation", table_name="agent_campaign_proposal")
     op.drop_table("agent_campaign_proposal")

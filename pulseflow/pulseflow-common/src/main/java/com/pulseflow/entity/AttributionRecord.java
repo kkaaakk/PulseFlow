@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/** 记录目标事件最终计入的活动、触达任务及归因模型。 */
 @Data
 @Builder
 @NoArgsConstructor

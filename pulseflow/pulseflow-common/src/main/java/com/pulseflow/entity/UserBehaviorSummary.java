@@ -11,6 +11,7 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+/** 带计算时间和窗口边界的用户行为汇总。 */
 @Data
 @Builder
 @NoArgsConstructor

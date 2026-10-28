@@ -7,6 +7,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
+ * 触达次数及小时窗口配置，确认活动时转换为执行频控限制。
+ *
  * Frequency cap. {@code maxTimes} MUST be &gt; 0; {@code windowHours} MUST be &gt; 0.
  *
  * <p>Mapped to {@code campaign.user_daily_limit} (when windowHours=24) or

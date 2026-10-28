@@ -24,14 +24,17 @@ _FIELD_MENTION = re.compile(
 )
 
 
+# 仅携带固定原因码的内容安全拦截异常。
 class PiiBlockedError(Exception):
     """A deliberately content-free error safe for API and logs."""
 
+    # 保存不含正文的拦截原因，供 API 错误和遥测安全使用。
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
 
 
+# 递归提取文本，同时拦截敏感业务字段名及其文本提及。
 def _texts(value: Any) -> list[str]:
     if isinstance(value, BaseModel):
         # Check both Python names and serialization aliases, including nested models.
@@ -54,11 +57,14 @@ def _texts(value: Any) -> list[str]:
     return []
 
 
+# 本地敏感字段检查与 Azure PII 实体检测的统一防线。
 class AzurePiiGuardrail:
+    # 注入 PII 配置和复用的异步 HTTP 客户端。
     def __init__(self, settings: AgentSettings, client: httpx.AsyncClient) -> None:
         self._settings = settings
         self._client = client
 
+    # 先执行本地字段检查并去重，再对真实模型内容调用 Azure；遥测只记录结果码。
     async def check(self, content: Any) -> None:
         with trace.get_tracer(__name__).start_as_current_span(
             "pii.preflight", record_exception=False, set_status_on_exception=False
@@ -74,6 +80,7 @@ class AzurePiiGuardrail:
                 span.set_attribute("pii.result", error.reason)
                 raise
 
+    # 逐条请求 Azure 且关闭输入日志；检出实体、响应异常或服务不可用均拒绝放行。
     async def _check_azure(self, texts: list[str]) -> None:
         endpoint = self._settings.azure_language_endpoint
         key = self._settings.azure_language_key

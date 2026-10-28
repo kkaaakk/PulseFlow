@@ -7,10 +7,12 @@ from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail
 from tests.test_foundation import azure_response, settings
 
 
+# 验证 Azure 请求显式关闭服务端输入日志。
 @pytest.mark.asyncio
 async def test_azure_guardrail_explicitly_disables_service_input_logging() -> None:
     requests: list[httpx.Request] = []
 
+    # 模拟当前用例的 HTTP 响应并检查请求约定，隔离外部 Azure 或 Java 服务。
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         return httpx.Response(200, json=azure_response())

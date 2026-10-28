@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/** 渠道发送事实，供投递审计和绩效统计使用。 */
 @Data
 @Builder
 @NoArgsConstructor

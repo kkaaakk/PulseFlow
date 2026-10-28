@@ -8,8 +8,10 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/** 验证 EventConsumer 的业务行为和边界条件。 */
 class EventConsumerTest {
 
+    /** 验证解析器保留显式 null 的 targetId，不错误转换为零。 */
     @Test
     @DisplayName("Consumer JSON parser keeps a present targetId key with null value")
     @SuppressWarnings("unchecked")

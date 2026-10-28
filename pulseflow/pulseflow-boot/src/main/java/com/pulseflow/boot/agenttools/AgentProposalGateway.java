@@ -23,7 +23,9 @@ import java.util.concurrent.*;
 import java.util.Map;
 import java.util.List;
 
-/** Java session gateway for Agent investigations and persisted proposals. */
+/**
+ * 连接浏览器会话与 Agent 调查的网关，负责归属、限流及响应过滤。
+ * Java session gateway for Agent investigations and persisted proposals. */
 @RestController
 @RequestMapping("/api/investigations")
 public class AgentProposalGateway {
@@ -35,6 +37,7 @@ public class AgentProposalGateway {
     private final ThreadPoolExecutor streams = new ThreadPoolExecutor(0, 8, 30, TimeUnit.SECONDS,
             new SynchronousQueue<>(), runnable -> { Thread t = new Thread(runnable, "agent-sse"); t.setDaemon(true); return t; });
 
+    /** 注入归属服务及机器令牌，设置 HTTP 连接与读取超时以支持调查及事件流代理。 */
     public AgentProposalGateway(AgentInvestigationOwnership ownership, RestClient.Builder builder,
             @Value("${pulseflow.agent.service-url:}") String agentUrl,
             @Value("${pulseflow.agent.internal-token:}") String internalToken) {
@@ -47,10 +50,14 @@ public class AgentProposalGateway {
         this.client = builder.requestFactory(factory).build();
     }
 
+    /** 调查问题请求，由 Java 登录会话补充身份边界。 */
     public record Request(String question) {}
+    /** 追问请求，可附带新的调查范围。 */
     public record FollowUpRequest(String question, String scope) {}
+    /** 方案生成请求，附带操作员授权的优惠事实。 */
     public record ProposalRequest(String question, List<PromotionFact> promotionFacts) {}
 
+    /** 验证登录、输入和容量，异步启动 Agent 调查后登记操作员归属，返回安全快照。 */
     @PostMapping
     public ApiResponse<JsonNode> investigate(@RequestBody Request body) {
         StpUtil.checkLogin();
@@ -68,12 +75,14 @@ public class AgentProposalGateway {
         return ApiResponse.success(publicView(result));
     }
 
+    /** 校验当前操作员拥有调查后，查询并过滤 Agent 返回的详情。 */
     @GetMapping("/{investigationId}")
     public ApiResponse<JsonNode> get(@PathVariable String investigationId) {
         owned(investigationId);
         return ApiResponse.success(publicView(call("GET", "/" + investigationId, null)));
     }
 
+    /** 校验调查归属和可选范围，在容量限制内调用 Agent 的异步恢复接口。 */
     @PostMapping("/{investigationId}/follow-up")
     public ApiResponse<JsonNode> followUp(@PathVariable String investigationId, @RequestBody FollowUpRequest body) {
         Long operator = owned(investigationId);
@@ -89,12 +98,14 @@ public class AgentProposalGateway {
         catch (Exception ignored) { throw new AgentGatewayException(503, "agent_unavailable"); }
     }
 
+    /** 验证归属后请求 Agent 取消调查，返回过滤后的最新状态。 */
     @PostMapping("/{investigationId}/cancel")
     public ApiResponse<JsonNode> cancel(@PathVariable String investigationId) {
         owned(investigationId);
         return ApiResponse.success(publicView(call("POST", "/" + investigationId + "/cancel", Map.of())));
     }
 
+    /** 校验归属后转发白名单业务 SSE，限制线程和帧内容，连接关闭时停止转发。 */
     @GetMapping(value = "/{investigationId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter events(@PathVariable String investigationId) {
         owned(investigationId);
@@ -143,8 +154,10 @@ public class AgentProposalGateway {
     private static final Set<String> EVENTS = Set.of("investigation_started", "tool_started", "tool_completed",
             "evidence_added", "hypothesis_changed", "proposal_ready", "diagnosis_ready", "error");
 
+    /** 应用退出时停止事件流线程池，取消尚未完成的流代理任务。 */
     @PreDestroy public void shutdown() { streams.shutdownNow(); }
 
+    /** 取得登录操作员并校验调查归属及 Agent 配置，返回可继续操作的用户 ID。 */
     private Long owned(String id) {
         StpUtil.checkLogin();
         Long operator = StpUtil.getLoginIdAsLong();
@@ -153,8 +166,10 @@ public class AgentProposalGateway {
         return operator;
     }
 
+    /** 拼接 Agent 内部调查路径，统一服务地址格式。 */
     private String url(String path) { return agentUrl.replaceAll("/$", "") + "/internal/v1/investigations" + path; }
 
+    /** 附带机器令牌调用 Agent，并将下游状态映射为安全、稳定的网关错误码。 */
     private JsonNode call(String method, String path, Object payload) {
         try {
             var request = client.method(org.springframework.http.HttpMethod.valueOf(method)).uri(url(path))
@@ -174,6 +189,7 @@ public class AgentProposalGateway {
         } catch (Exception ignored) { throw new AgentGatewayException(503, "agent_unavailable"); }
     }
 
+    /** 只复制允许浏览器看到的调查字段，再递归清理私有提示、推理和凭据。 */
     static JsonNode publicView(JsonNode result) {
         ObjectNode safe = JsonUtil.fromJson("{}", ObjectNode.class);
         for (String key : List.of("id", "goal", "status", "scope", "scope_version", "created_at", "updated_at",
@@ -183,6 +199,7 @@ public class AgentProposalGateway {
         return safe;
     }
 
+    /** 递归移除模型内部内容、操作员私有标识和密钥字段。 */
     private static void removePrivate(JsonNode node) {
         if (node.isObject()) {
             ((ObjectNode) node).remove(List.of("system_prompt", "prompt", "model_messages",
@@ -192,6 +209,7 @@ public class AgentProposalGateway {
         node.elements().forEachRemaining(AgentProposalGateway::removePrivate);
     }
 
+    /** 核验调查归属和优惠事实数量，用登录操作员身份发起证据支持的方案生成。 */
     @PostMapping("/{investigationId}/proposal")
     public ApiResponse<JsonNode> propose(@PathVariable String investigationId, @RequestBody ProposalRequest body) {
         Long operator = owned(investigationId);
@@ -206,6 +224,7 @@ public class AgentProposalGateway {
         catch (Exception ignored) { throw new AgentGatewayException(503, "agent_proposal_unavailable"); }
     }
 
+    /** 校验问题非空和长度限制，并确认 Agent 地址与令牌可用。 */
     private void validate(Request body) {
         if (body == null || body.question() == null || body.question().isBlank()
                 || body.question().length() > 4000) throw new IllegalArgumentException("invalid_proposal_request");

@@ -11,15 +11,19 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
-/** Separate machine credential; never consults browser sessions or operatorId. */
+/**
+ * 使用独立机器令牌保护聚合工具接口，与浏览器会话隔离。
+ * Separate machine credential; never consults browser sessions or operatorId. */
 public final class AgentToolAuthFilter extends OncePerRequestFilter {
     static final String HEADER = "X-PulseFlow-Agent-Token";
     private final byte[] expectedHash;
 
+    /** 预处理配置令牌，供后续请求做固定格式的安全比较。 */
     AgentToolAuthFilter(String token) {
         expectedHash = token == null || token.isBlank() ? null : hash(token);
     }
 
+    /** 校验内部机器令牌，未通过时直接返回未授权响应，通过才继续过滤链。 */
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
@@ -36,6 +40,7 @@ public final class AgentToolAuthFilter extends OncePerRequestFilter {
         chain.doFilter(request, response);
     }
 
+    /** 计算令牌摘要，用于避免直接比较明文长度和内容。 */
     private static byte[] hash(String value) {
         try {
             return MessageDigest.getInstance("SHA-256")

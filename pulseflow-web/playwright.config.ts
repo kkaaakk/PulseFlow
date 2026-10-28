@@ -1,3 +1,4 @@
+// 配置演示模式浏览器测试、开发服务及失败证据保存。
 import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({

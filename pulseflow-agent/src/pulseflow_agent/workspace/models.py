@@ -1,3 +1,4 @@
+# 声明 Agent 自有数据库表、约束和索引，业务迁移由 Alembic 维护。
 """Agent-owned schema only; no PulseFlow business tables or credentials."""
 
 from sqlalchemy import (

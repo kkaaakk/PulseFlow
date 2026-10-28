@@ -38,6 +38,7 @@ public class WindowMetricJob {
     private static final int WINDOW_30D = 30;
     private static final int WINDOW_7D = 7;
 
+    /** 扫描近三十天活跃用户并逐人刷新窗口指标，单用户失败不阻断整个批次。 */
     @XxlJob("windowMetricJob")
     public void execute() {
         log.info("WindowMetricJob started");
@@ -66,6 +67,7 @@ public class WindowMetricJob {
         log.info("WindowMetricJob completed, processed {} users", processed);
     }
 
+    /** 加载日桶和当前小时桶，计算搜索、活跃、购物及消费等窗口画像。 */
     private void processUser(Long userId, LocalDateTime now, LocalDateTime currentHour) {
         // 读取该用户近 30 天全部日桶（一次性，减少查询次数）
         LocalDate since30d = now.toLocalDate().minusDays(WINDOW_30D);
@@ -109,6 +111,7 @@ public class WindowMetricJob {
                 calculatedAt, since7d.atStartOfDay(), now);
     }
 
+    /** 保存窗口指标值、计算时间和窗口边界，供画像查询读取最新结果。 */
     private void computeAndSave(Long userId, String metricType, BigDecimal value,
                                  LocalDateTime calculatedAt,
                                  LocalDateTime windowStart, LocalDateTime windowEnd) {
@@ -123,6 +126,7 @@ public class WindowMetricJob {
         behaviorSummaryMapper.insert(summary);
     }
 
+    /** 按事件类型累计小时桶计数，空计数按零处理。 */
     private BigDecimal sumHourlyEventCount(List<UserMetricHourly> metrics, String eventType) {
         return metrics.stream()
                 .filter(m -> eventType.equals(m.getEventType()))
@@ -130,6 +134,7 @@ public class WindowMetricJob {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
+    /** 按事件类型累计日桶计数，返回精确数值。 */
     private BigDecimal sumDailyEventCount(List<UserMetricDaily> metrics, String eventType) {
         return metrics.stream()
                 .filter(m -> eventType.equals(m.getEventType()))
@@ -137,6 +142,7 @@ public class WindowMetricJob {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
+    /** 按事件类型累计日桶金额，缺失金额按零处理。 */
     private BigDecimal sumDailyAmount(List<UserMetricDaily> metrics, String eventType) {
         return metrics.stream()
                 .filter(m -> eventType.equals(m.getEventType()))

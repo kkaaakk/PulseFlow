@@ -9,6 +9,8 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 
 /**
+ * 操作员授权的优惠事实，文案和方案不得自行发明额外优惠。
+ *
  * A single authoritative promotion fact.
  *
  * <p>Proposed content may not invent new promotion facts; the CampaignContentValidator rejects

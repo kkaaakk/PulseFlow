@@ -6,13 +6,14 @@ from pydantic import Field, HttpUrl, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# 从环境变量加载服务、存储、模型及 PII 配置，并强制执行生产边界。
 class AgentSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     pulseflow_agent_env: Literal["development", "test", "production"] = "development"
     pulseflow_agent_host: str = "127.0.0.1"
     pulseflow_agent_port: int = Field(default=8001, ge=1, le=65535)
-    pulseflow_agent_model: str = "test"
+    pulseflow_agent_model: str = "deepseek:deepseek-flash"
     pulseflow_agent_api_key: SecretStr | None = None
     pulseflow_agent_base_url: HttpUrl | None = None
     pulseflow_java_base_url: HttpUrl
@@ -36,6 +37,15 @@ class AgentSettings(BaseSettings):
     azure_language_key: SecretStr | None = None
     azure_language_pii_language: str = "zh-hans"
 
+    @field_validator("pulseflow_agent_model", mode="before")
+    @classmethod
+    def normalize_deepseek_model(cls, value: object) -> object:
+        # Migrate the former OpenAI-compatible spelling without changing the model.
+        if isinstance(value, str) and value.startswith("openai:deepseek-"):
+            return "deepseek:" + value.removeprefix("openai:")
+        return value
+
+    # 将环境变量中的空字符串转为 None，使可选 URL 和密钥走统一的缺省校验。
     @field_validator(
         "pulseflow_agent_api_key",
         "pulseflow_agent_base_url",
@@ -48,10 +58,12 @@ class AgentSettings(BaseSettings):
     def empty_optional_setting(cls, value: object) -> object:
         return None if value == "" else value
 
+    # 返回是否使用离线测试模型，供配置校验和 PII 检查选择执行分支。
     @property
     def is_test_model(self) -> bool:
         return self.pulseflow_agent_model == "test"
 
+    # 校验数据库、模型密钥和 Azure PII 配置；生产环境额外要求专用 MySQL 账号和内部令牌。
     @model_validator(mode="after")
     def validate_real_model(self) -> "AgentSettings":
         database_url = (
@@ -78,8 +90,13 @@ class AgentSettings(BaseSettings):
             if self.pulseflow_agent_env == "production":
                 raise ValueError("production requires a real model")
             return self
-        if not self.pulseflow_agent_model.startswith("openai:"):
-            raise ValueError("unsupported model provider")
+        if not self.pulseflow_agent_model.startswith("deepseek:deepseek-"):
+            raise ValueError("real models must use the DeepSeek provider")
+        if self.pulseflow_agent_base_url and (
+            self.pulseflow_agent_base_url.scheme != "https"
+            or self.pulseflow_agent_base_url.host != "api.deepseek.com"
+        ):
+            raise ValueError("real models require the DeepSeek HTTPS endpoint")
         if not self.pulseflow_agent_api_key or not self.pulseflow_agent_api_key.get_secret_value():
             raise ValueError("real model API key is required")
         if not self.azure_language_endpoint or not self.azure_language_key:

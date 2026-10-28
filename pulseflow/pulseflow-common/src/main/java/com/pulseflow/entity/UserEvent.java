@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/** 接入事件事实，保留原始及有效时间、时钟偏差和扩展属性。 */
 @Data
 @Builder
 @NoArgsConstructor

@@ -9,11 +9,14 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 import org.springframework.stereotype.Repository;
 
+/** DataCompensationTask 的数据库映射接口，提供基础 CRUD 和所声明的业务查询。 */
 @Mapper
 @Repository
 public interface DataCompensationTaskMapper extends BaseMapper<DataCompensationTask> {
 
     /**
+     * 原子插入或恢复补偿任务；重复键重置重试次数、锁和下次执行时间，使任务重新进入 PENDING。
+     *
      * Atomic upsert for compensation task.
      * On duplicate (event_id, task_type) the row is explicitly restored to PENDING:
      * retry_count reset to 0, locked_at cleared, next_retry_at set to NOW(),

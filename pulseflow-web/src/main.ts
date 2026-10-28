@@ -1,3 +1,4 @@
+// 创建 Vue 应用，安装状态管理、路由和组件库后挂载控制台。
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'

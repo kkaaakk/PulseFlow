@@ -16,6 +16,7 @@ export const EVENT_TYPES = [
 const EVENT_WEIGHTS = [2, 36, 12, 12, 8, 10, 4, 5, 5, 4, 2];
 const runId = (__ENV.RUN_ID || 'adhoc').replace(/[^a-zA-Z0-9_-]/g, '-');
 
+/** 按配置权重随机选择行为类型，模拟压测中的业务流量分布。 */
 function weightedEventType() {
   const total = EVENT_WEIGHTS.reduce((sum, weight) => sum + weight, 0);
   let value = Math.floor(Math.random() * total);
@@ -26,6 +27,7 @@ function weightedEventType() {
   return EVENT_TYPES[EVENT_TYPES.length - 1];
 }
 
+/** 按配置业务时区生成本地时间字符串，使压测事件与服务端时间口径一致。 */
 function eventTimeString() {
   // application.yml uses Asia/Shanghai in the local workflow. Allow callers
   // to override the wall-clock offset when the app runs in another timezone.
@@ -35,6 +37,7 @@ function eventTimeString() {
     .slice(0, 19);
 }
 
+/** 按事件类型生成时长、金额和购物车属性，覆盖实际接入字段。 */
 function randomProperties(eventType, sequence) {
   const properties = { category: `k6-${sequence % 8}` };
   if (eventType === 'CONTENT_VIEW' || eventType === 'SEARCH') {
@@ -55,6 +58,7 @@ function randomProperties(eventType, sequence) {
   return properties;
 }
 
+/** 同时验证 HTTP 状态、业务 code 和 accepted 标志，识别返回 200 的业务失败。 */
 export function isAccepted(response) {
   let body = null;
   try {
@@ -68,6 +72,7 @@ export function isAccepted(response) {
     && body.data.accepted === true;
 }
 
+/** 按运行 ID、虚拟用户和迭代生成唯一事件，分配专用压测用户并补齐业务属性。 */
 export function makeEvent(sequence) {
   const eventType = weightedEventType();
   const eventId = `k6-${runId}-${__VU}-${__ITER}-${Date.now()}-${sequence}`;

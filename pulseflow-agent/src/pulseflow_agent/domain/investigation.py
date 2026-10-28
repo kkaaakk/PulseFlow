@@ -25,6 +25,7 @@ InvestigationStatus = Literal[
 HypothesisStatus = Literal["OPEN", "SUPPORTED", "WEAKENED", "REJECTED"]
 
 
+# 来自 Java 聚合工具的可追溯证据，绑定查询、数据及范围版本。
 class Evidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -41,6 +42,7 @@ class Evidence(BaseModel):
     scope_version: int = 0
 
 
+# 带支持和反对证据的调查假设，记录状态、理由和置信度。
 class Hypothesis(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -56,6 +58,7 @@ class Hypothesis(BaseModel):
     updated_at: datetime
 
 
+# 可展示的用户或助手消息，可附结构化诊断。
 class AgentMessage(BaseModel):
     role: Literal["USER", "ASSISTANT"]
     content: str = Field(max_length=4000)
@@ -63,11 +66,13 @@ class AgentMessage(BaseModel):
     diagnosis: Diagnosis | None = None
 
 
+# 诊断中的单项声明及其支持证据 ID。
 class Finding(BaseModel):
     claim: str = Field(min_length=1, max_length=2000)
     evidence_ids: list[str] = Field(default_factory=list)
 
 
+# 最终诊断，包含发现、证据引用、未解决问题和置信度。
 class Diagnosis(BaseModel):
     status: Literal["DIAGNOSED", "INSUFFICIENT_EVIDENCE"]
     summary: str = Field(min_length=1, max_length=4000)
@@ -78,12 +83,14 @@ class Diagnosis(BaseModel):
     recommended_next_action: str | None
 
 
+# 工具交给模型的紧凑观察，附可引用证据 ID 与口径警告。
 class ToolObservation(BaseModel):
     evidence_id: str | None
     observation: str
     warnings: list[str] = Field(default_factory=list)
 
 
+# 单轮运行结果，包含诊断及本轮工作区中积累的业务对象。
 class InvestigationResult(BaseModel):
     diagnosis: Diagnosis
     evidence: list[Evidence]
@@ -93,6 +100,7 @@ class InvestigationResult(BaseModel):
     proposals: list[ProposalRecord] = Field(default_factory=list)
 
 
+# 可从数据库恢复和向接口返回的完整调查快照。
 class Investigation(BaseModel):
     id: str
     goal: str
@@ -109,6 +117,7 @@ class Investigation(BaseModel):
     proposals: list[ProposalRecord] = Field(default_factory=list)
 
 
+# 单轮可变调查视图，先持久化再更新内存，并约束当前范围证据引用。
 @dataclass
 class InvestigationWorkspace:
     """Mutable per-run view backed by Agent-owned storage when configured."""
@@ -125,6 +134,7 @@ class InvestigationWorkspace:
     tool_trajectory: list[str] = field(default_factory=list)
     proposals: list[ProposalRecord] = field(default_factory=list)
 
+    # 验证当前范围证据后持久化方案及操作员归属，并将记录加入工作区。
     async def add_proposal(self, proposal: CampaignProposal, owner_id: int) -> ProposalRecord:
         if self.id is None or self.repository is None:
             raise ValueError("proposal requires a persisted investigation")
@@ -143,11 +153,13 @@ class InvestigationWorkspace:
         self.proposals.append(item)
         return item
 
+    # 先保存工具轨迹再更新内存列表，使恢复后的调查仍能展示执行过程。
     async def record_tool(self, name: str) -> None:
         if self.repository is not None and self.id is not None:
             await self.repository.append_tool(self.id, name)
         self.tool_trajectory.append(name)
 
+    # 创建证据 UUID，记录来源、版本、trace 和范围版本；持久化后返回证据。
     async def add_evidence(
         self, name: str, metadata: ToolMetadata, observation: str, query: WireModel
     ) -> Evidence:
@@ -171,6 +183,7 @@ class InvestigationWorkspace:
         self.evidence.append(item)
         return item
 
+    # 核验证据且支持与反对集合不重叠，创建 OPEN 假设并同步到存储。
     async def propose_hypothesis(
         self,
         statement: str,
@@ -199,6 +212,7 @@ class InvestigationWorkspace:
         self.hypotheses.append(item)
         return item
 
+    # 更新当前范围假设；支持或削弱状态须有对应证据，版本不符则拒绝。
     async def update_hypothesis(
         self,
         hypothesis_id: str,
@@ -235,6 +249,7 @@ class InvestigationWorkspace:
             return updated
         raise ValueError("hypothesis_not_found_in_current_scope")
 
+    # 应用新范围并递增版本、拒绝旧假设；相同范围直接返回原版本。
     async def change_scope(self, description: str) -> int:
         description = description.strip()
         if not description or len(description) > 1000:
@@ -260,6 +275,7 @@ class InvestigationWorkspace:
         ]
         return self.scope_version
 
+    # 记录带时间戳的会话消息及可选诊断，供后续追问恢复上下文。
     async def add_message(
         self,
         role: Literal["USER", "ASSISTANT"],
@@ -273,6 +289,7 @@ class InvestigationWorkspace:
             await self.repository.add_message(self.id, item)
         self.messages.append(item)
 
+    # 持久化调查终态和诊断，并追加包含摘要的助手消息。
     async def finish(self, status: InvestigationStatus, diagnosis: Diagnosis) -> None:
         if self.repository is not None and self.id is not None:
             await self.repository.finish(self.id, status, diagnosis)
@@ -286,10 +303,12 @@ class InvestigationWorkspace:
             )
         )
 
+    # 只接受当前范围已有证据 ID，未知或历史引用抛出校验错误。
     def _validate_evidence(self, ids: list[str]) -> None:
         if not set(ids).issubset(self.evidence_ids):
             raise ValueError("hypothesis references unknown or historical evidence")
 
+    # 返回当前范围证据 ID 集合，统一约束诊断、假设及方案引用。
     @property
     def evidence_ids(self) -> set[str]:
         return {item.id for item in self.evidence if item.scope_version == self.scope_version}

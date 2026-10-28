@@ -43,6 +43,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 /**
+ * 验证 CampaignDraftService 的业务行为和边界条件。
+ *
  * End-to-end integration test for the Campaign Creation flow.
  *
  * <p>Verifies the architectural invariants (design §11.5):</p>
@@ -75,6 +77,7 @@ class CampaignDraftServiceTest {
     private AtomicLong draftIdSeq;
     private AtomicLong campaignIdSeq;
 
+    /** 初始化 DSL 字段注册表，使草稿测试使用真实白名单校验。 */
     @BeforeAll
     static void initRegistry() {
         registry = new CampaignFieldRegistry();
@@ -83,6 +86,7 @@ class CampaignDraftServiceTest {
         converter = new DslToRuleConverter(registry);
     }
 
+    /** 初始化当前测试的实体、依赖替身和数据，使各场景之间保持隔离。 */
     @BeforeEach
     void setUp() {
         draftMapper = mock(CampaignDraftMapper.class);
@@ -126,6 +130,7 @@ class CampaignDraftServiceTest {
         when(ruleMapper.insert(any())).thenReturn(1);
     }
 
+    /** 验证刷新预估重新计算并更新人数快照。 */
     @Test
     @DisplayName("refresh preview 重新计算并持久化人群快照")
     void refreshPreviewRecomputesAudienceSnapshot() {
@@ -146,6 +151,7 @@ class CampaignDraftServiceTest {
         verify(previewService).preview(any(CampaignDsl.class));
     }
 
+    /** 构造字段、渠道、排程及频控完整的合法 DSL 夹具。 */
     private CampaignDsl validDsl() {
         return CampaignDsl.builder()
                 .schemaVersion(1)
@@ -188,6 +194,7 @@ class CampaignDraftServiceTest {
                 .build();
     }
 
+    /** 持久化已校验草稿夹具，供确认与幂等测试复用。 */
     private CampaignDraft persistValidatedDraft() {
         CampaignDsl dsl = validDsl();
         CampaignDraft draft = CampaignDraft.builder()
@@ -208,6 +215,7 @@ class CampaignDraftServiceTest {
         return draft;
     }
 
+    /** 验证人工确认有效草稿后创建活动及规则。 */
     @Test
     @DisplayName("VALIDATED draft → confirm → real Campaign + rules created via CampaignMapper")
     void confirmValidatedDraftCreatesCampaign() {
@@ -232,6 +240,7 @@ class CampaignDraftServiceTest {
         assertThat(updated.getConfirmedAt()).isNotNull();
     }
 
+    /** 验证未通过校验的草稿不能确认。 */
     @Test
     @DisplayName("non-VALIDATED draft cannot be confirmed (409)")
     void nonValidatedDraftCannotBeConfirmed() {
@@ -247,6 +256,7 @@ class CampaignDraftServiceTest {
         verify(campaignMapper, never()).insert(any());
     }
 
+    /** 验证过期草稿不能生成活动。 */
     @Test
     @DisplayName("expired draft cannot be confirmed (409)")
     void expiredDraftCannotBeConfirmed() {
@@ -261,6 +271,7 @@ class CampaignDraftServiceTest {
         verify(campaignMapper, never()).insert(any());
     }
 
+    /** 验证草稿不存在时返回资源未找到语义。 */
     @Test
     @DisplayName("missing draft returns 404")
     void missingDraftReturns404() {
@@ -269,6 +280,7 @@ class CampaignDraftServiceTest {
                 .hasMessageContaining("not found");
     }
 
+    /** 验证重复确认返回相同活动，不重复落库。 */
     @Test
     @DisplayName("re-confirm is idempotent")
     void reConfirmIsIdempotent() {
@@ -284,6 +296,7 @@ class CampaignDraftServiceTest {
         verify(campaignMapper, times(1)).insert(any(Campaign.class));
     }
 
+    /** 验证创建活动的描述保留业务目标信息。 */
     @Test
     @DisplayName("confirmed campaign description embeds objective for later review extraction")
     void confirmedCampaignDescriptionHasObjective() {

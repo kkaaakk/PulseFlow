@@ -68,6 +68,7 @@ class EventIdempotentConsumptionIT {
             .withPassword("test")
             .withReuse(true);
 
+    /** 注入隔离集成测试的存储及消息配置，供真实消费链路启动。 */
     @DynamicPropertySource
     static void overrideProps(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url",
@@ -119,6 +120,7 @@ class EventIdempotentConsumptionIT {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    /** 构造集成测试事件载荷，包含规范时间和用于统计的属性。 */
     private Map<String, Object> buildEvent(String eventId, String eventType) {
         Map<String, Object> eventMap = new LinkedHashMap<>();
         eventMap.put("eventId", eventId);
@@ -138,6 +140,7 @@ class EventIdempotentConsumptionIT {
         return eventMap;
     }
 
+    /** 验证首次消费在同一事务写入事件事实和指标。 */
     @Test
     @Transactional
     @DisplayName("首次 persist：user_event + user_metric_hourly 同事务落库")
@@ -156,6 +159,7 @@ class EventIdempotentConsumptionIT {
         assertEquals("evt_it_001", result.getContext().get("eventId"));
     }
 
+    /** 验证重复消费不累加指标，后续上下文取自数据库规范事件。 */
     @Test
     @Transactional
     @DisplayName("重复 persist 同一 eventId：不抛异常，返回 DB 标准事件（幂等）")
@@ -172,6 +176,7 @@ class EventIdempotentConsumptionIT {
         assertEquals("evt_it_002", second.getEvent().getEventId());
     }
 
+    /** 验证同小时桶的不同事件通过 upsert 正确累加。 */
     @Test
     @Transactional
     @DisplayName("指标桶累加：同一小时桶多次写入 event_count 正确累加（ON DUPLICATE KEY UPDATE）")
@@ -194,6 +199,7 @@ class EventIdempotentConsumptionIT {
                 "amount_sum should accumulate, got " + metric.getAmountSum());
     }
 
+    /** 验证 targetId 的 null 与零在 MySQL 往返后仍可区分。 */
     @Test
     @Transactional
     @DisplayName("targetId NULL and zero remain distinct through MyBatis INSERT and MySQL")

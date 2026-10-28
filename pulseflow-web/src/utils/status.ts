@@ -19,6 +19,7 @@ export const statusLabel: Record<string, string> = {
   EXPIRED: '已过期',
 }
 
+/** 将业务状态映射为统一标签色，未识别状态使用中性色。 */
 export const statusTone = (status?: string): 'success' | 'warning' | 'danger' | 'info' | 'neutral' => {
   switch (status) {
     case 'ACTIVE':
@@ -44,4 +45,5 @@ export const statusTone = (status?: string): 'success' | 'warning' | 'danger' | 
   }
 }
 
+/** 返回中文状态名，未知状态保留原值，缺失时显示占位符。 */
 export const getStatusLabel = (status?: string) => (status ? statusLabel[status] ?? status : '—')

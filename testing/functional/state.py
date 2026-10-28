@@ -39,10 +39,12 @@ DEFAULT_KAFKA_WAIT_SECONDS = 180.0
 DEFAULT_KAFKA_POLL_SECONDS = 3.0
 
 
+# 测试存储命令失败的异常，供清理流程统一报告。
 class StateCommandError(RuntimeError):
     """Raised when a guarded MySQL/Redis command cannot complete."""
 
 
+# 本次测试拥有的数据范围，限制用户、事件、活动及 Redis 键的清理边界。
 @dataclass
 class OwnershipScope:
     event_patterns: tuple[str, ...]
@@ -54,15 +56,18 @@ class OwnershipScope:
     delivery_task_ids: set[int] = field(default_factory=set)
     fixed_delivery_task_ids: set[int] = field(default_factory=set)
 
+    # 判断用户 ID 是否位于当前清理范围声明的保留区间内。
     def owns_user_id(self, user_id: int) -> bool:
         return user_id in self.user_ids or any(
             lower <= user_id <= upper for lower, upper in self.user_ranges
         )
 
+    # 判断事件 ID 是否属于当前场景声明的测试命名空间。
     def owns_event_id(self, event_id: str) -> bool:
         return any(event_id.startswith(prefix) for prefix in self.event_prefixes)
 
 
+# 读取 UTF-8 JSON 配置，供所有权清单及数据清单解析复用。
 def load_json(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
@@ -70,6 +75,7 @@ def load_json(path: Path) -> dict[str, Any]:
     return value
 
 
+# 合并所有权规则与可选数据清单，构造严格限定的测试清理范围。
 def load_scope(manifest_paths: Iterable[Path] = (), include_catalog: bool = True) -> OwnershipScope:
     catalog = load_json(OWNERSHIP_PATH)
     ranges: set[tuple[int, int]] = set()
@@ -134,6 +140,7 @@ def load_scope(manifest_paths: Iterable[Path] = (), include_catalog: bool = True
     return scope
 
 
+# 解析 reset/verify 操作、所有权清单、存储配置及清理等待参数。
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("reset", "verify"), default="reset")
@@ -201,10 +208,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# 检测所需命令是否在 PATH 中可用，供依赖检查和未执行状态判断。
 def command_exists(command: str) -> bool:
     return Path(command).exists() if Path(command).is_absolute() else shutil.which(command) is not None
 
 
+# 检查测试环境、数据库名和存储地址，防止验证或清理访问非测试实例。
 def assert_safe_store_target(args: argparse.Namespace) -> None:
     test_env = os.environ.get("PULSEFLOW_TEST_ENV", "").lower() == "test"
     loopback_hosts = {"127.0.0.1", "localhost", "::1"}
@@ -222,6 +231,7 @@ def assert_safe_store_target(args: argparse.Namespace) -> None:
         )
 
 
+# 按测试配置执行 MySQL CLI，返回解析后的行和错误信息，保留 SQL NULL 标记。
 def run_mysql(args: argparse.Namespace, query: str) -> list[list[str]]:
     if not command_exists(args.mysql_bin):
         raise StateCommandError(f"MySQL client not found: {args.mysql_bin}")
@@ -244,6 +254,7 @@ def run_mysql(args: argparse.Namespace, query: str) -> list[list[str]]:
     return [line.split("\t") for line in result.stdout.splitlines() if line != ""]
 
 
+# 按测试配置执行 Redis CLI，返回输出与错误供调用方判定依赖状态。
 def run_redis(args: argparse.Namespace, command_args: list[str], timeout: int = 60) -> list[str]:
     if not command_exists(args.redis_bin):
         raise StateCommandError(f"Redis CLI not found: {args.redis_bin}")
@@ -266,6 +277,7 @@ def run_redis(args: argparse.Namespace, command_args: list[str], timeout: int = 
     return result.stdout.splitlines()
 
 
+# 选择可用的 Kafka 消费组只读查询命令，用于检查历史积压是否清空。
 def kafka_groups_command(args: argparse.Namespace, group: str) -> list[str] | None:
     """Build a read-only consumer-group describe command when available."""
     command = args.kafka_groups_bin.strip()
@@ -284,6 +296,7 @@ def kafka_groups_command(args: argparse.Namespace, group: str) -> list[str] | No
     ]
 
 
+# 查询消费组分区偏移与 lag，返回可诊断的命令输出。
 def describe_kafka_group(args: argparse.Namespace, group: str) -> dict[str, Any]:
     command = kafka_groups_command(args, group)
     if command is None:
@@ -341,6 +354,7 @@ def describe_kafka_group(args: argparse.Namespace, group: str) -> dict[str, Any]
     }
 
 
+# 有限等待旧消息被消费完，防止清理后的数据被仍在运行的消费者重新写入。
 def wait_for_kafka_quiescence(args: argparse.Namespace) -> dict[str, Any]:
     """Wait for active test consumers to drain old Kafka backlog.
 
@@ -375,22 +389,26 @@ def wait_for_kafka_quiescence(args: argparse.Namespace) -> dict[str, Any]:
         snapshots = [describe_kafka_group(args, group) for group in groups]
 
 
+# 按保留用户区间生成 SQL 条件，避免清理影响其他用户。
 def sql_user_condition(scope: OwnershipScope, column: str = "user_id") -> str:
     parts = [f"{column} BETWEEN {lower} AND {upper}" for lower, upper in scope.user_ranges]
     parts.extend(f"{column} = {user_id}" for user_id in sorted(scope.user_ids))
     return "(" + " OR ".join(parts) + ")" if parts else "(1 = 0)"
 
 
+# 按测试命名空间生成转义后的 LIKE 条件。
 def sql_like_condition(column: str, patterns: Iterable[str]) -> str:
     clauses = [f"{column} LIKE '{pattern.replace(chr(39), chr(39) * 2)}'" for pattern in patterns]
     return "(" + " OR ".join(clauses) + ")" if clauses else "(1 = 0)"
 
 
+# 将已确认属于测试范围的 ID 集合转为受控 SQL 条件。
 def sql_id_condition(column: str, values: Iterable[int]) -> str:
     ids = sorted({int(value) for value in values})
     return f"({column} IN ({', '.join(str(value) for value in ids)}))" if ids else "(1 = 0)"
 
 
+# 限定测试活动 ID 或命名规则，供活动派生记录清理使用。
 def sql_campaign_condition(scope: OwnershipScope, column: str = "campaign_id") -> str:
     if not scope.campaign_pattern:
         return "(1 = 0)"
@@ -398,6 +416,7 @@ def sql_campaign_condition(scope: OwnershipScope, column: str = "campaign_id") -
     return f"({column} IN (SELECT id FROM campaign WHERE name LIKE '{pattern}'))"
 
 
+# 按引用关系生成测试范围内删除语句，限定命名空间而不清空整张业务表。
 def build_mysql_cleanup_sql(scope: OwnershipScope) -> str:
     event_condition = sql_like_condition("event_id", scope.event_patterns)
     target_event_condition = sql_like_condition("target_event_id", scope.event_patterns)
@@ -466,6 +485,7 @@ COMMIT;
 """.strip()
 
 
+# 查询属于当前测试范围的任务及活动 ID，供关联清理和验证使用。
 def query_owned_ids(args: argparse.Namespace, scope: OwnershipScope) -> tuple[set[int], set[int], set[int]]:
     event_condition = sql_like_condition("event_id", scope.event_patterns)
     target_event_condition = sql_like_condition("target_event_id", scope.event_patterns)
@@ -494,11 +514,13 @@ SELECT id FROM campaign WHERE {sql_like_condition('name', (scope.campaign_patter
     return users, tasks, campaigns
 
 
+# 把较长列表切成固定大小批次，限制单次 Redis 删除或 SQL 操作规模。
 def chunks(values: list[str], size: int = DEFAULT_BATCH_SIZE) -> Iterable[list[str]]:
     for start in range(0, len(values), size):
         yield values[start:start + size]
 
 
+# 通过 SCAN 增量枚举匹配键，避免使用阻塞式全库键查询。
 def scan_keys(args: argparse.Namespace, pattern: str) -> list[str]:
     # redis-cli 5.0 on Windows does not reliably pass --scan --pattern to a
     # Redis 7 server. Use the Redis SCAN command directly and filter only the
@@ -515,11 +537,13 @@ def scan_keys(args: argparse.Namespace, pattern: str) -> list[str]:
             return keys
 
 
+# 从已知 Redis 键结构提取用户 ID，解析失败时保留未识别语义。
 def parse_user_from_key(key: str) -> int | None:
     match = re.match(r"^(?:user:(?:rt|cart|window):|user:daily:|freq:user:)(\d+)(?::|$)", key)
     return int(match.group(1)) if match else None
 
 
+# 结合键前缀、用户和任务归属判断能否删除，拒绝未声明的业务键。
 def key_is_owned(key: str, scope: OwnershipScope, task_ids: set[int]) -> bool:
     if key.startswith("event:processed:"):
         return scope.owns_event_id(key[len("event:processed:"):])
@@ -533,6 +557,7 @@ def key_is_owned(key: str, scope: OwnershipScope, task_ids: set[int]) -> bool:
     return bool(reserved_match and int(reserved_match.group(1)) in task_ids)
 
 
+# 分批删除已验证归属的 Redis 键，返回清理统计。
 def delete_redis_keys(args: argparse.Namespace, keys: Iterable[str]) -> int:
     key_list = sorted(set(keys))
     deleted = 0
@@ -543,6 +568,7 @@ def delete_redis_keys(args: argparse.Namespace, keys: Iterable[str]) -> int:
     return deleted
 
 
+# 仅删除共享有序集合中属于测试的成员，保留其他业务任务。
 def remove_owned_zset_members(args: argparse.Namespace, scope: OwnershipScope, key: str) -> int:
     members = run_redis(args, ["ZRANGE", key, "0", "-1"], timeout=120)
     if key in {"delay:attribution", "delay:attribution:processing"}:
@@ -559,6 +585,7 @@ def remove_owned_zset_members(args: argparse.Namespace, scope: OwnershipScope, k
     return removed
 
 
+# 检查测试键和集合成员是否已清理，返回剩余项供收敛判断。
 def verify_redis(args: argparse.Namespace, scope: OwnershipScope, task_ids: set[int]) -> dict[str, Any]:
     remaining_keys = {
         key for key in scan_keys(args, "*") if key_is_owned(key, scope, task_ids)
@@ -583,6 +610,7 @@ def verify_redis(args: argparse.Namespace, scope: OwnershipScope, task_ids: set[
     }
 
 
+# 检查测试范围内各业务表是否仍有记录，不访问其他命名空间数据。
 def verify_mysql(args: argparse.Namespace, scope: OwnershipScope) -> dict[str, Any]:
     event_condition = sql_like_condition("event_id", scope.event_patterns)
     target_event_condition = sql_like_condition("target_event_id", scope.event_patterns)
@@ -627,6 +655,7 @@ UNION ALL SELECT 'user_profile', COUNT(*) FROM user_profile WHERE {user_conditio
     return {row[0]: int(row[1]) for row in rows if len(row) >= 2}
 
 
+# 执行一次限定范围的 MySQL 和 Redis 清理，并验证剩余状态。
 def reset_once(args: argparse.Namespace, scope: OwnershipScope) -> dict[str, Any]:
     users_before, tasks_before, campaigns_before = query_owned_ids(args, scope)
     # The catalog ranges already own generated users. Only retain an ID that
@@ -680,6 +709,7 @@ def reset_once(args: argparse.Namespace, scope: OwnershipScope) -> dict[str, Any
     }
 
 
+# 判断本轮清理报告中的存储残留是否已归零。
 def reset_result_is_clean(result: dict[str, Any]) -> bool:
     mysql = result.get("mysql", {}).get("remainingOwnedRows", {})
     redis = result.get("redis", {})
@@ -691,6 +721,7 @@ def reset_result_is_clean(result: dict[str, Any]) -> bool:
     )
 
 
+# 运行有界清理收敛循环，处理消费者延迟写回；超过限制仍有残留则明确失败。
 def reset(args: argparse.Namespace, scope: OwnershipScope) -> dict[str, Any]:
     """Run a bounded cleanup convergence loop.
 
@@ -749,6 +780,7 @@ def reset(args: argparse.Namespace, scope: OwnershipScope) -> dict[str, Any]:
     return last_result
 
 
+# 校验目标环境后执行清理或只读验证，输出结构化结果与退出码。
 def main() -> int:
     args = parse_args()
     report: dict[str, Any] = {"mode": args.mode, "scope": args.scope, "status": "NOT_RUN"}

@@ -10,11 +10,14 @@ import org.springframework.stereotype.Repository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+/** UserMetricHourly 的数据库映射接口，提供基础 CRUD 和所声明的业务查询。 */
 @Mapper
 @Repository
 public interface UserMetricHourlyMapper extends BaseMapper<UserMetricHourly> {
 
     /**
+     * 在单条 upsert 中累加小时桶事件数、时长和金额，避免并发读改写丢失统计。
+     *
      * Atomic upsert for hourly metric bucket.
      * Splits event_count / duration_sum / amount_sum accumulation in a single statement,
      * avoiding the non-atomic select-then-update race condition.

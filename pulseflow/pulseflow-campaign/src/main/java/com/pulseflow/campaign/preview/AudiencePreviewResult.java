@@ -9,6 +9,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
+ * 人群估算快照，包含人数、计算时间、数据版本和警告。
+ *
  * Result of {@link AudiencePreviewService#preview}.
  *
  * <p>{@code calculationMode} tells the frontend whether the count is a real

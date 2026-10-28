@@ -21,6 +21,7 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/** 扫描到期定时活动、维护执行实例并批量触发用户决策。 */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -31,6 +32,7 @@ public class CampaignSelectionJob {
     private final DecisionEngine decisionEngine;
     private final UserProfileMapper userProfileMapper;
 
+    /** 扫描到期定时活动并创建执行实例，执行待处理实例并恢复超时任务。 */
     @XxlJob("campaignSelectionJob")
     public void execute() {
         log.info("CampaignSelectionJob started");
@@ -74,6 +76,7 @@ public class CampaignSelectionJob {
                 activeScheduled.size(), pendingExecutions.size());
     }
 
+    /** 将超时的执行实例恢复为可重试状态，避免进程退出造成永久挂起。 */
     private void recoverStuckExecutions() {
         LocalDateTime tenMinutesAgo = LocalDateTime.now().minusMinutes(10);
 
@@ -95,6 +98,7 @@ public class CampaignSelectionJob {
                         .set(CampaignExecution::getStatus, ExecutionStatus.FAILED.name()));
     }
 
+    /** 为活动当前触发点创建幂等执行实例，并推进下次触发时间。 */
     private void createExecutionInstance(Campaign campaign) {
         LocalDateTime scheduledAt = campaign.getNextTriggerAt();
 
@@ -132,6 +136,8 @@ public class CampaignSelectionJob {
     }
 
     /**
+     * 按 cron 计算下次触发时间；配置缺失或无效时延后一小时，避免连续触发。
+     *
      * Compute the next trigger time from the cron expression.
      * Falls back to +1 hour if the cron is missing/invalid so the campaign
      * doesn't fire-storm, while logging a warning.
@@ -158,6 +164,7 @@ public class CampaignSelectionJob {
         }
     }
 
+    /** 领取执行实例并遍历候选用户进行批量决策，成功完成，失败恢复为待处理。 */
     private void executeCampaign(CampaignExecution execution) {
         // CAS claim PENDING → RUNNING (only one node proceeds)
         int claimed = campaignExecutionMapper.update(null,

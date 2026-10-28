@@ -1,3 +1,4 @@
+// 配置真实后端浏览器集成测试的地址、运行范围及报告。
 import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({

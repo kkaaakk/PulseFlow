@@ -5,9 +5,12 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import java.util.concurrent.atomic.AtomicBoolean;
 import static org.assertj.core.api.Assertions.assertThat;
 
+/** 验证 MapperRegistration 的业务行为和边界条件。 */
 class MapperRegistrationTest {
+    /** 为当前测试提供独立的配置或依赖替身，隔离真实应用资源。 */
     static class RegistrationProbeComplete extends RuntimeException { }
 
+    /** 验证实际应用只注册数据库 Mapper，避免误扫描业务接口。 */
     @Test void actualApplicationRegistersOnlyDatabaseMappersBeforeOpeningResources() {
         AtomicBoolean checked = new AtomicBoolean();
         new ApplicationContextRunner().withUserConfiguration(PulseFlowApplication.class)

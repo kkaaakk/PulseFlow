@@ -27,7 +27,9 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
 
-/** Fixed aggregate queries. No SQL fragment or column identifier comes from model text. */
+/**
+ * 执行固定白名单聚合查询，模型文本不能成为 SQL 列名或表达式。
+ * Fixed aggregate queries. No SQL fragment or column identifier comes from model text. */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -37,6 +39,7 @@ public class AgentMetricService {
     private static final String NO_DIMENSION = "";
     private final NamedParameterJdbcTemplate jdbc;
 
+    /** 校验聚合查询参数，按维度汇总事实并返回指标值、样本量、警告和查询元数据。 */
     @WithSpan("agent-tools.metric-query")
     public QueryResponse query(QueryRequest request) {
         if (request == null) throw invalid("invalid_tool_request");
@@ -57,6 +60,7 @@ public class AgentMetricService {
                 rows.stream().mapToLong(MetricRow::sampleSize).sum());
     }
 
+    /** 把单维度拆解转换为统一指标查询，复用筛选、限量和统计口径。 */
     @WithSpan("agent-tools.metric-breakdown")
     public QueryResponse breakdown(BreakdownRequest request) {
         if (request == null) throw invalid("invalid_tool_request");
@@ -65,6 +69,7 @@ public class AgentMetricService {
                 List.of(request.dimension()), request.rowLimit()));
     }
 
+    /** 对齐当前期和基准期分组，计算绝对及相对差异；缺失分组按零计，拒绝 DAY 维度比较。 */
     @WithSpan("agent-tools.metric-compare")
     public CompareResponse compare(CompareRequest request) {
         if (request == null) throw invalid("invalid_tool_request");
@@ -100,6 +105,7 @@ public class AgentMetricService {
                 rows.stream().mapToLong(CompareRow::currentSampleSize).sum());
     }
 
+    /** 按允许维度汇总归因次数和去重用户数，返回限量结果及截断警告。 */
     @WithSpan("agent-tools.attribution")
     public AttributionResponse attribution(AttributionRequest request) {
         if (request == null) throw invalid("invalid_tool_request");
@@ -125,6 +131,7 @@ public class AgentMetricService {
                 request.dimension(), rows);
     }
 
+    /** 分别聚合发送、送达、点击和归因事实，以相同分组键合并计数供指标计算。 */
     private Map<String, Counts> readCounts(TimeRange range, FilterSpec filters, Dimension dimension) {
         MapSqlParameterSource params = parameters(range, filters);
         Map<String, Counts> result = new HashMap<>();
@@ -163,6 +170,7 @@ public class AgentMetricService {
         return result;
     }
 
+    /** 将白名单维度映射为受控 SQL 分组表达式，无维度时返回总计桶。 */
     private String bucket(Dimension dimension, String campaign, String channel, String time) {
         if (dimension == null) return "NULL";
         return switch (dimension) {
@@ -172,6 +180,7 @@ public class AgentMetricService {
         };
     }
 
+    /** 为归因查询选择活动、渠道、日期或模型分组列，避免接受任意 SQL 表达式。 */
     private String attributionBucket(AttributionDimension dimension) {
         return switch (dimension) {
             case CAMPAIGN -> "a.campaign_id";
@@ -181,11 +190,13 @@ public class AgentMetricService {
         };
     }
 
+    /** 按是否分组追加受控的 GROUP BY、排序和查询上限。 */
     private String grouping(String bucket, Dimension dimension) {
         return dimension == null ? "" : " GROUP BY " + bucket
                 + " ORDER BY bucket IS NULL, bucket LIMIT 101";
     }
 
+    /** 仅为已校验的活动和渠道筛选追加命名参数条件，不直接拼接请求值。 */
     private String filterSql(String campaign, String channel, FilterSpec filters) {
         StringBuilder sql = new StringBuilder();
         if (!filters.campaignIds().isEmpty()) sql.append(" AND ").append(campaign).append(" IN (:campaignIds)");
@@ -193,6 +204,7 @@ public class AgentMetricService {
         return sql.toString();
     }
 
+    /** 校验时间范围，按业务时区生成查询边界并绑定筛选值。 */
     private MapSqlParameterSource parameters(TimeRange range, FilterSpec filters) {
         validateRange(range);
         return new MapSqlParameterSource()
@@ -202,6 +214,7 @@ public class AgentMetricService {
                 .addValue("channels", filters.channels());
     }
 
+    /** 校验筛选字段、操作符、数量和值域，生成活动 ID 和渠道列表。 */
     private FilterSpec parseFilters(List<Filter> filters) {
         if (filters == null || filters.isEmpty()) return new FilterSpec(List.of(), List.of());
         if (filters.size() > 2) throw invalid("unsupported_filter");
@@ -236,6 +249,7 @@ public class AgentMetricService {
         return new FilterSpec(campaigns, channels);
     }
 
+    /** 要求起止时间完整且区间为正，最大跨度为三十一天。 */
     private void validateRange(TimeRange range) {
         if (range == null || range.fromInclusive() == null || range.toExclusive() == null) {
             throw invalid("invalid_time_range");
@@ -247,28 +261,33 @@ public class AgentMetricService {
         }
     }
 
+    /** 从维度列表提取唯一维度；空列表表示总计，多维或空元素拒绝处理。 */
     private Dimension dimension(List<Dimension> dimensions) {
         if (dimensions == null || dimensions.isEmpty()) return null;
         if (dimensions.size() != 1 || dimensions.get(0) == null) throw invalid("invalid_dimension");
         return dimensions.get(0);
     }
 
+    /** 将可选单维度转换为响应列表，总计查询返回空列表。 */
     private List<Dimension> dimensions(Dimension dimension) {
         return dimension == null ? List.of() : List.of(dimension);
     }
 
+    /** 解析返回行数，缺省为五十，显式值必须位于一至一百。 */
     private int rowLimit(Integer requested) {
         if (requested == null) return 50;
         if (requested < 1 || requested > 100) throw invalid("invalid_row_limit");
         return requested;
     }
 
+    /** 按固定顺序截取分组键，超出上限时追加截断警告。 */
     private List<String> limitedKeys(Set<String> keys, int limit, List<String> warnings) {
         List<String> ordered = keys.stream().sorted(BUCKET_ORDER).toList();
         if (ordered.size() > limit) warnings.add("row_limit_reached");
         return ordered.stream().limit(limit).toList();
     }
 
+    /** 构造响应行的维度键值映射，总计行返回空映射。 */
     private Map<Dimension, String> dimensionMap(Dimension dimension, String key) {
         if (dimension == null) return Map.of();
         Map<Dimension, String> values = new LinkedHashMap<>();
@@ -276,18 +295,22 @@ public class AgentMetricService {
         return values;
     }
 
+    /** 从数据库聚合行提取分组键，无维度时使用统一总计标识。 */
     private String key(Map<String, Object> fact, Dimension dimension) {
         return dimension == null ? NO_DIMENSION : string(fact.get("bucket"));
     }
 
+    /** 把可空数据库字段转为字符串，保留 null 语义。 */
     private String string(Object value) {
         return value == null ? null : value.toString();
     }
 
+    /** 将数据库数值转为 long，空值或非数值按零处理。 */
     private long number(Object value) {
         return value instanceof Number number ? number.longValue() : 0;
     }
 
+    /** 按指标选择原始计数或权威比率；点击率分母为送达数，转化率分母为点击数。 */
     private BigDecimal value(Metric metric, Counts counts) {
         return switch (metric) {
             case SENT -> BigDecimal.valueOf(counts.sent);
@@ -300,6 +323,7 @@ public class AgentMetricService {
         };
     }
 
+    /** 返回指标对应的计数或比率分母，帮助调用方判断数据量。 */
     private long sampleSize(Metric metric, Counts counts) {
         return switch (metric) {
             case CTR -> counts.delivered;
@@ -312,6 +336,7 @@ public class AgentMetricService {
         };
     }
 
+    /** 当比率分母为零时补充口径警告，说明返回零值的原因。 */
     private void zeroDenominatorWarning(Metric metric, Map<String, Counts> data,
                                         List<String> keys, List<String> warnings) {
         if (metric != Metric.CTR && metric != Metric.CONVERSION_RATE) return;
@@ -321,19 +346,24 @@ public class AgentMetricService {
         }
     }
 
+    /** 拒绝缺失指标类型的请求，避免查询进入未定义分支。 */
     private void requireMetric(Metric metric) {
         if (metric == null) throw invalid("invalid_metric");
     }
 
+    /** 用稳定错误码构造参数异常，交由内部接口统一处理。 */
     private IllegalArgumentException invalid(String code) {
         return new IllegalArgumentException(code);
     }
 
+    /** 生成查询 UUID、采集时间、来源和不可变警告列表，便于证据追溯。 */
     static Metadata metadata(String source, List<String> warnings) {
         return new Metadata(UUID.randomUUID().toString(), Instant.now(), null, source, List.copyOf(warnings));
     }
 
+    /** 已校验的活动 ID 与渠道筛选集合。 */
     private record FilterSpec(List<Long> campaignIds, List<String> channels) {}
+    /** 同一聚合桶的发送、送达、点击及转化计数。 */
     private static final class Counts {
         static final Counts ZERO = new Counts();
         long sent;

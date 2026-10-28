@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/** 管理归因等待、原子领取、最近触点匹配和失败恢复。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -48,6 +49,7 @@ public class AttributionService {
     private static final String ATTRIBUTION_PROCESSING_KEY = "delay:attribution:processing";
     private static final int CLAIM_BATCH_SIZE = 100;
 
+    /** 归因执行结果，供消费者判断领取记录是否可完成。 */
     public enum ExecutionResult {
         MATCHED,
         EXPIRED,
@@ -140,6 +142,8 @@ public class AttributionService {
             """;
 
     /**
+     * 收到目标事件后创建归因等待任务，事务提交后才写 Redis 调度，避免先消费后落库。
+     *
      * Called when a target event (like ORDER_PAID) arrives.
      * Creates the attribution waiting task. Redis scheduling is registered as
      * an after-commit action so a consumer can never claim a task that is not
@@ -173,6 +177,8 @@ public class AttributionService {
     }
 
     /**
+     * 重复事件重放时修复仍为 PENDING 的归因调度，终态任务保持不变。
+     *
      * A duplicate target event may be the replay that follows a crash after the
      * MySQL insert but before the Redis ZADD. Only a still-PENDING DB row is
      * eligible for recovery; terminal rows must remain terminal.
@@ -231,6 +237,8 @@ public class AttributionService {
     }
 
     /**
+     * 用 Lua 将失败任务从 processing 移回 pending，施加短暂重试延迟。
+     *
      * Atomically move a failed claimed task from processing back to pending.
      * A short retry delay separates transient execution failures from the
      * attribution grace window, which is only for waiting on out-of-order clicks.
@@ -256,6 +264,8 @@ public class AttributionService {
     }
 
     /**
+     * 宽限期结束后执行最近触点归因；缺失任务可重试，已有终态按幂等成功处理。
+     *
      * Execute attribution matching for a target event after grace window expires.
      * This is called by AttributionTaskConsumer when the delay ZSET triggers.
      *
@@ -348,6 +358,8 @@ public class AttributionService {
     }
 
     /**
+     * 以 MySQL 的 PENDING 记录修复 Redis 调度，限制批量并避免待处理和处理中重复。
+     *
      * Reconcile a bounded batch of MySQL PENDING tasks with Redis. MySQL is the
      * source of truth; the Lua membership check makes this safe to run while a
      * consumer is claiming a task and prevents pending/processing duplicates.
@@ -387,6 +399,8 @@ public class AttributionService {
     }
 
     /**
+     * 在事务提交后发布 Redis 调度；无事务时直接安排已落库任务。
+     *
      * Publish Redis scheduling only after the surrounding DB transaction has
      * committed. Direct calls without a transaction are safe because the
      * MyBatis statement has already auto-committed.
@@ -405,6 +419,7 @@ public class AttributionService {
 
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                /** 数据库提交成功后补写归因调度，保证消费者只能看到已提交任务。 */
                 @Override
                 public void afterCommit() {
                     try {
@@ -430,6 +445,7 @@ public class AttributionService {
         publish.run();
     }
 
+    /** 原子检查并补入 Redis 待处理队列，避免与 processing 中的任务重复。 */
     private boolean ensurePendingTask(String targetEventId, long executeAtMillis) {
         Object result = redissonClient.getScript(StringCodec.INSTANCE).eval(
                 RScript.Mode.READ_WRITE,
@@ -441,6 +457,7 @@ public class AttributionService {
         return result instanceof Number && ((Number) result).longValue() == 1L;
     }
 
+    /** 记录归因命中的触达任务，并将等待任务更新为 MATCHED 终态。 */
     private void markTaskMatched(AttributionTask task, Long matchedTaskId) {
         int updated = attributionTaskMapper.update(null,
                 new LambdaUpdateWrapper<AttributionTask>()
@@ -451,6 +468,7 @@ public class AttributionService {
         requireTaskUpdate(task, updated, AttributionTaskStatus.MATCHED);
     }
 
+    /** 把未找到有效触点的等待任务更新为 EXPIRED 终态。 */
     private void markTaskExpired(AttributionTask task) {
         int updated = attributionTaskMapper.update(null,
                 new LambdaUpdateWrapper<AttributionTask>()
@@ -460,6 +478,7 @@ public class AttributionService {
         requireTaskUpdate(task, updated, AttributionTaskStatus.EXPIRED);
     }
 
+    /** 检查任务状态更新结果，不符合预期时抛错，避免误清理 Redis 领取记录。 */
     private void requireTaskUpdate(AttributionTask task, int updated, AttributionTaskStatus expectedStatus) {
         if (updated != 1) {
             throw new IllegalStateException("Attribution task status was not updated: targetEventId="
@@ -467,6 +486,7 @@ public class AttributionService {
         }
     }
 
+    /** 按业务时区将本地时间转换为 Redis 排程使用的毫秒时间戳。 */
     private long toEpochMillis(LocalDateTime time) {
         return time.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
     }

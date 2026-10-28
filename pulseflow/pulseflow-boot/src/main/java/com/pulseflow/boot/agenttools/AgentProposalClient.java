@@ -8,13 +8,16 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
-/** Java-only access to authoritative proposals in the Agent repository. */
+/**
+ * 供 Java 读取 Agent 方案及回写草稿关联的内部客户端。
+ * Java-only access to authoritative proposals in the Agent repository. */
 @Component
 public class AgentProposalClient {
     private final RestClient client;
     private final String agentUrl;
     private final String token;
 
+    /** 配置 Agent 地址、机器令牌和 HTTP 客户端，用于读取方案及回写草稿关联。 */
     public AgentProposalClient(RestClient.Builder builder,
             @Value("${pulseflow.agent.service-url:}") String agentUrl,
             @Value("${pulseflow.agent.internal-token:}") String token) {
@@ -26,6 +29,7 @@ public class AgentProposalClient {
         this.token = token;
     }
 
+    /** 读取指定方案的内部表示，供 Java 校验证据、归属和 DSL 后创建草稿。 */
     public JsonNode read(String proposalId) {
         ensureConfigured();
         try {
@@ -41,6 +45,7 @@ public class AgentProposalClient {
         }
     }
 
+    /** 将已创建草稿 ID 回写 Agent，使方案状态与 Java 草稿关联保持一致。 */
     public void markDraftCreated(String proposalId, Long draftId) {
         ensureConfigured();
         try {
@@ -53,10 +58,12 @@ public class AgentProposalClient {
         }
     }
 
+    /** 确认 Agent 地址和内部令牌已配置，否则拒绝跨服务调用。 */
     private void ensureConfigured() {
         if (agentUrl.isBlank() || token.isBlank()) throw new AgentGatewayException(503, "agent_unavailable");
     }
 
+    /** 构造内部方案接口地址，统一处理服务地址尾部斜杠。 */
     private String url(String id) {
         return agentUrl.replaceAll("/$", "") + "/internal/v1/proposals/" + id;
     }

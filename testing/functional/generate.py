@@ -76,6 +76,7 @@ USER_BASES = {
 BASE_TIME = datetime(2026, 8, 27, 12, 0, 0)
 
 
+# 以稳定键顺序和紧凑格式输出 JSON，保证数据集摘要与回放记录可重复比较。
 def stable_json(value: Any) -> str:
     return json.dumps(
         value,
@@ -85,16 +86,19 @@ def stable_json(value: Any) -> str:
     )
 
 
+# 按秒或毫秒精度输出 ISO 时间，供普通及时间边界夹具使用。
 def iso_time(value: datetime, milliseconds: bool = False) -> str:
     if milliseconds:
         return value.isoformat(timespec="milliseconds")
     return value.isoformat(timespec="seconds")
 
 
+# 规范化场景名称，用于稳定的数据集 ID 和事件前缀。
 def slug(value: str) -> str:
     return value.strip().lower().replace("_", "-")
 
 
+# 根据场景和规模选择固定数据集标识，保证清单命名可预测。
 def dataset_id_for(scenario: str, scale: str) -> str:
     if scenario == "normal":
         return f"normal-events-{scale.lower()}-v1"
@@ -110,10 +114,12 @@ def dataset_id_for(scenario: str, scale: str) -> str:
     }[scenario]
 
 
+# 按场景、随机种子和序号构造稳定事件 ID，方便幂等与所有权验证。
 def event_id(scenario: str, seed: int, index: int) -> str:
     return f"pf-{slug(scenario)}-{seed}-{index:08d}"
 
 
+# 按配置权重抽取事件类型，使用传入随机源保证可复现。
 def choose_event_type(rng: random.Random) -> str:
     total = sum(weight for _, weight in EVENT_TYPE_WEIGHTS)
     selected = rng.randrange(total)
@@ -124,11 +130,13 @@ def choose_event_type(rng: random.Random) -> str:
     return EVENT_TYPES[-1]
 
 
+# 以整数分生成金额，再转换为两位小数，避免随机浮点误差。
 def amount_for(rng: random.Random, minimum: int = 99, maximum: int = 2_000) -> float:
     cents = rng.randint(minimum, maximum)
     return float(f"{cents / 100:.2f}")
 
 
+# 按事件类型生成时长、购物车、价格和支付金额等业务属性。
 def properties_for(event_type: str, rng: random.Random, index: int) -> dict[str, Any]:
     props: dict[str, Any] = {"category": f"category-{index % 8}"}
     if event_type in {"CONTENT_VIEW", "SEARCH", "LIKE", "FAVORITE", "SHARE"}:
@@ -147,6 +155,7 @@ def properties_for(event_type: str, rng: random.Random, index: int) -> dict[str,
     return props
 
 
+# 组装完整事件，并对登录与搜索保留 null 目标标识。
 def generated_event(
     scenario: str,
     seed: int,
@@ -171,6 +180,7 @@ def generated_event(
     }
 
 
+# 按固定种子生成覆盖小时、天、周和月窗口的常规行为数据。
 def normal_events(scale: str, seed: int, scenario: str = "normal") -> list[dict[str, Any]]:
     config = SCALES[scale]
     rng = random.Random(seed)
@@ -201,6 +211,7 @@ def normal_events(scale: str, seed: int, scenario: str = "normal") -> list[dict[
     return rows
 
 
+# 生成重复 ID 及载荷变化样本，验证数据库保留首次规范事实且指标不重复累计。
 def duplicate_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rng = random.Random(seed + 101)
     base: list[dict[str, Any]] = []
@@ -250,6 +261,7 @@ def duplicate_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     return rows, details
 
 
+# 打乱同用户事件到达顺序，验证实时画像使用事件时间处理乱序。
 def out_of_order_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rng = random.Random(seed + 202)
     user_id = USER_BASES["out-of-order"] + 1
@@ -320,6 +332,7 @@ def out_of_order_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]
     }
 
 
+# 生成时钟偏差阈值内外及未来时间样本，验证有效时间和偏差标记。
 def late_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rng = random.Random(seed + 303)
     cases = [
@@ -366,6 +379,7 @@ def late_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     }
 
 
+# 生成缺字段、类型错误及非法值请求，并附带各自预期响应。
 def invalid_payload_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     base_user = USER_BASES["invalid"]
     valid = {
@@ -477,6 +491,7 @@ def invalid_payload_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, A
     }
 
 
+# 将大量行为集中到同一用户，验证热点画像更新和小时桶累计。
 def hot_user_events(scale: str, seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     count = 1_000 if scale == "SMALL" else 10_000
     rng = random.Random(seed + 404)
@@ -502,6 +517,7 @@ def hot_user_events(scale: str, seed: int) -> tuple[list[dict[str, Any]], dict[s
     }
 
 
+# 生成同用户同小时的并发样本及重复事件，验证原子累计和幂等正确性。
 def concurrency_events(scale: str, seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Create deterministic input for concurrent correctness, not throughput.
 
@@ -542,6 +558,7 @@ def concurrency_events(scale: str, seed: int) -> tuple[list[dict[str, Any]], dic
     }
 
 
+# 构造频控、延迟及归因场景事件，关联专用测试活动夹具。
 def campaign_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rng = random.Random(seed + 505)
     user_id = USER_BASES["campaign"] + 1
@@ -622,6 +639,7 @@ def campaign_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     }
 
 
+# 按事件类型累计次数、时长与金额，生成数据清单中的统计期望。
 def metric_totals(rows: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     totals: dict[str, dict[str, Any]] = defaultdict(
         lambda: {"eventCount": 0, "durationSum": 0, "amountSum": Decimal("0.00")}
@@ -652,6 +670,7 @@ def metric_totals(rows: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     }
 
 
+# 按事件 ID 只保留第一次出现的载荷，与数据库规范事实口径一致。
 def canonical_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return the first occurrence of each eventId, matching DB canonical data."""
     seen: set[str] = set()
@@ -665,6 +684,7 @@ def canonical_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
+# 生成场景清单，记录规模、ID 范围、样本及预期存储和业务产物。
 def manifest_for(
     dataset_id: str,
     scenario: str,
@@ -763,6 +783,7 @@ def manifest_for(
     return manifest
 
 
+# 写出 JSONL 及清单，计算数据文件 SHA-256 供完整性验证。
 def write_dataset(output_dir: Path, manifest: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     data_path = output_dir / manifest["dataFile"]
@@ -782,6 +803,7 @@ def write_dataset(output_dir: Path, manifest: dict[str, Any], rows: list[dict[st
     return manifest
 
 
+# 按场景选择生成器，构建预期清单并写出一个可复现数据集。
 def generate_one(output_dir: Path, scenario: str, scale: str, seed: int) -> dict[str, Any]:
     if scenario == "normal":
         rows = normal_events(scale, seed)
@@ -814,6 +836,7 @@ def generate_one(output_dir: Path, scenario: str, scale: str, seed: int) -> dict
     return write_dataset(output_dir, manifest, rows)
 
 
+# 解析场景、规模、随机种子和输出目录，提供稳定默认值。
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scale", choices=sorted(SCALES), default="SMALL")
@@ -830,6 +853,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# 生成指定场景或全套夹具，输出条数、唯一事件数和文件摘要。
 def main() -> int:
     args = parse_args()
     scenarios = [

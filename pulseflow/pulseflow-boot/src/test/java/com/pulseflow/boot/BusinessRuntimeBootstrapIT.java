@@ -15,11 +15,15 @@ import org.testcontainers.utility.DockerImageName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Business components bootstrap without the removed Java AI runtime. */
+/**
+ * 验证 BusinessRuntimeBootstrap 的业务行为和边界条件。
+ * Business components bootstrap without the removed Java AI runtime. */
 class BusinessRuntimeBootstrapIT {
+    /** 为当前测试提供独立的配置或依赖替身，隔离真实应用资源。 */
     @Import({CampaignFieldRegistry.class, CampaignDslValidator.class})
     static class BusinessConfiguration {}
 
+    /** 验证确定性业务校验可独立于 AI 运行时启动。 */
     @Test
     void businessValidationStartsWithoutAiRuntime() {
         new ApplicationContextRunner().withUserConfiguration(BusinessConfiguration.class)
@@ -46,6 +50,7 @@ class BusinessRuntimeBootstrapIT {
     // Docker-backed migration tests are opt-in locally to avoid starting
     // containers during ordinary unit-test runs. CI and full validation set
     // PULSEFLOW_TEST_DOCKER=true.
+    /** 验证 FlywayMigration 的业务行为和边界条件。 */
     @EnabledIfEnvironmentVariable(named = "PULSEFLOW_TEST_DOCKER", matches = "true")
     @Testcontainers
     @Nested
@@ -61,6 +66,7 @@ class BusinessRuntimeBootstrapIT {
                 .withPassword("test")
                 .withReuse(true);
 
+        /** 验证 Flyway 迁移建立业务状态机需要的字段。 */
         @Test
         @DisplayName("V1~V6 迁移成功，review 状态机、重试索引和 campaign 归属存在")
         void flywayMigrationCreatesStateMachineColumns() throws Exception {
@@ -101,6 +107,7 @@ class BusinessRuntimeBootstrapIT {
             }
         }
 
+        /** 验证迁移完成后核心业务表存在。 */
         @Test
         @DisplayName("V1~V7 迁移成功，核心表和 Proposal Draft 关联存在")
         void coreTablesExistAfterMigration() throws Exception {

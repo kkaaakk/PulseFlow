@@ -34,6 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/** 验证 AgentTelemetry 的业务行为和边界条件。 */
 @SpringBootTest(classes = AgentTelemetryTest.App.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"otel.sdk.disabled=false", "otel.traces.exporter=none",
@@ -45,8 +46,10 @@ class AgentTelemetryTest {
     static final InMemorySpanExporter EXPORTER = InMemorySpanExporter.create();
     @Autowired TestRestTemplate http;
     @Autowired OpenTelemetry telemetry;
+    /** 返回当前测试所期望的数据库类型，供遥测断言复用。 */
     protected String expectedDatabaseSystem() { return "h2"; }
 
+    /** 为当前测试提供独立的配置或依赖替身，隔离真实应用资源。 */
     @SpringBootConfiguration
     @ImportAutoConfiguration({AopAutoConfiguration.class, DataSourceAutoConfiguration.class,
             JdbcTemplateAutoConfiguration.class, ServletWebServerFactoryAutoConfiguration.class,
@@ -56,6 +59,7 @@ class AgentTelemetryTest {
             SpringWebMvc6InstrumentationAutoConfiguration.class})
     @Import({TestController.class, TestService.class, AgentTelemetryConfig.class})
     static class App {
+        /** 注册内存 span 导出器，供测试读取并断言遥测内容。 */
         @Bean AutoConfigurationCustomizerProvider testExporter() {
             return customizer -> customizer.addTracerProviderCustomizer((builder, ignored) ->
                     builder.addSpanProcessor(SimpleSpanProcessor.create(
@@ -63,21 +67,28 @@ class AgentTelemetryTest {
         }
     }
 
+    /** 为当前测试提供独立的配置或依赖替身，隔离真实应用资源。 */
     @RestController
     static class TestController {
         final TestService service;
+        /** 注入测试依赖。 */
         TestController(TestService service) { this.service = service; }
+        /** 执行用于验证 HTTP、服务与数据库 trace 传播的测试查询。 */
         @GetMapping("/internal/v1/agent-tools/trace-test")
         int query() { return service.query(); }
     }
 
+    /** 为当前测试提供独立的配置或依赖替身，隔离真实应用资源。 */
     static class TestService {
         final JdbcTemplate jdbc;
+        /** 注入测试依赖。 */
         TestService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+        /** 执行用于验证 HTTP、服务与数据库 trace 传播的测试查询。 */
         @WithSpan("agent-tools.test-service")
         public int query() { return jdbc.queryForObject("SELECT 1", Integer.class); }
     }
 
+    /** 验证 traceparent 跨 HTTP、服务及 JDBC 传播，同时不会采集敏感请求头。 */
     @Test void traceparentReachesServiceAndJdbcWithoutSecretHeaders() {
         EXPORTER.reset();
         String traceId = "1234567890abcdef1234567890abcdef";
@@ -95,6 +106,7 @@ class AgentTelemetryTest {
         assertThat(spans.toString()).doesNotContain("PRIVATE_TOKEN_SENTINEL", "SELECT 1");
     }
 
+    /** 验证安全导出器会清理上游误采集的内容和异常事件。 */
     @Test void exporterDropsContentAndExceptionEventsEvenIfCapturedUpstream() {
         EXPORTER.reset();
         var span = telemetry.getTracer("privacy-test").spanBuilder("safe-operation").startSpan();

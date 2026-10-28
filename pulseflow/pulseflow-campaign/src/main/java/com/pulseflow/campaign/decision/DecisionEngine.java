@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+/** 基于事件、画像及活动规则进行决策，创建即时或延迟触达。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -43,6 +44,8 @@ public class DecisionEngine {
     private static final String DELAYED_TASK_TYPE = DelayedTaskConstants.CAMPAIGN_TASK_TYPE;
 
     /**
+     * 按事件筛选有效活动，匹配规则和偏好后创建触达或延迟任务；基础设施失败向外传播以触发补偿。
+     *
      * Evaluate an event against matching active campaigns.
      * Handles both EVENT (immediate) and DELAYED (scheduled) trigger types.
      * Called from EventConsumer Phase 3.
@@ -170,6 +173,8 @@ public class DecisionEngine {
     }
 
     /**
+     * 对定时活动的单个用户匹配规则，以执行实例生成幂等键并创建触达任务。
+     *
      * Evaluate for delayed/scheduled campaigns (batch mode).
      * Creates delivery tasks for matched users without event context.
      * Used by CampaignSelectionJob for SCHEDULED campaigns (Phase B execution).
@@ -219,6 +224,7 @@ public class DecisionEngine {
 
     // ---------- rule evaluation ----------
 
+    /** 按活动 ID 加载规则，供即时与定时决策复用。 */
     private List<CampaignRule> loadRules(Long campaignId) {
         return campaignRuleMapper.selectList(
                 new LambdaQueryWrapper<CampaignRule>()
@@ -227,6 +233,7 @@ public class DecisionEngine {
                         .orderByAsc(CampaignRule::getPriority));
     }
 
+    /** 逐条评估活动规则，所有规则均满足时才允许创建触达任务。 */
     private boolean allRulesMatched(List<CampaignRule> rules, Long userId, Map<String, Object> eventMap) {
         for (CampaignRule rule : rules) {
             if (!evaluateRule(rule, userId, eventMap)) {
@@ -236,6 +243,7 @@ public class DecisionEngine {
         return true;
     }
 
+    /** 判断活动是否位于允许的起止时间窗口内。 */
     private boolean inActiveWindow(Campaign campaign) {
         LocalDateTime now = LocalDateTime.now();
         if (campaign.getStartTime() != null && now.isBefore(campaign.getStartTime())) return false;
@@ -243,6 +251,7 @@ public class DecisionEngine {
         return true;
     }
 
+    /** 根据规则类型读取事件属性或用户画像，执行对应比较并返回命中结果。 */
     private boolean evaluateRule(CampaignRule rule, Long userId, Map<String, Object> eventMap) {
         try {
             Map<String, Object> ruleConfig = JsonUtil.fromJson(rule.getRuleConfig(), Map.class);
@@ -290,6 +299,7 @@ public class DecisionEngine {
         }
     }
 
+    /** 按规则操作符比较整数指标，未知操作符返回不匹配。 */
     private boolean compare(Long left, String operator, Long right) {
         if (left == null) left = 0L;
         if (right == null) right = 0L;
@@ -304,6 +314,7 @@ public class DecisionEngine {
         };
     }
 
+    /** 从规范事件上下文提取扩展属性，供事件型规则使用。 */
     @SuppressWarnings("unchecked")
     private Map<String, Object> getProperties(Map<String, Object> eventMap) {
         Object props = eventMap.get("properties");
@@ -311,6 +322,7 @@ public class DecisionEngine {
         return Collections.emptyMap();
     }
 
+    /** 把事件和规则中的数值统一转换为 Long。 */
     private Long toLong(Object val) {
         if (val == null) return 0L;
         if (val instanceof Number) return ((Number) val).longValue();

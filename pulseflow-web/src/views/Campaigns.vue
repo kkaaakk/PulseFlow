@@ -16,6 +16,7 @@ const page = ref(1)
 const pageSize = ref(10)
 const result = ref<PageResponse<CampaignListItem>>({ items: [], page: 1, pageSize: 10, total: 0, totalPages: 0 })
 
+/** 按分页、关键字和状态查询活动列表，失败时展示提示。 */
 const load = async () => {
   loading.value = true
   try {
@@ -27,9 +28,13 @@ const load = async () => {
   }
 }
 
+/** 筛选条件变化时回到第一页并重新加载列表。 */
 const filter = () => { page.value = 1; load() }
+/** 保存新页码并重新查询，保持分页器与列表结果一致。 */
 const changePage = (value: number) => { page.value = value; load() }
+/** 根据活动 ID 导航到活动详情页。 */
 const openCampaign = (id: number) => router.push(`/campaigns/${id}`)
+/** 从表格行提取活动 ID，复用详情导航逻辑。 */
 const openCampaignRow = (row: CampaignListItem) => openCampaign(row.id)
 
 onMounted(load)

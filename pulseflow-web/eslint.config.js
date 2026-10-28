@@ -1,3 +1,4 @@
+// 统一 TypeScript 和 Vue 源码的静态检查规则与忽略范围。
 import eslint from '@eslint/js'
 import tseslint from 'typescript-eslint'
 import tsParser from '@typescript-eslint/parser'

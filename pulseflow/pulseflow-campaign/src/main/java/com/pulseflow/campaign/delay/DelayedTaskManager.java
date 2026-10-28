@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import java.util.Collections;
 import java.util.List;
 
+/** 用 pending/processing ZSET 和 Lua 管理延迟任务生命周期。 */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -21,6 +22,8 @@ public class DelayedTaskManager {
     private static final String PROCESSING_PREFIX = "delay:processing:";
 
     /**
+     * 将任务写入 pending ZSET，以执行时间毫秒值作为 score，同任务 ID 天然去重。
+     *
      * Add a delayed task to the pending ZSET.
      * Score = execution timestamp (epoch millis).
      */
@@ -31,6 +34,8 @@ public class DelayedTaskManager {
     }
 
     /**
+     * 用 Lua 原子地把到期任务从 pending 移到 processing，避免多实例重复领取。
+     *
      * Atomically claim tasks from pending to processing using Lua.
      * Returns list of task IDs that were successfully claimed.
      */
@@ -66,6 +71,8 @@ public class DelayedTaskManager {
     }
 
     /**
+     * 任务完成后移除 processing 标记，防止恢复任务重复安排执行。
+     *
      * Remove a task from processing ZSET after completion.
      */
     public void completeTask(String taskType, String taskId) {
@@ -73,6 +80,8 @@ public class DelayedTaskManager {
     }
 
     /**
+     * 把处理超时的任务移回 pending，返回恢复的任务 ID 以便监控。
+     *
      * Recover tasks stuck in processing (timeout).
      * Move tasks from processing back to pending if they've been processing too long.
      */

@@ -14,6 +14,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+/** 按用户、日期和事件类型聚合的日桶指标。 */
 @Data
 @Builder
 @NoArgsConstructor

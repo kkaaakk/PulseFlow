@@ -5,6 +5,7 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
+/** 跨决策和触达服务传递的任务参数，包含用户、活动及幂等键。 */
 @Data
 @Builder
 public class DeliveryTaskDto {

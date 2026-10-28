@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 test.describe('Real Backend E2E', () => {
+  // 连接真实后端，验证登录、活动详情及用户事件页面的完整查询链路。
   test('Browser → Spring Boot → Campaign → Delivery → Attribution', async ({ page }) => {
     await page.goto('/login')
     await expect(page.getByRole('heading', { name: '登录 PulseFlow' })).toBeVisible()

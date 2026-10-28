@@ -5,6 +5,7 @@ import com.pulseflow.entity.UserTag;
 import org.apache.ibatis.annotations.Mapper;
 import org.springframework.stereotype.Repository;
 
+/** UserTag 的数据库映射接口，提供基础 CRUD 和所声明的业务查询。 */
 @Mapper
 @Repository
 public interface UserTagMapper extends BaseMapper<UserTag> {

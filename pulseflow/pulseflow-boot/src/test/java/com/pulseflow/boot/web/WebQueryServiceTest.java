@@ -40,6 +40,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+/** 验证 WebQueryService 的业务行为和边界条件。 */
 @ExtendWith(MockitoExtension.class)
 class WebQueryServiceTest {
 
@@ -59,6 +60,7 @@ class WebQueryServiceTest {
 
     private WebQueryService service;
 
+    /** 初始化当前测试的实体、依赖替身和数据，使各场景之间保持隔离。 */
     @BeforeEach
     void setUp() {
         service = new WebQueryService(
@@ -68,6 +70,7 @@ class WebQueryServiceTest {
                 redissonClient);
     }
 
+    /** 验证活动查询返回业务数据和稳定分页元信息。 */
     @Test
     void listCampaignsReturnsBusinessRowsAndStablePagination() {
         Campaign campaign = Campaign.builder()
@@ -113,6 +116,7 @@ class WebQueryServiceTest {
         });
     }
 
+    /** 验证无结果时仍返回规范的空分页结构。 */
     @Test
     void emptyCampaignPageUsesUnifiedEmptyPageResponse() {
         Page<Campaign> result = new Page<>(1, 10);
@@ -128,6 +132,7 @@ class WebQueryServiceTest {
         assertThat(response.totalPages()).isZero();
     }
 
+    /** 验证不存在的活动 ID 映射为未找到异常。 */
     @Test
     void invalidCampaignIdReturnsNotFound() {
         when(campaignMapper.selectById(404L)).thenReturn(null);
@@ -137,6 +142,7 @@ class WebQueryServiceTest {
                 .hasMessageContaining("404");
     }
 
+    /** 验证 Redis 降级有明确标记且保留 MySQL 窗口指标。 */
     @Test
     void user360MarksRedisFallbackAndKeepsMysqlMetrics() {
         UserProfile profile = UserProfile.builder().userId(1024L).nickname("演示用户").status(1).build();

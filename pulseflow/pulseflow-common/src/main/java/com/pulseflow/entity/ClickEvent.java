@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/** 用户点击触达内容的事实记录。 */
 @Data
 @Builder
 @NoArgsConstructor

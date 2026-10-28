@@ -28,6 +28,7 @@ PERIOD = {"fromInclusive": "2026-09-01T00:00:00+08:00",
           "toExclusive": "2026-09-08T00:00:00+08:00"}
 
 
+# 构造隔离测试配置，使用测试数据库和虚拟机器令牌，避免依赖开发环境凭据。
 def settings(database_url: str) -> AgentSettings:
     return AgentSettings.model_validate({
         "pulseflow_agent_env": "test",
@@ -37,6 +38,7 @@ def settings(database_url: str) -> AgentSettings:
     })
 
 
+# 从模型消息中提取工具返回内容，为脚本化测试模型选择下一步提供输入。
 def returns(messages: list[ModelMessage]) -> list[Any]:
     contents: list[Any] = []
     for message in messages:
@@ -52,12 +54,14 @@ def returns(messages: list[ModelMessage]) -> list[Any]:
     return contents
 
 
+# 构造包含现有证据引用的最终模型响应，供追问场景断言。
 def final(info: AgentInfo, body: dict[str, object]) -> ModelResponse:
     if info.output_tools:
         return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, body)])
     return ModelResponse(parts=[TextPart(json.dumps(body))])
 
 
+# 模拟首轮查询与假设记录，验证调查状态能持久化供下一轮复用。
 async def first_model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
     items = returns(messages)
     if len(items) == 0:
@@ -89,6 +93,7 @@ async def first_model(messages: list[ModelMessage], info: AgentInfo) -> ModelRes
     })
 
 
+# 模拟依据已有假设与新范围继续调查，验证历史证据不会伪装为当前证据。
 async def followup_model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
     items = returns(messages)
     if not items:
@@ -106,6 +111,7 @@ async def followup_model(messages: list[ModelMessage], info: AgentInfo) -> Model
     })
 
 
+# 验证假设和范围变更能跨追问保存，且不会产生虚构证据。
 @pytest.mark.asyncio
 async def test_hypotheses_and_scope_followup_persist_without_fake_evidence(
     database_url: str,
@@ -115,6 +121,7 @@ async def test_hypotheses_and_scope_followup_persist_without_fake_evidence(
     config = settings(database_url)
     java_calls = 0
 
+    # 按当前测试场景提供 Java 聚合接口替身，检查调用路径及输入并返回受控事实。
     def java(_request: httpx.Request) -> httpx.Response:
         nonlocal java_calls
         java_calls += 1
@@ -163,6 +170,7 @@ async def test_hypotheses_and_scope_followup_persist_without_fake_evidence(
     await engine.dispose()
 
 
+# 验证模型运行被取消后，数据库调查状态保存为 CANCELLED。
 @pytest.mark.asyncio
 async def test_cancelled_model_run_records_cancelled_status(database_url: str) -> None:
     engine = create_async_engine(database_url)
@@ -170,11 +178,13 @@ async def test_cancelled_model_run_records_cancelled_status(database_url: str) -
     config = settings(database_url)
     ids: list[str] = []
 
+    # 创建已持久化的调查工作区，供取消场景观察终态回写。
     async def factory(question: str) -> InvestigationWorkspace:
         created = await repo.create(question)
         ids.append(created.id)
         return InvestigationWorkspace(goal=question, id=created.id, repository=repo)
 
+    # 模拟模型运行取消，使测试进入 Agent 的取消处理分支。
     async def cancel(_messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
         raise CancelledError()
 

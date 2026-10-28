@@ -1,3 +1,4 @@
+/** 按中文分组和指定小数位格式化数字，缺失或 NaN 返回占位符。 */
 export const formatNumber = (value: number | null | undefined, fractionDigits = 0) => {
   if (value === null || value === undefined || Number.isNaN(value)) return '—'
   return new Intl.NumberFormat('zh-CN', {
@@ -6,6 +7,7 @@ export const formatNumber = (value: number | null | undefined, fractionDigits = 
   }).format(value)
 }
 
+/** 按人民币及两位小数格式化金额，缺失或 NaN 返回占位符。 */
 export const formatCurrency = (value: number | null | undefined) => {
   if (value === null || value === undefined || Number.isNaN(value)) return '—'
   return new Intl.NumberFormat('zh-CN', {
@@ -15,11 +17,13 @@ export const formatCurrency = (value: number | null | undefined) => {
   }).format(value)
 }
 
+/** 将零至一口径的比率转换为指定精度的百分比文本。 */
 export const formatPercent = (value: number | null | undefined, digits = 1) => {
   if (value === null || value === undefined || Number.isNaN(value)) return '—'
   return `${(value * 100).toFixed(digits)}%`
 }
 
+/** 解析并以中文月日时分展示时间，无效输入保留原文，缺失显示占位符。 */
 export const formatDateTime = (value?: string | null) => {
   if (!value) return '—'
   const date = new Date(value)
@@ -32,6 +36,7 @@ export const formatDateTime = (value?: string | null) => {
   }).format(date)
 }
 
+/** 按中文年月日显示日期，无效输入保留原文。 */
 export const formatDate = (value?: string | null) => {
   if (!value) return '—'
   const date = new Date(value)

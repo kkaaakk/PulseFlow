@@ -17,10 +17,13 @@ if str(FUNCTIONAL_DIR) not in sys.path:
 import state  # noqa: E402
 
 
+# 验证测试数据解析或所有权边界，避免空值误判及清理范围扩张。
 class FunctionalOwnershipTests(unittest.TestCase):
+    # 加载测试所有权配置，为每项清理范围断言建立独立环境。
     def setUp(self) -> None:
         self.scope = state.load_scope()
 
+    # 验证生成器事件前缀和保留用户区间都在清理所有权范围内。
     def test_generator_namespaces_and_reserved_user_ranges_are_owned(self) -> None:
         self.assertTrue(self.scope.owns_event_id("pf-normal-20260827-00000000"))
         self.assertTrue(self.scope.owns_event_id("pf-fixture-smoke-v1-0001"))
@@ -29,6 +32,7 @@ class FunctionalOwnershipTests(unittest.TestCase):
         self.assertFalse(self.scope.owns_event_id("business-order-1"))
         self.assertFalse(self.scope.owns_user_id(42))
 
+    # 验证 Redis 清理不会选中未归属的生产形态键。
     def test_redis_cleanup_never_selects_unowned_production_shaped_keys(self) -> None:
         task_ids = {9203}
         owned = [
@@ -49,6 +53,7 @@ class FunctionalOwnershipTests(unittest.TestCase):
         for key in unowned:
             self.assertFalse(state.key_is_owned(key, self.scope, task_ids), key)
 
+    # 验证 MySQL 清理语句严格限定命名空间，没有整表破坏操作。
     def test_mysql_cleanup_is_namespace_scoped_and_not_destructive(self) -> None:
         sql = state.build_mysql_cleanup_sql(self.scope).upper()
         self.assertIn("EVENT_ID LIKE 'PF-%'", sql)
@@ -58,6 +63,7 @@ class FunctionalOwnershipTests(unittest.TestCase):
         self.assertNotIn("DROP DATABASE", sql)
         self.assertNotIn("TRUNCATE", sql)
 
+    # 验证当前清单的清理范围不会扩张至其他测试场景。
     def test_current_manifest_scope_does_not_expand_to_other_scenarios(self) -> None:
         manifest = {
             "scenario": "normal",

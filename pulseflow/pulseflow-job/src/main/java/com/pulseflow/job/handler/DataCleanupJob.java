@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 
+/** 按配置保留期清理历史业务数据。 */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -15,6 +16,7 @@ public class DataCleanupJob {
 
     private final JdbcTemplate jdbcTemplate;
 
+    /** 按保留期限清理历史业务数据，控制事实和任务表的存储规模。 */
     @XxlJob("dataCleanupJob")
     public void execute() {
         log.info("DataCleanupJob started");

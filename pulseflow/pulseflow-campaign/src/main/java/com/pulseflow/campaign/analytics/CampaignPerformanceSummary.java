@@ -14,6 +14,8 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
+ * 按活动唯一保存的权威绩效汇总快照。
+ *
  * Pre-computed campaign performance metrics. UK on campaign_id.
  *
  * <p>These numbers are authoritative business metrics.</p>

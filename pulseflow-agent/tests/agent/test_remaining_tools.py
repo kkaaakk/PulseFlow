@@ -30,11 +30,13 @@ DSL = {
 }
 
 
+# 构造工具返回所需的来源、时间及查询 ID 元数据。
 def meta(source: str, data_version: str | None = None) -> dict[str, object]:
     return {"queryId": str(uuid4()), "generatedAt": "2026-09-25T00:00:00Z",
             "dataVersion": data_version, "source": source, "warnings": []}
 
 
+# 整理已有工具结果，供覆盖剩余工具的脚本化模型使用。
 def tool_results(messages: list[ModelMessage]) -> list[ToolObservation]:
     items: list[ToolObservation] = []
     for message in messages:
@@ -47,6 +49,7 @@ def tool_results(messages: list[ModelMessage]) -> list[ToolObservation]:
     return items
 
 
+# 按既定顺序发起测试工具调用并返回最终响应，验证各工具证据保存。
 async def sequence(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
     results = tool_results(messages)
     if len(results) == 0:
@@ -69,6 +72,7 @@ async def sequence(messages: list[ModelMessage], info: AgentInfo) -> ModelRespon
     return ModelResponse(parts=[TextPart(json.dumps(diagnosis))])
 
 
+# 验证指标、绩效与人群预估工具生成经过清理的证据。
 @pytest.mark.asyncio
 async def test_query_performance_and_preview_create_sanitized_evidence() -> None:
     config = AgentSettings.model_validate({
@@ -78,6 +82,7 @@ async def test_query_performance_and_preview_create_sanitized_evidence() -> None
     })
     paths: list[str] = []
 
+    # 按当前测试场景提供 Java 聚合接口替身，检查调用路径及输入并返回受控事实。
     def java(request: httpx.Request) -> httpx.Response:
         paths.append(request.url.path)
         if request.url.path.endswith("/metrics/query"):

@@ -27,6 +27,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
+ * 计算 DSL 命中人群的聚合画像，不返回个人级明细。
+ *
  * Computes aggregated {@link AudienceMetrics} for the audience matched by a
  * Campaign DSL. Never returns individual user rows — only counts, sums,
  * ratios, and distributions.
@@ -44,6 +46,7 @@ public class AudienceMetricsAggregator {
     private final UserBehaviorSummaryMapper behaviorSummaryMapper;
     private final CampaignFieldRegistry fieldRegistry;
 
+    /** 按 DSL 匹配候选用户，汇总标签占比、行为指标和购物车未支付比例。 */
     public AudienceMetrics aggregate(CampaignDsl dsl) {
         // 1. Candidate pool
         List<UserProfile> candidates = userProfileMapper.selectList(
@@ -107,6 +110,7 @@ public class AudienceMetricsAggregator {
                 .build();
     }
 
+    /** 按人群组的 AND/OR 逻辑合并各条件命中用户集合。 */
     private Set<Long> resolveMatched(AudienceGroup audience, Set<Long> candidateIds) {
         if (audience.getConditions() == null || audience.getConditions().isEmpty()) {
             return new HashSet<>(candidateIds);
@@ -126,6 +130,7 @@ public class AudienceMetricsAggregator {
         return result == null ? new HashSet<>() : result;
     }
 
+    /** 依据字段注册信息匹配单个标签或数值条件，结果限制在候选用户内。 */
     private Set<Long> evalOne(AudienceCondition c, Set<Long> candidateIds) {
         CampaignFieldRegistry.FieldDescriptor fd = fieldRegistry.get(c.getField());
         if (fd == null) return new HashSet<>();
@@ -164,6 +169,7 @@ public class AudienceMetricsAggregator {
         return matched;
     }
 
+    /** 统计目标用户各标签的命中比例，生成用于方案分析的聚合画像。 */
     private Map<String, BigDecimal> computeTagRatios(Set<Long> userIds) {
         Map<String, BigDecimal> out = new HashMap<>();
         for (String tag : List.of("HIGH_VALUE", "PRICE_SENSITIVE", "CHURN_RISK")) {
@@ -180,6 +186,7 @@ public class AudienceMetricsAggregator {
         return out;
     }
 
+    /** 计算目标用户指定指标大于零的占比，反映行为覆盖程度。 */
     private BigDecimal computeMetricPositiveRate(Set<Long> userIds, String metricType) {
         if (userIds.isEmpty()) return BigDecimal.ZERO;
         List<UserBehaviorSummary> summaries = behaviorSummaryMapper.selectList(
@@ -198,6 +205,7 @@ public class AudienceMetricsAggregator {
         return ratio(positive.size(), userIds.size());
     }
 
+    /** 汇总目标用户指定行为指标并计算均值。 */
     private BigDecimal computeMetricAverage(Set<Long> userIds, String metricType) {
         if (userIds.isEmpty()) return BigDecimal.ZERO;
         List<UserBehaviorSummary> summaries = behaviorSummaryMapper.selectList(
@@ -216,6 +224,7 @@ public class AudienceMetricsAggregator {
         return sum.divide(BigDecimal.valueOf(latest.size()), 2, RoundingMode.HALF_UP);
     }
 
+    /** 计算存在加购但未支付行为的用户占比，辅助识别转化机会。 */
     private BigDecimal computeCartWithoutPurchaseRate(Set<Long> userIds) {
         // Simplified: fraction of users with active_7d>0 but spend_30d==0
         if (userIds.isEmpty()) return BigDecimal.ZERO;
@@ -250,10 +259,12 @@ public class AudienceMetricsAggregator {
         return ratio(activeNoSpend, userIds.size());
     }
 
+    /** 返回无人群时的空聚合结果，避免对空集合计算比率。 */
     private AudienceMetrics emptyMetrics() {
         return AudienceMetrics.builder().audienceCount(0).build();
     }
 
+    /** 按 DSL 比较符判断数值条件，未知运算符按不匹配处理。 */
     private boolean compare(double left, String op, double right) {
         return switch (op) {
             case "EQ"  -> left == right;
@@ -266,12 +277,14 @@ public class AudienceMetricsAggregator {
         };
     }
 
+    /** 把指标值或阈值转为 double，解析失败按零处理。 */
     private double toDouble(Object v) {
         if (v instanceof Number n) return n.doubleValue();
         try { return Double.parseDouble(String.valueOf(v)); }
         catch (NumberFormatException e) { return 0.0; }
     }
 
+    /** 计算部分人数占总人数的比例，空分母返回零。 */
     private BigDecimal ratio(int part, int total) {
         if (total == 0) return BigDecimal.ZERO;
         return BigDecimal.valueOf(part)

@@ -11,6 +11,7 @@ branch_labels = None
 depends_on = None
 
 
+# 增加方案归属、状态与草稿关联字段，将无持久化归属的历史方案标为 CANCELLED。
 def upgrade() -> None:
     op.add_column("agent_campaign_proposal", sa.Column("owner_id", sa.BigInteger(), nullable=True))
     op.add_column(
@@ -36,6 +37,7 @@ def upgrade() -> None:
     op.drop_column("agent_campaign_proposal", "draft_json")
 
 
+# 移除本次新增的方案边界字段，回退至前一版结构。
 def downgrade() -> None:
     op.add_column("agent_campaign_proposal", sa.Column("draft_json", sa.JSON()))
     op.drop_column("agent_campaign_proposal", "updated_at")

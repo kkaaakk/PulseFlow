@@ -16,6 +16,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
+/** 原子校验及预留触达频控额度，同任务重试复用预留。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -34,19 +35,26 @@ public class FrequencyControlService {
     private static final int DEFAULT_USER_DAILY_LIMIT = 3;
     private static final int DEFAULT_CAMPAIGN_WEEKLY_LIMIT = 1;
 
+    /** 原子频控检查结果，区分首次预留、重复放行及额度超限。 */
     @Data
     @AllArgsConstructor
     public static class FreqResult {
         private boolean allowed;
         private String reason;
 
+        /** 构造首次成功预留频控额度的结果。 */
         public static FreqResult ok() { return new FreqResult(true, "OK"); }
+        /** 构造已预留额度的重试放行结果，避免同任务重复扣次数。 */
         public static FreqResult retryOk() { return new FreqResult(true, "RETRY_OK"); }
+        /** 构造用户日触达次数超限结果。 */
         public static FreqResult userLimit() { return new FreqResult(false, "USER_LIMIT"); }
+        /** 构造活动对该用户的周触达次数超限结果。 */
         public static FreqResult campaignLimit() { return new FreqResult(false, "CAMPAIGN_LIMIT"); }
     }
 
     /**
+     * 用 Lua 原子检查并预留用户日额度和活动周额度，已有任务预留标记时直接放行。
+     *
      * Atomic Lua frequency check + quota reservation.
      * <ul>
      *   <li>Retry tasks already holding {@code freq:reserved:{taskId}} skip the count

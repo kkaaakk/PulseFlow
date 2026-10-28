@@ -7,6 +7,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
+ * 单个文案变体，保存类型、标题、正文及校验信息。
+ *
  * A single proposed content variant.
  *
  * <p>Allowed {@code type} values: DIRECT_BENEFIT / URGENCY / PERSONALIZED.</p>
