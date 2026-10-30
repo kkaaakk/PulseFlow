@@ -18,6 +18,7 @@ class UnsafeToolValueError(Exception):
 class WireModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
 
+    # 限制返回维度值仅为允许的渠道、归因模型、正数 Campaign ID 或规范日期，拒绝潜在非聚合文本。
     @field_validator("dimensions", check_fields=False)
     @classmethod
     def aggregate_dimension_values(cls, values: Any) -> Any:
@@ -84,6 +85,7 @@ class TimeRange(WireModel):
     from_inclusive: AwareDatetime
     to_exclusive: AwareDatetime
 
+    # 要求左闭右开时间范围长度大于零且不超过 31 天；成功返回当前 TimeRange。
     @model_validator(mode="after")
     def bound_window(self) -> "TimeRange":
         duration = self.to_exclusive - self.from_inclusive
@@ -97,6 +99,7 @@ class MetricFilter(WireModel):
     operator: Operator
     values: list[str] = Field(min_length=1, max_length=10)
 
+    # 校验过滤值非空、EQ 只有一个值、Campaign ID 为正数且渠道属于白名单；成功返回当前过滤器。
     @model_validator(mode="after")
     def valid_values(self) -> "MetricFilter":
         if self.operator == Operator.EQ and len(self.values) != 1:
@@ -127,6 +130,7 @@ class CompareMetricArgs(WireModel):
     dimensions: list[Dimension] = Field(default_factory=list, max_length=1)
     row_limit: int = Field(default=20, ge=1, le=20)
 
+    # 拒绝跨窗口按 DAY 分组比较，避免不同日期桶被误认为可直接对齐。
     @model_validator(mode="after")
     def no_day_comparison(self) -> "CompareMetricArgs":
         if Dimension.DAY in self.dimensions:
@@ -223,6 +227,8 @@ class ToolMetadata(WireModel):
         ]
     ]
 
+    # 仅接受约定的人群版本号或带版本号、时区时间的绩效版本，未知格式触发安全阻断；
+    # None 保留为空。
     @field_validator("data_version")
     @classmethod
     def known_version_format(cls, value: str | None) -> str | None:

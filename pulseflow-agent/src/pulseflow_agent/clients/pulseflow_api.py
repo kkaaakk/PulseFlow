@@ -32,12 +32,14 @@ _PREFIX = "/internal/v1/agent-tools"
 class ToolClientError(Exception):
     """Content-free error code suitable for returning to the model."""
 
+    # 只保存可安全返回模型的稳定错误码，不携带原始 HTTP 响应或敏感业务内容。
     def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = code
 
 
 class PulseFlowApiClient:
+    # 保存 Java 地址、内部令牌、共享异步客户端及可选质量指标，并初始化本实例的熔断状态。
     def __init__(
         self,
         settings: AgentSettings,
@@ -51,6 +53,7 @@ class PulseFlowApiClient:
         self._failures = 0
         self._open_until = 0.0
 
+    # 累计依赖失败；连续失败达到三次时熔断十五秒，记录错误指标并返回稳定的不可用异常。
     def _unavailable(self) -> ToolClientError:
         self._failures += 1
         if self._failures >= 3:
@@ -59,6 +62,8 @@ class PulseFlowApiClient:
             self._metrics.java_call(True)
         return ToolClientError("java_tool_unavailable")
 
+    # 携带内部令牌及 trace 上下文执行十秒超时请求，检查状态并按 response_type 校验响应；
+    # 不安全值转为 PII 阻断。
     async def _request(
         self,
         method: str,
@@ -106,6 +111,7 @@ class PulseFlowApiClient:
             self._metrics.java_call(False)
         return result
 
+    # 调用 Java 聚合指标接口，并核对响应指标、维度及行数上限与 args 一致。
     async def query_metric(self, args: QueryMetricArgs) -> QueryResponse:
         response = await self._request("POST", "/metrics/query", QueryResponse, args)
         if (
@@ -118,6 +124,7 @@ class PulseFlowApiClient:
             raise ToolClientError("invalid_java_tool_response")
         return response
 
+    # 请求 Java 计算双窗口变化，并校验返回指标、维度与行数符合请求契约。
     async def compare_metric(self, args: CompareMetricArgs) -> CompareResponse:
         response = await self._request("POST", "/metrics/compare", CompareResponse, args)
         if (
@@ -130,6 +137,7 @@ class PulseFlowApiClient:
             raise ToolClientError("invalid_java_tool_response")
         return response
 
+    # 请求单维度指标拆解，核对返回维度、指标和行数，拒绝不符合约定的响应。
     async def breakdown_metric(self, args: BreakdownMetricArgs) -> QueryResponse:
         response = await self._request("POST", "/metrics/breakdown", QueryResponse, args)
         if (
@@ -142,6 +150,7 @@ class PulseFlowApiClient:
             raise ToolClientError("invalid_java_tool_response")
         return response
 
+    # 仅接受正数 campaign_id，读取预计算绩效并确认响应属于同一 Campaign。
     async def get_campaign_performance(self, campaign_id: int) -> PerformanceResponse:
         if campaign_id <= 0:
             raise ToolClientError("java_tool_rejected_arguments")
@@ -154,6 +163,7 @@ class PulseFlowApiClient:
             raise ToolClientError("invalid_java_tool_response")
         return response
 
+    # 请求归因汇总并核对维度与行数上限，不允许响应扩大查询范围。
     async def get_attribution_breakdown(self, args: AttributionArgs) -> AttributionResponse:
         response = await self._request("POST", "/attribution/breakdown", AttributionResponse, args)
         if response.dimension != args.dimension or len(response.rows) > args.row_limit:
@@ -162,5 +172,6 @@ class PulseFlowApiClient:
             raise ToolClientError("invalid_java_tool_response")
         return response
 
+    # 向只读 Java 接口提交类型化 DSL，返回校验和聚合人群预估结果。
     async def preview_audience(self, args: PreviewAudienceArgs) -> AudienceResponse:
         return await self._request("POST", "/audience/preview", AudienceResponse, args)

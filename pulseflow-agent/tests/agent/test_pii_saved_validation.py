@@ -24,6 +24,7 @@ FIXTURE = json.loads(
 SAVED = FIXTURE["cases"]
 
 
+# 验证保存的合成语料摘要保持封存值，避免回归数据被静默修改。
 def test_saved_synthetic_corpus_keeps_original_sealed_hash() -> None:
     canonical = json.dumps(
         [row["case"] for row in SAVED], ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -32,6 +33,7 @@ def test_saved_synthetic_corpus_keeps_original_sealed_hash() -> None:
     assert hashlib.sha256(canonical).hexdigest() == FIXTURE["corpus_sha256"]
 
 
+# 验证历史保存响应通过真实守卫重放仍满足预期。
 @pytest.mark.parametrize("row", SAVED, ids=[row["case"]["id"] for row in SAVED])
 async def test_final_saved_response_replays_through_actual_guardrail(row: dict[str, Any]) -> None:
     calls = 0
@@ -45,6 +47,7 @@ async def test_final_saved_response_replays_through_actual_guardrail(row: dict[s
         for e in row["azure_entities"]
     ]
 
+    # 返回已保存的合成 Azure 响应，保证回归测试不依赖真实外部服务。
     def provider(_: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1

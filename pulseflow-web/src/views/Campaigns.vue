@@ -16,6 +16,9 @@ const page = ref(1)
 const pageSize = ref(10)
 const result = ref<PageResponse<CampaignListItem>>({ items: [], page: 1, pageSize: 10, total: 0, totalPages: 0 })
 
+/**
+ * 按当前分页、关键词和状态加载 Campaign 列表，并维护错误提示及加载状态。
+ */
 const load = async () => {
   loading.value = true
   try {
@@ -27,9 +30,21 @@ const load = async () => {
   }
 }
 
+/**
+ * 提交筛选时重置至第一页，再加载符合条件的 Campaign。
+ */
 const filter = () => { page.value = 1; load() }
+/**
+ * 切换页码并保留当前筛选条件重新查询。
+ */
 const changePage = (value: number) => { page.value = value; load() }
+/**
+ * 跳转到指定数值 ID 的 Campaign 详情页。
+ */
 const openCampaign = (id: number) => router.push(`/campaigns/${id}`)
+/**
+ * 从表格行提取 Campaign ID，复用统一的详情跳转方法。
+ */
 const openCampaignRow = (row: CampaignListItem) => openCampaign(row.id)
 
 onMounted(load)

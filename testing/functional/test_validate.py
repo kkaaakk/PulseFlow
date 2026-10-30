@@ -18,21 +18,25 @@ import validate  # noqa: E402  pylint: disable=wrong-import-position
 
 
 class NullableIntTests(unittest.TestCase):
+    # 验证 MySQL 的空值标记被解析为 None。
     def test_mysql_null_tokens_map_to_none(self) -> None:
         for value in (None, "", "NULL", "\\N"):
             with self.subTest(value=value):
                 self.assertIsNone(validate.nullable_int(value))
 
+    # 验证数值零不会被误识别为空值。
     def test_zero_is_not_treated_as_null(self) -> None:
         self.assertEqual(validate.nullable_int(0), 0)
         self.assertEqual(validate.nullable_int("0"), 0)
 
+    # 验证可解析数值保留整数语义。
     def test_numeric_values_are_preserved_as_integers(self) -> None:
         self.assertEqual(validate.nullable_int(123), 123)
         self.assertEqual(validate.nullable_int("123"), 123)
 
 
 class MysqlRunnerTests(unittest.TestCase):
+    # 验证 MySQL 运行器保留 CLI NULL 标记给可空字段解析器。
     def test_run_mysql_keeps_cli_null_token_for_nullable_parser(self) -> None:
         args = SimpleNamespace(
             mysql_bin="mysql",
@@ -62,6 +66,7 @@ class MysqlRunnerTests(unittest.TestCase):
 
 
 class CanonicalSampleTests(unittest.TestCase):
+    # 验证规范事件样本查询保留并正确解析 null 目标。
     def test_canonical_query_preserves_and_parses_mysql_null(self) -> None:
         manifest = {
             "expected": {
@@ -92,6 +97,7 @@ class CanonicalSampleTests(unittest.TestCase):
         calls: list[str] = []
         checks: list[dict[str, object]] = []
 
+        # 模拟包含 NULL 目标的 MySQL 查询行，驱动规范事实校验。
         def fake_run_mysql(_args: object, query: str) -> tuple[list[list[str]], None]:
             calls.append(query)
             return mysql_rows, None

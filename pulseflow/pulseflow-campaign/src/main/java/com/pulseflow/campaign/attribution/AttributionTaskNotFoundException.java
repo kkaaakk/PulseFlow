@@ -7,6 +7,9 @@ package com.pulseflow.campaign.attribution;
  */
 public class AttributionTaskNotFoundException extends RuntimeException {
 
+    /**
+     * 记录缺失归因任务对应的目标事件 ID，供调用方区分任务尚未建立的情况。
+     */
     public AttributionTaskNotFoundException(String targetEventId) {
         super("Attribution task was not found for targetEventId=" + targetEventId);
     }

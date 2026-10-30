@@ -27,12 +27,24 @@ const running = computed(() => investigation.value?.status === 'RUNNING')
 const diagnosis = computed(() => investigation.value?.final_diagnosis)
 const canPropose = computed(() => !isDemoMode && investigation.value?.status === 'COMPLETED' && !busy.value && diagnosis.value?.status === 'DIAGNOSED' && investigation.value?.evidence.some(e => e.scope_version === investigation.value?.scope_version))
 const statusLabels: Record<string, string> = { RUNNING: '调查中', COMPLETED: '调查完成', INSUFFICIENT_EVIDENCE: '证据不足', BUDGET_EXHAUSTED: '预算已用尽', FAILED: '调查中断', CANCELLED: '已取消', OPEN: '待验证', SUPPORTED: '证据支持', WEAKENED: '证据削弱', REJECTED: '已排除' }
+/**
+ * 把证据 UUID 转换为当前列表的一基序号标签，未找到时得到 E0。
+ */
 const evidenceLabel = (id: string) => `E${(investigation.value?.evidence.findIndex(e => e.id === id) ?? -1) + 1}`
+/**
+ * 中止现有 SSE 并清除尚未触发的快照刷新定时器，避免页面切换后继续请求。
+ */
 const stopStream = () => { stream?.abort(); stream = null; if (refreshTimer) window.clearTimeout(refreshTimer); refreshTimer = null }
+/**
+ * 将 HTTP 状态映射为固定中文业务提示，不直接显示服务端原始异常内容。
+ */
 const reportError = (cause: unknown) => {
   const status = (cause as { response?: { status?: number } })?.response?.status
   error.value = status === 403 ? '你无权访问这项调查。' : status === 422 ? '输入未通过安全检查，请使用聚合业务问题。' : status === 429 ? '调查服务繁忙，请稍后重试。' : status === 409 ? '当前调查状态不允许此操作，请刷新后重试。' : '服务暂时不可用，请刷新或稍后重试。'
 }
+/**
+ * 重读当前调查快照，借助 generation 忽略旧页面请求结果；终态调查主动关闭 SSE。
+ */
 async function refresh() {
   const id = investigation.value?.id || String(route.params.id || '')
   if (!id) return
@@ -45,6 +57,9 @@ async function refresh() {
     if (item.status !== 'RUNNING') stopStream()
   } catch (cause) { if (version === generation) reportError(cause) }
 }
+/**
+ * 仅为真实模式的运行中调查建立 SSE；使用代次和取消信号防止过期回调，连接断开时提示并补读快照。
+ */
 function connect() {
   stopStream()
   streamNotice.value = ''
@@ -52,6 +67,9 @@ function connect() {
   stream = new window.AbortController()
   const current = stream
   const version = generation
+  /**
+   * 将同一连接的多次状态通知合并为二百毫秒后的单次刷新，忽略已过期或取消的连接。
+   */
   const changed = () => {
     if (version !== generation || current.signal.aborted || refreshTimer) return
     refreshTimer = window.setTimeout(() => { refreshTimer = null; void refresh() }, 200)
@@ -60,6 +78,9 @@ function connect() {
     if (!current.signal.aborted) { streamNotice.value = '状态连接已断开，可刷新继续查看。'; void refresh() }
   }).then(() => { if (!current.signal.aborted && running.value) streamNotice.value = '状态连接已结束，可刷新继续查看。' })
 }
+/**
+ * 切换调查时递增代次并清空旧快照、草稿与流；仅让当前代次的请求更新页面并建立新连接。
+ */
 async function load(id: string) {
   generation += 1
   stopStream()
@@ -76,6 +97,9 @@ async function load(id: string) {
 }
 watch(() => String(route.params.id || ''), id => { void load(id) }, { immediate: true })
 onBeforeUnmount(() => { generation += 1; stopStream() })
+/**
+ * 拒绝空问题和并发提交；根据是否已有调查选择新建或追问，成功后更新路由或重连状态流。
+ */
 async function submit() {
   if (!question.value.trim() || busy.value || running.value) return
   busy.value = true
@@ -90,6 +114,9 @@ async function submit() {
   } catch (cause) { reportError(cause) }
   finally { busy.value = false }
 }
+/**
+ * 请求停止当前调查，收到服务端状态后关闭状态流，并维护操作中的禁用状态。
+ */
 async function cancel() {
   if (!investigation.value) return
   busy.value = true
@@ -97,10 +124,16 @@ async function cancel() {
   catch (cause) { reportError(cause) }
   finally { busy.value = false }
 }
+/**
+ * 填入基于当前证据继续验证的改进问题，再复用正常提交链路。
+ */
 async function improve() {
   question.value = '基于当前调查证据，提出可验证的改进方案，并说明风险和待验证项。'
   await submit()
 }
+/**
+ * 仅在当前诊断与证据允许时提交提案，将用户填写的促销描述及有限数值金额转换为明确授权事实。
+ */
 async function propose() {
   if (!canPropose.value || !investigation.value || !proposalQuestion.value.trim()) return
   busy.value = true
@@ -112,6 +145,9 @@ async function propose() {
   } catch (cause) { reportError(cause) }
   finally { busy.value = false }
 }
+/**
+ * 按提案请求创建 Java 草稿，再加载草稿详情并刷新调查，清除旧 Campaign 确认结果。
+ */
 async function generateDraft(proposalId: string) {
   busy.value = true
   error.value = ''
@@ -123,12 +159,18 @@ async function generateDraft(proposalId: string) {
   } catch (cause) { reportError(cause) }
   finally { busy.value = false }
 }
+/**
+ * 加载选定草稿并进入审阅状态，清空前次创建的 Campaign ID。
+ */
 async function review(id: number) {
   busy.value = true
   try { draft.value = await getDraft(id); campaignId.value = null }
   catch (cause) { reportError(cause) }
   finally { busy.value = false }
 }
+/**
+ * 对当前草稿请求重新计算人群预估，用返回快照更新审阅内容。
+ */
 async function rePreview() {
   if (!draft.value) return
   busy.value = true
@@ -136,6 +178,9 @@ async function rePreview() {
   catch (cause) { reportError(cause) }
   finally { busy.value = false }
 }
+/**
+ * 先显示人工确认对话框，通过后调用确认 API 并标记 CONFIRMED；已有错误或已创建 Campaign 时跳过。
+ */
 async function confirm() {
   if (!draft.value || draft.value.errors.length || campaignId.value) return
   try { await ElMessageBox.confirm('确认以当前目标人群、渠道、计划和频控创建 Campaign？创建后状态为 DRAFT。', '确认活动草稿', { confirmButtonText: '确认创建', cancelButtonText: '返回检查' }) }

@@ -12,6 +12,7 @@ from pulseflow_agent.config import AgentSettings
 from pulseflow_agent.domain.contracts import QueryMetricArgs
 
 
+# 构造只读 Java 客户端测试配置和内部令牌。
 def settings() -> AgentSettings:
     return AgentSettings.model_validate({
         "pulseflow_java_base_url": "http://java.internal:8080",
@@ -20,6 +21,7 @@ def settings() -> AgentSettings:
     })
 
 
+# 生成符合聚合指标契约的 Java 响应样例。
 def query_response() -> dict[str, object]:
     return {
         "metadata": {
@@ -37,6 +39,7 @@ def query_response() -> dict[str, object]:
     }
 
 
+# 构造带有界时间段和受限行数的类型化指标请求。
 def args() -> QueryMetricArgs:
     return QueryMetricArgs.model_validate({
         "metric": "CTR", "timeRange": {
@@ -46,10 +49,12 @@ def args() -> QueryMetricArgs:
     })
 
 
+# 验证请求仅携带约定内部凭据，响应按类型化聚合契约解析。
 @pytest.mark.asyncio
 async def test_query_has_only_internal_token_and_typed_aggregate_response() -> None:
     calls: list[httpx.Request] = []
 
+    # 捕获客户端 HTTP 请求并返回固定指标样例，供请求头与参数断言使用。
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request)
         return httpx.Response(200, json=query_response())
@@ -64,6 +69,7 @@ async def test_query_has_only_internal_token_and_typed_aggregate_response() -> N
     assert "userId" not in result.model_dump_json()
 
 
+# 验证 HTTP 故障映射为不包含响应原文的稳定错误。
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status,expected", [(400, "java_tool_rejected_arguments"),
                                               (401, "java_tool_rejected_arguments"),
@@ -78,6 +84,7 @@ async def test_http_failures_have_content_free_errors(status: int, expected: str
     assert "123" not in str(error.value)
 
 
+# 验证未知响应字段被契约拒绝，不能混入模型输入。
 @pytest.mark.asyncio
 async def test_unknown_response_field_is_rejected_instead_of_reaching_model() -> None:
     payload = query_response()
@@ -89,6 +96,7 @@ async def test_unknown_response_field_is_rejected_instead_of_reaching_model() ->
             await PulseFlowApiClient(settings(), http).query_metric(args())
 
 
+# 验证 Java 响应不能超过模型请求的行数上限。
 @pytest.mark.asyncio
 async def test_java_cannot_exceed_requested_row_limit() -> None:
     payload = query_response()
@@ -104,6 +112,7 @@ async def test_java_cannot_exceed_requested_row_limit() -> None:
             await PulseFlowApiClient(settings(), http).query_metric(request)
 
 
+# 验证无时区或跨度过长的时间范围不能构造有效请求。
 def test_typed_request_rejects_naive_or_excessive_time_range() -> None:
     with pytest.raises(ValidationError):
         QueryMetricArgs.model_validate({

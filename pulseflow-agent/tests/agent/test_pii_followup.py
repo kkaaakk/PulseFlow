@@ -9,6 +9,7 @@ from tests.agent.test_pii_hardening import entity
 from tests.test_foundation import azure_response, settings
 
 
+# 验证未满足完整概念问句语法的文本仍阻断，完整问句继续接受隐私检查。
 @pytest.mark.parametrize(
     "text",
     [
@@ -33,6 +34,7 @@ async def test_unproven_concepts_remain_blocked_and_complete_questions_are_check
                 await guard.check(text)
 
 
+# 验证嵌套受禁字段即使值为空也不能绕过校验。
 @pytest.mark.parametrize(
     "key", ["userId", "rawEvents", "orderDetails", "behaviourLogs", "deviceId"]
 )
@@ -41,6 +43,7 @@ def test_empty_nested_forbidden_keys_remain_blocked(key: str) -> None:
         _texts({"tool": [{"result": {key: None}}]})
 
 
+# 验证嵌套 Pydantic 序列化别名仍接受字段边界检查。
 def test_nested_pydantic_alias_cannot_bypass_boundary() -> None:
     class Alias(BaseModel):
         identifier: str = Field(alias="deviceId")
@@ -52,6 +55,7 @@ def test_nested_pydantic_alias_cannot_bypass_boundary() -> None:
         _texts(Wrapper(records=[Alias(deviceId="synthetic-device")]))
 
 
+# 验证地址和地区不会被错误重新归类为核心阻断实体。
 @pytest.mark.parametrize(
     ("text", "label", "blocked"),
     [

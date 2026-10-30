@@ -16,6 +16,9 @@ public class DelayTaskRecoveryJob {
 
     private final DelayedTaskManager delayedTaskManager;
 
+    /**
+     * 恢复 Campaign 延迟队列中处理超过五分钟的任务，使用与生产和消费端一致的任务命名空间。
+     */
     @XxlJob("delayTaskRecoveryJob")
     public void execute() {
         log.info("DelayTaskRecoveryJob started");

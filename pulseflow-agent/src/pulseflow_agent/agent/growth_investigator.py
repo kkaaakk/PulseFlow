@@ -52,6 +52,7 @@ from pulseflow_agent.observability.tracing import Telemetry
 from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail, PiiBlockedError
 
 
+# 按 settings 创建离线 TestModel 或真实 OpenAI 兼容模型；关闭客户端隐式重试，使请求预算可观测。
 def create_model(settings: AgentSettings) -> TestModel | OpenAIModel:
     if settings.is_test_model:
         # Offline startup is honest about having gathered no business evidence.
@@ -83,6 +84,7 @@ def create_model(settings: AgentSettings) -> TestModel | OpenAIModel:
     return OpenAIModel(settings.pulseflow_agent_model.removeprefix("openai:"), provider=provider)
 
 
+# 把配置中的模型请求、工具调用及输入输出 token 上限转换为本次运行的 UsageLimits。
 def create_usage_limits(settings: AgentSettings) -> UsageLimits:
     return UsageLimits(
         request_limit=settings.pulseflow_agent_max_model_requests,
@@ -93,6 +95,7 @@ def create_usage_limits(settings: AgentSettings) -> UsageLimits:
 
 
 class GrowthInvestigator:
+    # 装配设置、PII 守卫、Java 客户端与遥测，创建返回 Diagnosis 的 Agent 并注册工具。
     def __init__(
         self,
         settings: AgentSettings,
@@ -116,6 +119,8 @@ class GrowthInvestigator:
         )
         self._register_tools()
 
+    # 先对 observation 和元数据执行 PII 检查，再保存带查询来源的 Evidence；
+    # 只向模型返回紧凑观察与证据 ID。
     async def _save(
         self,
         ctx: RunContext[AgentDependencies],
@@ -146,9 +151,11 @@ class GrowthInvestigator:
             evidence_id=evidence.id, observation=observation, warnings=list(metadata.warnings)
         )
 
+    # 注册只读业务工具、调查状态工具及受授权控制的提案保存工具，同时安装上下文和最终诊断校验器。
     def _register_tools(self) -> None:
         agent = self._agent
 
+        # 先检查实际可见上下文，再渲染模型指令；存在提案授权时仅附加操作员原样提供的促销事实。
         @agent.instructions
         async def investigation_context(ctx: RunContext[AgentDependencies]) -> str:
             # Inspect the same visible values before adding labels such as
@@ -331,6 +338,8 @@ class GrowthInvestigator:
                 raise ModelRetry("Scope must be a nonempty user-requested description.") from None
             return f"scopeVersion={version}; previous scoped evidence is historical background"
 
+        # 仅在调查 ID 匹配、已有当前证据且本轮尚未生成提案时公开提案保存工具，
+        # 否则返回 None 隐藏工具。
         async def prepare_proposal(
             ctx: RunContext[AgentDependencies], definition: ToolDefinition
         ) -> ToolDefinition | None:
@@ -365,6 +374,8 @@ class GrowthInvestigator:
             ctx.deps.proposal_created = True
             return f"proposalId={record.id}; status=GENERATED"
 
+        # 校验诊断与 finding 只引用当前证据且引用完整；已诊断必须有证据，
+        # 证据不足必须低置信度并列出未决问题。
         @agent.output_validator
         def validate_diagnosis(ctx: RunContext[AgentDependencies], output: Diagnosis) -> Diagnosis:
             known = ctx.deps.workspace.evidence_ids
@@ -389,6 +400,8 @@ class GrowthInvestigator:
             self.telemetry.metrics.reference_check(True)
             return output
 
+    # 对输入和输出执行 PII 检查，在调用与 token 预算内运行调查；维护工作区和质量指标，
+    # 并将取消、超预算及失败保存为对应终态。
     async def run(
         self,
         prompt: str,

@@ -64,6 +64,7 @@ class EvalCase(BaseModel):
     max_tool_calls: int
 
 
+# 为离线评测构造确定性的 Java 工具来源元数据。
 def metadata(source: str = "campaign-facts", warnings: list[str] | None = None) -> dict[str, Any]:
     return {
         "queryId": str(uuid4()),
@@ -75,10 +76,12 @@ def metadata(source: str = "campaign-facts", warnings: list[str] | None = None) 
 
 
 class FixtureServer:
+    # 保存评测案例与请求记录，为每个案例建立独立的工具响应替身。
     def __init__(self, case: EvalCase) -> None:
         self.case = case
         self.calls = 0
 
+    # 按案例和请求路径模拟 Java 只读工具，记录调用供评分检查。
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.calls += 1
         fixture = self.case.fixtures
@@ -179,6 +182,7 @@ class FixtureServer:
         return httpx.Response(200, json=body)
 
 
+# 提取模型消息中可用于离线策略判断的内容。
 def contents(messages: list[ModelMessage]) -> list[tuple[str, Any]]:
     result: list[tuple[str, Any]] = []
     for message in messages:
@@ -197,9 +201,11 @@ def contents(messages: list[ModelMessage]) -> list[tuple[str, Any]]:
 
 
 class OfflinePolicy:
+    # 初始化基于评测案例和工具观察的确定性模型策略。
     def __init__(self, case: EvalCase) -> None:
         self.case = case
 
+    # 读取已有工具结果并决定继续查证或输出诊断，不发起真实模型请求。
     async def respond(self, messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         items = contents(messages)
         mode = self.case.fixtures.mode
@@ -285,5 +291,6 @@ class OfflinePolicy:
             return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, output)])
         return ModelResponse(parts=[TextPart(json.dumps(output))])
 
+    # 生成指定工具名称与参数的 ModelResponse，供离线策略驱动 Agent。
     def call(self, name: str, request: dict[str, Any]) -> ModelResponse:
         return ModelResponse(parts=[ToolCallPart(name, {"request": request})])

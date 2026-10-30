@@ -9,6 +9,7 @@ branch_labels = None
 depends_on = None
 
 
+# 建立 Agent 调查、证据、假设和可见消息持久化表及相关索引。
 def upgrade() -> None:
     op.create_table(
         "agent_investigation",
@@ -71,6 +72,7 @@ def upgrade() -> None:
                     ["investigation_id", "id"])
 
 
+# 按外键依赖顺序撤销首版工作区表，删除这些表中的调查历史。
 def downgrade() -> None:
     op.drop_index("idx_agent_message_investigation", table_name="agent_message")
     op.drop_table("agent_message")

@@ -57,6 +57,9 @@ public class CampaignDraftService {
     @Autowired
     private AudiencePreviewService audiencePreviewService;
 
+    /**
+     * 要求操作员已登录且 DSL 非空，补齐缺失的请求 ID，执行校验与可用的人群预估后保存草稿。
+     */
     public CampaignDraft createDraft(String requestId, Long operatorId, CampaignDsl dsl) {
         if (operatorId == null) throw new CampaignForbiddenException("Authentication required");
         if (dsl == null) throw new IllegalArgumentException("dsl is required");
@@ -263,6 +266,9 @@ public class CampaignDraftService {
         return new ConfirmResult(campaign.getId(), draft.getId(), false);
     }
 
+    /**
+     * 按 ID 加载草稿并校验当前操作员归属，返回允许访问的草稿实体。
+     */
     public CampaignDraft loadDraft(Long draftId, Long operatorId) {
         CampaignDraft draft = loadDraftOrThrow(draftId);
         requireDraftOwner(draft, operatorId);
@@ -271,6 +277,9 @@ public class CampaignDraftService {
 
     // ---------- helpers ----------
 
+    /**
+     * 按主键读取草稿，未找到时抛出资源缺失异常。
+     */
     private CampaignDraft loadDraftOrThrow(Long draftId) {
         CampaignDraft draft = draftMapper.selectById(draftId);
         if (draft == null) {
@@ -280,10 +289,9 @@ public class CampaignDraftService {
     }
 
     /**
-     * Verify that the current operator owns the draft. Throws 403 if not.
-     * Null operatorId (no session) is allowed only for system-initiated calls
-     * (e.g. job) where operatorId is genuinely absent — but for interactive
-     * endpoints the controller always passes a non-null operatorId.
+     * 校验操作员已登录且拥有草稿，不允许空 operatorId 绕过登录检查。
+     * 历史草稿未记录所有者时仅跳过归属比较，仍要求调用方提供登录身份；
+     * 已记录所有者但不匹配时抛出可映射为 HTTP 403 的权限异常。
      */
     private void requireDraftOwner(CampaignDraft draft, Long operatorId) {
         if (operatorId == null) throw new CampaignForbiddenException("Authentication required");
@@ -294,22 +302,34 @@ public class CampaignDraftService {
         }
     }
 
+    /**
+     * 依据校验结果依次选择 VALIDATED、NEEDS_CONFIRMATION 或 INVALID 状态。
+     */
     private DraftStatus pickStatus(DslValidationResult v) {
         if (v.isValid()) return DraftStatus.VALIDATED;
         if (v.isNeedsConfirmation()) return DraftStatus.NEEDS_CONFIRMATION;
         return DraftStatus.INVALID;
     }
 
+    /**
+     * 复制 DSL 校验警告并追加可用的人群预估警告，不修改原始列表。
+     */
     private List<String> combinedWarnings(DslValidationResult v, AudiencePreviewResult p) {
         List<String> out = new ArrayList<>(v.getWarnings());
         if (p != null && p.getWarnings() != null) out.addAll(p.getWarnings());
         return out;
     }
 
+    /**
+     * 检查当前时间是否已超过草稿有效期；未设置有效期时不视为过期。
+     */
     private boolean isExpired(CampaignDraft draft) {
         return draft.getExpiresAt() != null && LocalDateTime.now().isAfter(draft.getExpiresAt());
     }
 
+    /**
+     * 仅在草稿尚未标记过期时更新 EXPIRED 状态与修改时间，并返回该实体。
+     */
     private CampaignDraft markExpired(CampaignDraft draft) {
         if (!DraftStatus.EXPIRED.name().equals(draft.getValidationStatus())) {
             draft.setValidationStatus(DraftStatus.EXPIRED.name());
@@ -319,6 +339,9 @@ public class CampaignDraftService {
         return draft;
     }
 
+    /**
+     * 将不超过二十四小时的频控配置映射为日限制；未配置、窗口不适用或次数缺失时默认三次。
+     */
     private int pickDailyLimit(CampaignDsl dsl) {
         if (dsl.getFrequencyCap() == null) return 3;
         Integer window = dsl.getFrequencyCap().getWindowHours();
@@ -327,6 +350,9 @@ public class CampaignDraftService {
         return 3; // default user_daily_limit
     }
 
+    /**
+     * 将大于二十四且不超过一百六十八小时的配置映射为周限制，其他情况默认一次。
+     */
     private int pickWeeklyLimit(CampaignDsl dsl) {
         if (dsl.getFrequencyCap() == null) return 1;
         Integer window = dsl.getFrequencyCap().getWindowHours();
@@ -335,6 +361,9 @@ public class CampaignDraftService {
         return 1;
     }
 
+    /**
+     * 将人群组合逻辑、条件数及促销事实数量整理为 Campaign 描述文本。
+     */
     private String buildDescription(CampaignDsl dsl) {
         StringBuilder sb = new StringBuilder();
         if (dsl.getAudience() != null && dsl.getAudience().getConditions() != null) {
@@ -347,6 +376,9 @@ public class CampaignDraftService {
         return sb.toString();
     }
 
+    /**
+     * 优先以首条促销事实生成满减文案，其次使用事实描述；无可用事实时回退到 Campaign 名称。
+     */
     private String buildMessageTemplate(CampaignDsl dsl) {
         // v1: use first promotion fact as the message template; the operator
         // picks a content variant from /contents and overrides this.

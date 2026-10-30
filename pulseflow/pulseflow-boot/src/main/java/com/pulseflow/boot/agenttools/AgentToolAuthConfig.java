@@ -8,6 +8,9 @@ import org.springframework.core.Ordered;
 
 @Configuration
 public class AgentToolAuthConfig {
+    /**
+     * 为内部只读 Tool API 注册高优先级令牌过滤器，限定生效路径为 /internal/v1/agent-tools/*。
+     */
     @Bean
     FilterRegistrationBean<AgentToolAuthFilter> agentToolAuthFilter(
             @Value("${pulseflow.agent.internal-token:}") String token) {

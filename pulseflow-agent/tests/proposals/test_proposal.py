@@ -21,6 +21,7 @@ from pulseflow_agent.workspace.repository import SqlAlchemyInvestigationReposito
 from pulseflow_agent.workspace.service import InvestigationService
 
 
+# 构造具有人群、调度、频控、促销事实和证据引用的合法提案。
 def proposal(evidence_id: str) -> dict[str, Any]:
     return {
         "campaign_name": "Recall review",
@@ -41,6 +42,7 @@ def proposal(evidence_id: str) -> dict[str, Any]:
     }
 
 
+# 构造隔离数据库与离线模型的提案测试配置。
 def settings(database_url: str) -> AgentSettings:
     return AgentSettings.model_validate({
         "pulseflow_agent_env": "test",
@@ -50,6 +52,7 @@ def settings(database_url: str) -> AgentSettings:
     })
 
 
+# 创建已完成且具有证据的调查，满足生成提案的前置状态。
 async def seed(repo: SqlAlchemyInvestigationRepository) -> tuple[str, str]:
     created = await repo.create("Investigate recall")
     workspace = InvestigationWorkspace(goal=created.goal, id=created.id, repository=repo)
@@ -70,9 +73,11 @@ async def seed(repo: SqlAlchemyInvestigationRepository) -> tuple[str, str]:
 
 
 class ProposalModel:
+    # 初始化提案模型替身及其授权促销事实输入。
     def __init__(self, evidence_id: str) -> None:
         self.evidence_id = evidence_id
 
+    # 模拟围绕当前证据保存提案的模型响应序列。
     async def respond(self, messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         tool_names = {tool.name for tool in info.function_tools}
         assert "create_campaign_draft" not in tool_names
@@ -97,6 +102,7 @@ class ProposalModel:
         })])
 
 
+# 验证提案持久化且 Agent 流程不直接执行 Java 业务写入。
 @pytest.mark.asyncio
 async def test_proposal_is_durable_and_java_write_is_absent(database_url: str) -> None:
     engine = create_async_engine(database_url)
@@ -105,6 +111,7 @@ async def test_proposal_is_durable_and_java_write_is_absent(database_url: str) -
     config = settings(database_url)
     java_calls: list[str] = []
 
+    # 记录提案运行中的 Java 请求，用于断言没有草稿或 Campaign 写操作。
     def java(request: httpx.Request) -> httpx.Response:
         java_calls.append(request.url.path)
         return httpx.Response(500)
@@ -137,6 +144,7 @@ async def test_proposal_is_durable_and_java_write_is_absent(database_url: str) -
     await engine.dispose()
 
 
+# 验证 Agent 不得新增或替换操作员未授权的促销事实。
 @pytest.mark.asyncio
 async def test_agent_cannot_invent_promotion_facts(database_url: str) -> None:
     engine = create_async_engine(database_url)

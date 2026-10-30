@@ -12,8 +12,17 @@ const userId = ref('')
 const page = ref(1)
 const pageSize = ref(20)
 const result = ref<PageResponse<AttributionView>>({ items: [], page: 1, pageSize: 20, total: 0, totalPages: 0 })
+/**
+ * 按当前分页和筛选条件加载归因记录，显示可读错误并在 finally 中结束加载状态。
+ */
 const load = async () => { loading.value = true; try { result.value = await listAttributions(page.value, pageSize.value, campaignId.value ? Number(campaignId.value) : undefined, userId.value || undefined) } catch (error) { ElMessage.error(error instanceof Error ? error.message : '归因数据加载失败') } finally { loading.value = false } }
+/**
+ * 筛选条件提交时回到第一页并重新查询，避免沿用超出筛选结果范围的页码。
+ */
 const filter = () => { page.value = 1; load() }
+/**
+ * 更新当前页码并按现有筛选条件重新加载归因记录。
+ */
 const changePage = (value: number) => { page.value = value; load() }
 onMounted(load)
 </script>

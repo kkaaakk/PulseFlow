@@ -55,6 +55,9 @@ public class SqlAudiencePreviewService implements AudiencePreviewService {
     private final CampaignFieldRegistry fieldRegistry;
     private final DslToRuleConverter converter;
 
+    /**
+     * 从最多五万名启用用户中匹配人群条件，返回 SNAPSHOT 预估规模；条件求值失败时返回零值并附 preview failed 警告。
+     */
     @Override
     public AudiencePreviewResult preview(CampaignDsl dsl) {
         LocalDateTime now = LocalDateTime.now();
@@ -111,6 +114,9 @@ public class SqlAudiencePreviewService implements AudiencePreviewService {
                 .build();
     }
 
+    /**
+     * 当前版本仅执行规模预估并始终返回空用户列表，limit 尚不用于导出实际用户 ID。
+     */
     @Override
     public List<Long> previewUserIds(CampaignDsl dsl, int limit) {
         AudiencePreviewResult r = preview(dsl);
@@ -122,6 +128,9 @@ public class SqlAudiencePreviewService implements AudiencePreviewService {
         return Collections.emptyList();
     }
 
+    /**
+     * 逐条件计算候选用户集合，AND 取交集，其他逻辑取并集，返回最终匹配集合。
+     */
     private Set<Long> evaluateConditions(List<AudienceCondition> conditions,
                                           Set<Long> candidateIds, String logic) {
         List<Set<Long>> perCondition = new ArrayList<>();
@@ -141,6 +150,9 @@ public class SqlAudiencePreviewService implements AudiencePreviewService {
         return result;
     }
 
+    /**
+     * 根据注册字段来源读取标签或行为指标并匹配条件，未知字段返回空集合。
+     */
     private Set<Long> evalOne(AudienceCondition c, Set<Long> candidateIds) {
         CampaignFieldRegistry.FieldDescriptor fd = fieldRegistry.get(c.getField());
         if (fd == null) return Set.of();
@@ -188,6 +200,9 @@ public class SqlAudiencePreviewService implements AudiencePreviewService {
         return matched;
     }
 
+    /**
+     * 执行白名单内的数值比较操作，未知操作符按不匹配处理。
+     */
     private boolean compare(double left, String op, double right) {
         return switch (op) {
             case "EQ"  -> left == right;
@@ -200,12 +215,18 @@ public class SqlAudiencePreviewService implements AudiencePreviewService {
         };
     }
 
+    /**
+     * 将数值或数字文本转换为 double，解析失败时使用零。
+     */
     private double toDouble(Object v) {
         if (v instanceof Number n) return n.doubleValue();
         try { return Double.parseDouble(String.valueOf(v)); }
         catch (NumberFormatException e) { return 0.0; }
     }
 
+    /**
+     * 构造带计算时间、数据版本与 SNAPSHOT 标记的零人群结果。
+     */
     private AudiencePreviewResult emptyResult(LocalDateTime now, String dataVersion) {
         return AudiencePreviewResult.builder()
                 .estimatedCount(0)

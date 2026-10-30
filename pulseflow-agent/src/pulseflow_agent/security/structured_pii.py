@@ -24,6 +24,7 @@ _CONTACT_PREFIX = regex.compile(
 )
 
 
+# 收集合法 IP 及带点网络或版本标识的区间，防止其内部数字片段被误识别为电话号码。
 def _network_spans(text: str) -> list[tuple[int, int]]:
     spans = []
     for match in _NETWORK_TOKEN.finditer(text):
@@ -48,6 +49,8 @@ def _inside_identifier(text: str, start: int, end: int) -> bool:
     hide an otherwise valid numeric substring inside a business code.
     """
 
+    # 判断字符是否可与数字候选连为业务标识，覆盖 ASCII 字母数字、连接符及 Unicode 隐形字符和横线
+    # 。
     def connected(char: str) -> bool:
         return (
             char.isascii()
@@ -62,6 +65,8 @@ def _inside_identifier(text: str, start: int, end: int) -> bool:
         right += 1
     envelope = text[left:right]
 
+    # 从指定边界向给定方向检查带空白或连接符的业务代码；存在连接符且后接 ASCII 字母时视为标识的
+    # 一部分。
     def spaced_identifier(boundary: int, direction: int, include_edge: bool = True) -> bool:
         cursor = boundary - 1 if direction < 0 else boundary
         edge = (
@@ -96,9 +101,12 @@ def _inside_identifier(text: str, start: int, end: int) -> bool:
 
 
 class StructuredPiiDetector:
+    # 初始化信用卡识别器；电话号码和中国身份证验证使用库函数，不加载 NLP 模型。
     def __init__(self) -> None:
         self._card = CreditCardRecognizer(supported_language="zh")
 
+    # 校验电话、银行卡和身份证候选，排除网络或业务代码中的伪电话，并去掉卡号内嵌电话与重复实体，
+    # 返回排序后的实体列表。
     def detect(self, text: str) -> list[PiiEntity]:
         found: list[PiiEntity] = []
         networks = _network_spans(text)

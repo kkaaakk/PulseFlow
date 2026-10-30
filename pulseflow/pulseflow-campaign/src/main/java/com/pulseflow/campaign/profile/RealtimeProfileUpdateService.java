@@ -124,6 +124,9 @@ public class RealtimeProfileUpdateService {
         }
     }
 
+    /**
+     * 从事件上下文取得属性映射；缺失或类型不符时返回 null，供调用方跳过属性相关更新。
+     */
     @SuppressWarnings("unchecked")
     private Map<String, Object> getProperties(Map<String, Object> ctx) {
         Object props = ctx.get("properties");
@@ -133,6 +136,9 @@ public class RealtimeProfileUpdateService {
         return null;
     }
 
+    /**
+     * 将 ISO 时间中的 T 改为空格；未提供时间时使用当前本地时间。
+     */
     private String normalizeTime(String time) {
         if (time == null) {
             return LocalDateTime.now().toString().replace("T", " ");
@@ -150,6 +156,9 @@ public class RealtimeProfileUpdateService {
                 DateTimeFormatter.ISO_LOCAL_DATE_TIME);
     }
 
+    /**
+     * 转换事件上下文中的数值或整数字符串，null 按零处理，非法文本由解析异常向外传播。
+     */
     private Long toLong(Object val) {
         if (val == null) return 0L;
         if (val instanceof Number) return ((Number) val).longValue();

@@ -24,6 +24,9 @@ class EventServiceTest {
     private final ObjectMapper objectMapper = new ObjectMapper()
             .registerModule(new JavaTimeModule());
 
+    /**
+     * 验证 HTTP 事件请求将 JSON null 目标解析为空值。
+     */
     @Test
     @DisplayName("HTTP JSON targetId null remains null in EventRequest")
     void deserializesNullTargetId() throws Exception {
@@ -43,6 +46,9 @@ class EventServiceTest {
         assertThat(request.getTargetId()).isNull();
     }
 
+    /**
+     * 验证空目标被序列化为 Kafka JSON null。
+     */
     @Test
     @DisplayName("EventService Kafka payload preserves targetId null")
     void kafkaPayloadContainsJsonNullTargetId() throws Exception {
@@ -70,6 +76,9 @@ class EventServiceTest {
         assertThat(payload.get("targetId").isNull()).isTrue();
     }
 
+    /**
+     * 验证数值零目标保持为 Kafka JSON 数值零。
+     */
     @Test
     @DisplayName("EventService Kafka payload preserves targetId zero")
     void kafkaPayloadContainsNumericZeroTargetId() throws Exception {

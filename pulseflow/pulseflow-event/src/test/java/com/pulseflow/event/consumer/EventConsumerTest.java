@@ -10,6 +10,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class EventConsumerTest {
 
+    /**
+     * 验证 Kafka 解析保留显式 null 目标，不转换为零或移除字段。
+     */
     @Test
     @DisplayName("Consumer JSON parser keeps a present targetId key with null value")
     @SuppressWarnings("unchecked")

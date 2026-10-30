@@ -83,11 +83,17 @@ public class DslToRuleConverter {
         return out;
     }
 
+    /**
+     * 保留 Boolean 值，文本仅将忽略大小写的 true 转为真。
+     */
     private boolean toBoolean(Object v) {
         if (v instanceof Boolean b) return b;
         return "true".equalsIgnoreCase(String.valueOf(v));
     }
 
+    /**
+     * 将条件值转为 long 阈值，数值的小数部分被截断，文本解析失败为零；当前 type 参数未参与转换。
+     */
     private long toThreshold(Object v, ValueType type) {
         if (v instanceof Number n) return n.longValue();
         try {

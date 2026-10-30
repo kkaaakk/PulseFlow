@@ -20,6 +20,9 @@ const props = withDefaults(defineProps<{
 const chartElement = ref<HTMLElement>()
 let chart: echarts.ECharts | undefined
 
+/**
+ * 在容器就绪后按需初始化 ECharts，根据 points 和展示属性覆盖趋势图配置；复用已有实例。
+ */
 const render = () => {
   if (!chartElement.value) return
   if (!chart) chart = echarts.init(chartElement.value)
@@ -31,6 +34,9 @@ const render = () => {
       backgroundColor: '#17213e',
       borderWidth: 0,
       textStyle: { color: '#fff', fontSize: 12 },
+      /**
+       * 按 percent 属性将提示框数值格式化为一位小数百分比或中文分组数字。
+       */
       valueFormatter: (value: unknown) => props.percent ? `${(Number(value) * 100).toFixed(1)}%` : new Intl.NumberFormat('zh-CN').format(Number(value)),
     },
     xAxis: {
@@ -48,7 +54,7 @@ const render = () => {
       axisLine: { show: false },
       axisTick: { show: false },
       splitLine: { lineStyle: { color: '#edf0f5', type: 'dashed' } },
-      axisLabel: { color: '#8b95a8', fontSize: 11, formatter: (value: number) => props.percent ? `${(value * 100).toFixed(0)}%` : compactNumber(value) },
+      axisLabel: { color: '#8b95a8', fontSize: 11, /** 格式化纵轴刻度：比例显示整数百分比，普通数值使用 K 或 M 简写。 */ formatter: (value: number) => props.percent ? `${(value * 100).toFixed(0)}%` : compactNumber(value) },
     },
     series: [{
       type: 'line',
@@ -63,12 +69,18 @@ const render = () => {
   }, true)
 }
 
+/**
+ * 按绝对值将百万与千级数值格式化为 M、K 简写，较小数值原样转为文本。
+ */
 const compactNumber = (value: number) => {
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
   if (Math.abs(value) >= 1_000) return `${Math.round(value / 1_000)}K`
   return String(value)
 }
 
+/**
+ * 在图表实例存在时同步容器尺寸，供窗口 resize 事件复用。
+ */
 const resize = () => chart?.resize()
 
 onMounted(async () => {

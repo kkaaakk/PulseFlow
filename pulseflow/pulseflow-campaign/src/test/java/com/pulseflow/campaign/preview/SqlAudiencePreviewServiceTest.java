@@ -19,6 +19,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class SqlAudiencePreviewServiceTest {
+    /**
+     * 验证人群预估来自画像事实并携带数据版本。
+     */
     @Test
     void returnsEstimatedAudienceAndDataVersionFromProfileFacts() {
         UserProfileMapper profiles = mock(UserProfileMapper.class);

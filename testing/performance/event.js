@@ -16,6 +16,9 @@ export const EVENT_TYPES = [
 const EVENT_WEIGHTS = [2, 36, 12, 12, 8, 10, 4, 5, 5, 4, 2];
 const runId = (__ENV.RUN_ID || 'adhoc').replace(/[^a-zA-Z0-9_-]/g, '-');
 
+/**
+ * 依据预设权重随机选择压测事件类型，末尾分支兜底返回最后一种类型。
+ */
 function weightedEventType() {
   const total = EVENT_WEIGHTS.reduce((sum, weight) => sum + weight, 0);
   let value = Math.floor(Math.random() * total);
@@ -26,6 +29,9 @@ function weightedEventType() {
   return EVENT_TYPES[EVENT_TYPES.length - 1];
 }
 
+/**
+ * 按配置的业务时区小时偏移生成不带时区的秒级事件时间，默认上海时区偏移八小时。
+ */
 function eventTimeString() {
   // application.yml uses Asia/Shanghai in the local workflow. Allow callers
   // to override the wall-clock offset when the app runs in another timezone.
@@ -35,6 +41,9 @@ function eventTimeString() {
     .slice(0, 19);
 }
 
+/**
+ * 按事件类型与序号生成压测属性，构造稳定的商品、购物车、订单或触达关联 ID。
+ */
 function randomProperties(eventType, sequence) {
   const properties = { category: `k6-${sequence % 8}` };
   if (eventType === 'CONTENT_VIEW' || eventType === 'SEARCH') {
@@ -55,6 +64,9 @@ function randomProperties(eventType, sequence) {
   return properties;
 }
 
+/**
+ * 同时验证 HTTP 200、业务码 200 及 accepted 为 true；非 JSON 或不符合契约的响应返回 false。
+ */
 export function isAccepted(response) {
   let body = null;
   try {
@@ -68,6 +80,9 @@ export function isAccepted(response) {
     && body.data.accepted === true;
 }
 
+/**
+ * 为当前运行、虚拟用户和迭代生成事件 ID，组合隔离用户范围、事件时间及类型化属性。
+ */
 export function makeEvent(sequence) {
   const eventType = weightedEventType();
   const eventId = `k6-${runId}-${__VU}-${__ITER}-${Date.now()}-${sequence}`;

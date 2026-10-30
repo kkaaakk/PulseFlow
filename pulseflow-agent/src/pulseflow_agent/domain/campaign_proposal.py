@@ -27,6 +27,7 @@ class CampaignProposal(WireModel):
     promotion_facts: list[PromotionFact] = Field(default_factory=list, max_length=10)
     supporting_evidence_ids: list[str] = Field(min_length=1, max_length=20)
 
+    # 要求 supporting_evidence_ids 全部为合法 UUID 且互不重复；通过后返回当前提案。
     @model_validator(mode="after")
     def valid_references(self) -> "CampaignProposal":
         for value in self.supporting_evidence_ids:
@@ -35,6 +36,7 @@ class CampaignProposal(WireModel):
             raise ValueError("duplicate supporting evidence")
         return self
 
+    # 提取提案名称、理由、人群条件文本与促销描述，供调用方集中执行 PII 检查。
     def free_text(self) -> list[str]:
         values = [self.campaign_name, self.rationale]
         for condition in self.target_audience.conditions:
@@ -46,6 +48,7 @@ class CampaignProposal(WireModel):
                 values.append(fact.description)
         return values
 
+    # 将提案中的确定性业务字段映射为 CampaignDsl；不包含推理说明和证据引用，也不创建 Java 草稿。
     def to_dsl(self) -> CampaignDsl:
         return CampaignDsl(
             campaign_name=self.campaign_name,

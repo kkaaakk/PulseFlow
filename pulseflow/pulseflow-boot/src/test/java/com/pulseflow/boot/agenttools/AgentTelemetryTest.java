@@ -45,6 +45,9 @@ class AgentTelemetryTest {
     static final InMemorySpanExporter EXPORTER = InMemorySpanExporter.create();
     @Autowired TestRestTemplate http;
     @Autowired OpenTelemetry telemetry;
+    /**
+     * 返回基础遥测测试使用的预期数据库类型，供子类按实际数据库覆盖。
+     */
     protected String expectedDatabaseSystem() { return "h2"; }
 
     @SpringBootConfiguration
@@ -56,6 +59,9 @@ class AgentTelemetryTest {
             SpringWebMvc6InstrumentationAutoConfiguration.class})
     @Import({TestController.class, TestService.class, AgentTelemetryConfig.class})
     static class App {
+        /**
+         * 提供可检查导出 span 的内存测试导出器。
+         */
         @Bean AutoConfigurationCustomizerProvider testExporter() {
             return customizer -> customizer.addTracerProviderCustomizer((builder, ignored) ->
                     builder.addSpanProcessor(SimpleSpanProcessor.create(
@@ -66,18 +72,33 @@ class AgentTelemetryTest {
     @RestController
     static class TestController {
         final TestService service;
+        /**
+         * 为测试控制器注入追踪测试服务。
+         */
         TestController(TestService service) { this.service = service; }
+        /**
+         * 把测试 HTTP 请求转发给业务替身服务，验证请求 span 的父子传递。
+         */
         @GetMapping("/internal/v1/agent-tools/trace-test")
         int query() { return service.query(); }
     }
 
     static class TestService {
         final JdbcTemplate jdbc;
+        /**
+         * 为测试服务注入 JDBC 访问组件，形成可观测调用链。
+         */
         TestService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+        /**
+         * 执行测试数据库查询，生成服务到 JDBC 的下游 span。
+         */
         @WithSpan("agent-tools.test-service")
         public int query() { return jdbc.queryForObject("SELECT 1", Integer.class); }
     }
 
+    /**
+     * 验证 traceparent 贯穿控制器、服务和 JDBC，导出内容不含秘密请求头。
+     */
     @Test void traceparentReachesServiceAndJdbcWithoutSecretHeaders() {
         EXPORTER.reset();
         String traceId = "1234567890abcdef1234567890abcdef";
@@ -95,6 +116,9 @@ class AgentTelemetryTest {
         assertThat(spans.toString()).doesNotContain("PRIVATE_TOKEN_SENTINEL", "SELECT 1");
     }
 
+    /**
+     * 验证上游误采集正文或异常事件时，安全导出器仍会移除。
+     */
     @Test void exporterDropsContentAndExceptionEventsEvenIfCapturedUpstream() {
         EXPORTER.reset();
         var span = telemetry.getTracer("privacy-test").spanBuilder("safe-operation").startSpan();

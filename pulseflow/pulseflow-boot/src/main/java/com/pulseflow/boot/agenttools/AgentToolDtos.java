@@ -10,6 +10,9 @@ import java.util.Map;
 
 /** Public, aggregate-only contract for the internal agent tool API. */
 public final class AgentToolDtos {
+    /**
+     * 禁止实例化仅用于组织内部 Tool API 数据契约的容器类。
+     */
     private AgentToolDtos() {}
 
     public enum Metric {

@@ -10,6 +10,7 @@ from pydantic_ai import models
 models.ALLOW_MODEL_REQUESTS = False
 
 
+# 提供本次测试使用的独立 Agent 数据库地址，避免连接普通业务库。
 @pytest.fixture
 def database_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     url = f"sqlite+aiosqlite:///{(tmp_path / 'agent.db').as_posix()}"

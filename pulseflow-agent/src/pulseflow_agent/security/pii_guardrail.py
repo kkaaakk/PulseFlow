@@ -71,11 +71,14 @@ def is_field_concept_question(text: str) -> bool:
 class PiiBlockedError(Exception):
     """A deliberately content-free error safe for API and logs."""
 
+    # 仅保存不含原文的阻断原因码，供 HTTP 响应和遥测安全使用。
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
 
 
+# 递归提取模型、映射和列表中的非空文本，同时检查 Python 字段名、序列化别名及受禁业务字段；
+# 发现违规立即抛出。
 def _texts(value: Any) -> list[str]:
     if isinstance(value, BaseModel):
         # Check both Python names and serialization aliases, including nested models.
@@ -99,11 +102,14 @@ def _texts(value: Any) -> list[str]:
 
 
 class AzurePiiGuardrail:
+    # 保存配置与共享 HTTP 客户端，创建本地结构化 PII 检测器。
     def __init__(self, settings: AgentSettings, client: httpx.AsyncClient) -> None:
         self._settings = settings
         self._client = client
         self._structured = StructuredPiiDetector()
 
+    # 先检查字段并去重文本；离线模型仅做该本地检查，真实模型继续 Azure 与结构化验证，
+    # 遥测仅记录结果码。
     async def check(self, content: Any) -> None:
         with trace.get_tracer(__name__).start_as_current_span(
             "pii.preflight", record_exception=False, set_status_on_exception=False
@@ -119,6 +125,8 @@ class AzurePiiGuardrail:
                 span.set_attribute("pii.result", error.reason)
                 raise
 
+    # 逐条合并 Azure 语义实体与本地结构校验结果；检测器故障或发现可阻断实体均抛出内容无关的安全
+    # 异常。
     async def _check_azure(self, texts: list[str]) -> None:
         for value in texts:
             # Always inspect Azure as well, keeping its existing fail-closed contract.
@@ -131,6 +139,8 @@ class AzurePiiGuardrail:
             if blockable:
                 raise PiiBlockedError("pii_detected")
 
+    # 调用开启 loggingOptOut 的 Azure PII 接口，抑制该请求遥测并严格校验响应结构；
+    # 配置、网络或契约异常一律拒绝继续。
     async def _detect_azure(self, value: str) -> list[PiiEntity]:
         endpoint = self._settings.azure_language_endpoint
         key = self._settings.azure_language_key
@@ -187,6 +197,7 @@ class AzurePiiGuardrail:
             raise PiiBlockedError("pii_provider_unavailable") from None
 
 
+# 校验 Azure 实体标签、码点边界、长度和有限置信分数，转换为不含匹配原文的内部 PiiEntity。
 def _parse_entities(entities: list[Any], text: str) -> list[PiiEntity]:
     parsed = []
     for item in entities:

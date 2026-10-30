@@ -12,6 +12,9 @@ public final class JsonUtil {
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .registerModule(new JavaTimeModule());
 
+    /**
+     * 禁止实例化共享 JSON 工具类，所有序列化操作通过静态方法调用。
+     */
     private JsonUtil() {
         throw new UnsupportedOperationException("Utility class should not be instantiated");
     }

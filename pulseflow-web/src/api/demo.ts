@@ -17,8 +17,14 @@ import type {
 export const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true'
 
 const now = Date.now()
+/**
+ * 以模块加载时的 now 为基准，将 minutesAgo 分钟偏移转换为 ISO 时间；负数表示未来时间。
+ */
 const at = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString()
 
+/**
+ * 求值演示数据工厂或直接使用给定值，并深拷贝后包装为 Promise，避免页面修改共享样例。
+ */
 export const demoResolve = <T>(value: T | (() => T)): Promise<T> =>
   Promise.resolve(structuredClone(typeof value === 'function' ? (value as () => T)() : value))
 
@@ -29,6 +35,9 @@ const campaignRows: CampaignListItem[] = [
   { id: 2004, name: '价格敏感用户年中礼', status: 'DRAFT', triggerType: 'SCHEDULED', channel: 'EMAIL', audience: 0, sent: 0, clicked: 0, converted: 0, createdAt: at(880), createdBy: 1024 },
 ]
 
+/**
+ * 从 Campaign 列表样例组合固定规则、人群与效果详情，仅供演示展示。
+ */
 const detailFor = (campaign: CampaignListItem): CampaignDetail => ({
   campaign: {
     id: campaign.id,
@@ -83,6 +92,9 @@ const attributionRows: AttributionView[] = [
   { id: 9002, userId: 1025, campaignId: 2002, campaignName: '购物车 24 小时挽回', clickEventId: 8102, targetEventId: 'evt_order_demo_02', taskId: 7002, attributionModel: 'CLICK_LAST_TOUCH', attributionWindowHours: 24, creditedAt: at(250) },
 ]
 
+/**
+ * 按从一开始的页码切分内存列表，返回条目、总数和总页数；参数合法性由调用方保证。
+ */
 const page = <T>(items: T[], pageNumber = 1, pageSize = 10): PageResponse<T> => ({
   items: items.slice((pageNumber - 1) * pageSize, pageNumber * pageSize),
   page: pageNumber,
@@ -92,35 +104,80 @@ const page = <T>(items: T[], pageNumber = 1, pageSize = 10): PageResponse<T> => 
 })
 
 export const demoData = {
+  /**
+   * 返回固定的演示运营指标，不代表真实业务查询结果。
+   */
   dashboardSummary: (): DashboardSummary => ({ todayEvents: 12842168, activeUsers: 356789, runningCampaigns: 23, todayDeliveries: 2156789, deliverySuccessRate: 0.986, todayClicks: 215678, todayConversions: 32456, todayAttributions: 32456 }),
+  /**
+   * 生成二十四点事件曲线与固定七点触达、转化演示序列。
+   */
   dashboardTrends: (): DashboardTrends => ({
     events: Array.from({ length: 24 }, (_, index) => ({ label: `${String(index).padStart(2, '0')}:00`, value: Math.round(180000 + Math.sin(index / 3) * 120000 + index * 27000) })),
     deliveries: [1.64, 1.97, 1.58, 2.12, 2.22, 2.34, 2.12].map((value, index) => ({ label: `08-${String(index + 1).padStart(2, '0')}`, value: Math.round(value * 1_000_000) })),
     conversions: [0.032, 0.038, 0.031, 0.041, 0.044, 0.048, 0.043].map((value, index) => ({ label: `08-${String(index + 1).padStart(2, '0')}`, value })),
   }),
+  /**
+   * 按名称包含和状态筛选演示 Campaign，再按指定页码和每页条数分页。
+   */
   campaigns: (pageNumber: number, pageSize: number, keyword?: string, status?: string) => {
     const filtered = campaignRows.filter((row) => (!keyword || row.name.includes(keyword)) && (!status || row.status === status))
     return page(filtered, pageNumber, pageSize)
   },
+  /**
+   * 查找演示 Campaign 并组合详情；ID 未匹配时回退为第一条样例。
+   */
   campaignDetail: (campaignId: number) => detailFor(campaignRows.find((row) => row.id === campaignId) ?? campaignRows[0]),
+  /**
+   * 根据演示 Campaign 详情组成绩效视图；ID 未匹配时以首条样例数据构造。
+   */
   performance: (campaignId: number) => {
     const detail = detailFor(campaignRows.find((row) => row.id === campaignId) ?? campaignRows[0])
     return { campaignId, targetAudienceCount: detail.audience.estimatedCount, sentCount: detail.deliverySummary.sent, deliveredCount: detail.deliverySummary.delivered, clickedCount: detail.deliverySummary.clicked, convertedCount: detail.deliverySummary.converted, unsubscribeCount: 0, deliveryRate: detail.deliverySummary.deliveryRate, clickRate: detail.deliverySummary.clickRate, conversionRate: detail.deliverySummary.conversionRate, unsubscribeRate: 0, calculatedAt: at(8) }
   },
+  /**
+   * 以演示 Campaign 的发送量乘以固定比例生成七点趋势；未知 ID 的发送基数为零。
+   */
   campaignTrend: (campaignId: number): TrendPoint[] => {
     const sent = campaignRows.find((row) => row.id === campaignId)?.sent ?? 0
     return [0.48, 0.64, 0.58, 0.77, 0.83, 0.91, 1].map((scale, index) => ({ label: `08-${String(index + 1).padStart(2, '0')}`, value: Math.round(sent * scale) }))
   },
+  /**
+   * 按用户 ID 或昵称关键词筛选演示画像，再进行内存分页。
+   */
   users: (pageNumber: number, pageSize: number, keyword?: string) => page(userRows.filter((row) => !keyword || String(row.userId).includes(keyword) || row.nickname?.includes(keyword)), pageNumber, pageSize),
+  /**
+   * 组合演示用户画像、固定指标、标签和事件；未知用户 ID 回退到第一条样例。
+   */
   userDetail: (userId: number): UserDetail => {
     const user = userRows.find((row) => row.userId === userId) ?? userRows[0]
     return { profile: { userId: user.userId, nickname: user.nickname, status: user.status, createdAt: at(60 * 24 * 90), updatedAt: at(18) }, realtimeMetrics: { todayViews: '42', todaySearches: '8', cartCount: '2', lastActiveAt: user.lastActiveAt ?? '' }, realtimeSource: 'REDIS', realtimeAvailable: true, windowMetrics: { activeDays7d: user.activeDays7d, spend30d: user.spend30d, search1h: 8, orderCount30d: user.spend30d > 0 ? 2 : 0, daysSinceLastPurchase: 5 }, tags: user.tags, recentEvents: page(eventRows.filter((event) => event.userId === user.userId), 1, 20) }
   },
+  /**
+   * 按可选事件类型和用户 ID 筛选演示事件，并返回分页结果。
+   */
   events: (pageNumber: number, pageSize: number, eventType?: string, userId?: number) => page(eventRows.filter((row) => (!eventType || row.eventType === eventType) && (!userId || row.userId === userId)), pageNumber, pageSize),
+  /**
+   * 按业务事件 ID 查找演示事件，未命中时回退到第一条样例。
+   */
   event: (eventId: string) => eventRows.find((row) => row.eventId === eventId) ?? eventRows[0],
+  /**
+   * 按 Campaign、用户 ID 包含关系和状态筛选演示触达任务，再返回分页结果。
+   */
   deliveries: (pageNumber: number, pageSize: number, campaignId?: number, userId?: string, status?: string) => page(deliveryRows.filter((row) => (!campaignId || row.campaignId === campaignId) && (!userId || String(row.userId).includes(userId)) && (!status || row.status === status)), pageNumber, pageSize),
+  /**
+   * 组合演示任务、可选发送记录、点击与关联归因；未知 taskId 回退为第一条任务。
+   */
   delivery: (taskId: number): DeliveryDetail => { const task = deliveryRows.find((row) => row.taskId === taskId) ?? deliveryRows[0]; return { task, record: task.sentAt ? { id: task.taskId + 1000, taskId: task.taskId, campaignId: task.campaignId, userId: task.userId, channel: task.channel, status: 'SENT', sentAt: task.sentAt } : null, clicks: task.taskId === 7001 ? [{ id: 8101, taskId, userId: task.userId, clickSource: 'IN_APP', clickTime: at(30), properties: {} }] : [], attributions: attributionRows.filter((row) => row.taskId === task.taskId) } },
+  /**
+   * 按 Campaign 和用户 ID 包含关系筛选演示归因记录，再执行内存分页。
+   */
   attributions: (pageNumber: number, pageSize: number, campaignId?: number, userId?: string) => page(attributionRows.filter((row) => (!campaignId || row.campaignId === campaignId) && (!userId || String(row.userId).includes(userId))), pageNumber, pageSize),
+  /**
+   * 按主键查找演示归因，未命中时回退为第一条样例。
+   */
   attribution: (id: number) => attributionRows.find((row) => row.id === id) ?? attributionRows[0],
+  /**
+   * 返回演示用固定 UP 状态，不执行真实服务健康检查。
+   */
   system: (): SystemStatus => ({ backend: 'UP', mysql: 'UP', redis: 'UP', kafka: 'UP' }),
 }

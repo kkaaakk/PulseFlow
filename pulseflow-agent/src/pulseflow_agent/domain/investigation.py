@@ -125,6 +125,8 @@ class InvestigationWorkspace:
     tool_trajectory: list[str] = field(default_factory=list)
     proposals: list[ProposalRecord] = field(default_factory=list)
 
+    # 要求工作区已经持久化且证据来自当前范围，先保存绑定 owner_id 的提案记录，
+    # 再更新内存列表并返回记录。
     async def add_proposal(
         self, proposal: CampaignProposal, owner_id: int
     ) -> ProposalRecord:
@@ -145,11 +147,13 @@ class InvestigationWorkspace:
         self.proposals.append(item)
         return item
 
+    # 先持久化工具名再追加本轮轨迹；未配置仓储时仅更新内存轨迹。
     async def record_tool(self, name: str) -> None:
         if self.repository is not None and self.id is not None:
             await self.repository.append_tool(self.id, name)
         self.tool_trajectory.append(name)
 
+    # 组合 Java 查询元数据、压缩观察、安全查询参数和当前 trace ID，先持久化再加入当前范围证据。
     async def add_evidence(
         self, name: str, metadata: ToolMetadata, observation: str, query: WireModel
     ) -> Evidence:
@@ -173,6 +177,7 @@ class InvestigationWorkspace:
         self.evidence.append(item)
         return item
 
+    # 校验支持与反对证据均属当前范围且不重叠，创建 OPEN 假设并持久化后返回。
     async def propose_hypothesis(
         self,
         statement: str,
@@ -201,6 +206,7 @@ class InvestigationWorkspace:
         self.hypotheses.append(item)
         return item
 
+    # 只更新当前范围内的假设；支持或削弱状态必须有相应证据，校验后持久化并替换内存记录。
     async def update_hypothesis(
         self,
         hypothesis_id: str,
@@ -237,6 +243,8 @@ class InvestigationWorkspace:
             return updated
         raise ValueError("hypothesis_not_found_in_current_scope")
 
+    # 规范化新范围，未变化则保留版本；变化时先按旧版本持久化，
+    # 再递增版本并将旧范围假设标记为已被替代。
     async def change_scope(self, description: str) -> int:
         description = description.strip()
         if not description or len(description) > 1000:
@@ -262,6 +270,7 @@ class InvestigationWorkspace:
         ]
         return self.scope_version
 
+    # 创建带 UTC 时间的用户或助手可见消息，可附诊断；先保存再追加至工作区消息列表。
     async def add_message(
         self,
         role: Literal["USER", "ASSISTANT"],
@@ -275,6 +284,7 @@ class InvestigationWorkspace:
             await self.repository.add_message(self.id, item)
         self.messages.append(item)
 
+    # 先持久化调查终态与诊断，再更新内存状态并追加包含诊断摘要的助手消息。
     async def finish(self, status: InvestigationStatus, diagnosis: Diagnosis) -> None:
         if self.repository is not None and self.id is not None:
             await self.repository.finish(self.id, status, diagnosis)
@@ -315,6 +325,7 @@ class InvestigationWorkspace:
             ],
         }
 
+    # 将受限上下文渲染为不超过六千字符的模型文本，明确历史范围证据仅供背景参考。
     def context_text(self) -> str:
         content = self.context_payload()
         recent = [f"{item['role']}: {item['content']}" for item in content["recent"]]
@@ -335,10 +346,12 @@ class InvestigationWorkspace:
             + "\n".join(hypotheses)
         )[:6000]
 
+    # 要求引用 ID 集合是当前范围 evidence_ids 的子集，未知或历史范围证据均拒绝。
     def _validate_evidence(self, ids: list[str]) -> None:
         if not set(ids).issubset(self.evidence_ids):
             raise ValueError("hypothesis references unknown or historical evidence")
 
+    # 返回当前 scope_version 下的证据 ID 集合，排除历史范围证据。
     @property
     def evidence_ids(self) -> set[str]:
         return {item.id for item in self.evidence if item.scope_version == self.scope_version}

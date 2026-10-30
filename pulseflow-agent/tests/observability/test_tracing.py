@@ -27,6 +27,7 @@ from pulseflow_agent.observability.tracing import Telemetry
 from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail
 
 
+# 创建带隔离存储及内部令牌的追踪测试配置。
 def settings() -> AgentSettings:
     return AgentSettings.model_validate(
         {
@@ -38,6 +39,7 @@ def settings() -> AgentSettings:
     )
 
 
+# 验证 HTTP 父上下文传递到正式 Agent span 和 Agent 数据库 span。
 def test_http_parent_reaches_official_agent_run_and_agent_db() -> None:
     exporter = InMemorySpanExporter()
     telemetry = Telemetry(exporter=exporter)
@@ -67,6 +69,7 @@ def test_http_parent_reaches_official_agent_run_and_agent_db() -> None:
     assert "INSERT INTO" not in serialized
 
 
+# 验证工具与 HTTP 客户端把同一 trace 传至 Java。
 @pytest.mark.asyncio
 async def test_tool_and_http_client_propagate_the_same_trace_to_java() -> None:
     exporter = InMemorySpanExporter()
@@ -77,6 +80,7 @@ async def test_tool_and_http_client_propagate_the_same_trace_to_java() -> None:
         "toExclusive": "2026-09-08T00:00:00+08:00",
     }
 
+    # 模拟需要调用 Java 工具的调查模型，驱动跨服务追踪链路。
     async def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         results = [
             part
@@ -121,6 +125,7 @@ async def test_tool_and_http_client_propagate_the_same_trace_to_java() -> None:
             ]
         )
 
+    # 记录请求的 trace 上下文并返回安全聚合结果。
     def java(request: httpx.Request) -> httpx.Response:
         headers.append(request.headers["traceparent"])
         return httpx.Response(
@@ -173,11 +178,13 @@ def test_otlp_http_wire_is_content_free_and_preserves_error_and_parent() -> None
     received: list[tuple[str, bytes]] = []
 
     class Receiver(BaseHTTPRequestHandler):
+        # 接收测试 OTLP HTTP 导出载荷并保存，供父子关系和隐私断言检查。
         def do_POST(self) -> None:
             received.append((self.path, self.rfile.read(int(self.headers["Content-Length"]))))
             self.send_response(200)
             self.end_headers()
 
+        # 关闭测试接收器默认 HTTP 日志，避免污染测试输出。
         def log_message(self, _format: str, *args: object) -> None:
             pass
 

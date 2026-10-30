@@ -17,6 +17,7 @@ from pulseflow_agent.workspace.service import InvestigationService
 from tests.test_foundation import settings
 
 
+# 验证准入不排队，且并发及分钟速率限制有界。
 @pytest.mark.asyncio
 async def test_admission_has_no_queue_and_rate_limit_is_bounded() -> None:
     limit = RunAdmission(
@@ -32,6 +33,7 @@ async def test_admission_has_no_queue_and_rate_limit_is_bounded() -> None:
         await limit.acquire()
 
 
+# 验证后台取消、超时和关闭流程均释放运行名额。
 @pytest.mark.asyncio
 @pytest.mark.parametrize("timeout", [False, True])
 async def test_background_cancel_timeout_and_shutdown_release_capacity(
@@ -49,6 +51,7 @@ async def test_background_cancel_timeout_and_shutdown_release_capacity(
         investigator = GrowthInvestigator(config, guard, PulseFlowApiClient(config, client))
         entered = asyncio.Event()
 
+        # 模拟可取消的慢调查，用于触发超时及关闭路径。
         async def slow(*args: object, **kwargs: object) -> None:
             entered.set()
             await asyncio.sleep(30)
@@ -76,6 +79,7 @@ async def test_background_cancel_timeout_and_shutdown_release_capacity(
     await engine.dispose()
 
 
+# 验证重启将遗留 RUNNING 调查转为可恢复终态。
 @pytest.mark.asyncio
 async def test_restart_marks_running_investigations_recoverable() -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -88,10 +92,12 @@ async def test_restart_marks_running_investigations_recoverable() -> None:
     await engine.dispose()
 
 
+# 验证工具熔断减少故障请求，且不会隐式重试写入。
 @pytest.mark.asyncio
 async def test_tool_circuit_breaker_stops_requests_and_never_retries_writes() -> None:
     calls = 0
 
+    # 模拟持续失败的 Java HTTP 依赖并记录请求次数。
     def failed(_request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
@@ -109,6 +115,7 @@ async def test_tool_circuit_breaker_stops_requests_and_never_retries_writes() ->
         assert calls == 3
 
 
+# 验证异步调查 API、SSE、内部鉴权、PII 和就绪状态协作。
 def test_async_api_sse_auth_pii_and_readiness(monkeypatch: pytest.MonkeyPatch) -> None:
     app = create_app(settings())
     headers = {"X-PulseFlow-Agent-Token": "fake-internal-token"}

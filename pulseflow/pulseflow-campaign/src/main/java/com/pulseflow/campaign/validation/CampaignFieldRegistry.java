@@ -25,6 +25,9 @@ public class CampaignFieldRegistry {
 
     private final Map<String, FieldDescriptor> fields = new LinkedHashMap<>();
 
+    /**
+     * 启动时登记人群字段的类型、操作符、上下限、数据来源与启用状态，形成 DSL 校验和预估共用的白名单。
+     */
     @PostConstruct
     public void init() {
         register(FieldDescriptor.builder()
@@ -176,27 +179,45 @@ public class CampaignFieldRegistry {
                 fields.size(), fields.values().stream().filter(FieldDescriptor::isEnabled).count());
     }
 
+    /**
+     * 以字段代码注册描述信息；相同代码再次注册会覆盖旧描述。
+     */
     private void register(FieldDescriptor descriptor) {
         fields.put(descriptor.getFieldCode(), descriptor);
     }
 
+    /**
+     * 按字段代码获取描述，未登记字段返回 null。
+     */
     public FieldDescriptor get(String fieldCode) {
         return fields.get(fieldCode);
     }
 
+    /**
+     * 判断字段代码是否存在于注册表，不等同于字段已经启用。
+     */
     public boolean contains(String fieldCode) {
         return fields.containsKey(fieldCode);
     }
 
+    /**
+     * 仅在字段已注册且 enabled 为真时返回 true。
+     */
     public boolean isEnabled(String fieldCode) {
         FieldDescriptor d = fields.get(fieldCode);
         return d != null && d.isEnabled();
     }
 
+    /**
+     * 返回所有已启用字段的描述列表，供受控能力展示和校验使用。
+     */
     public List<FieldDescriptor> enabledFields() {
         return fields.values().stream().filter(FieldDescriptor::isEnabled).collect(Collectors.toList());
     }
 
+    /**
+     * 返回已启用字段代码的去重集合。
+     */
     public Set<String> enabledFieldCodes() {
         return fields.values().stream()
                 .filter(FieldDescriptor::isEnabled)

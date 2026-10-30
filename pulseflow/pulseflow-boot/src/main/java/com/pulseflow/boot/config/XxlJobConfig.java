@@ -28,6 +28,9 @@ public class XxlJobConfig {
     @Value("${xxl.job.executor.logretentiondays}")
     private int logRetentionDays;
 
+    /**
+     * 使用配置的调度中心、应用名、端口、访问令牌和日志策略构造 XXL-JOB 执行器。
+     */
     @Bean
     public XxlJobSpringExecutor xxlJobExecutor() {
         log.info("XXL-JOB executor init: admin={}, appname={}", adminAddresses, appname);

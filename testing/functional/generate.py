@@ -76,6 +76,7 @@ USER_BASES = {
 BASE_TIME = datetime(2026, 8, 27, 12, 0, 0)
 
 
+# 按键排序并使用紧凑 UTF-8 JSON 文本编码数据，保证相同输入的序列化结果稳定。
 def stable_json(value: Any) -> str:
     return json.dumps(
         value,
@@ -85,16 +86,19 @@ def stable_json(value: Any) -> str:
     )
 
 
+# 将 datetime 转为 ISO 文本，根据 milliseconds 选择秒或毫秒精度。
 def iso_time(value: datetime, milliseconds: bool = False) -> str:
     if milliseconds:
         return value.isoformat(timespec="milliseconds")
     return value.isoformat(timespec="seconds")
 
 
+# 去掉场景名前后空白并转小写，将下划线替换为短横线。
 def slug(value: str) -> str:
     return value.strip().lower().replace("_", "-")
 
 
+# 根据场景及规模选择固定数据集 ID；仅正常和热点场景在名称中包含规模。
 def dataset_id_for(scenario: str, scale: str) -> str:
     if scenario == "normal":
         return f"normal-events-{scale.lower()}-v1"
@@ -110,10 +114,12 @@ def dataset_id_for(scenario: str, scale: str) -> str:
     }[scenario]
 
 
+# 将规范化场景、随机种子和补零序号组合为可复现的事件 ID。
 def event_id(scenario: str, seed: int, index: int) -> str:
     return f"pf-{slug(scenario)}-{seed}-{index:08d}"
 
 
+# 使用传入 rng 按预设权重选择事件类型，保持固定种子下的可复现性。
 def choose_event_type(rng: random.Random) -> str:
     total = sum(weight for _, weight in EVENT_TYPE_WEIGHTS)
     selected = rng.randrange(total)
@@ -124,11 +130,13 @@ def choose_event_type(rng: random.Random) -> str:
     return EVENT_TYPES[-1]
 
 
+# 在 minimum 与 maximum 分之间抽取整数，再转换为保留两位小数的金额。
 def amount_for(rng: random.Random, minimum: int = 99, maximum: int = 2_000) -> float:
     cents = rng.randint(minimum, maximum)
     return float(f"{cents / 100:.2f}")
 
 
+# 按事件类型生成确定种子驱动的属性，覆盖时长、商品、订单、点击关联和搜索词等场景。
 def properties_for(event_type: str, rng: random.Random, index: int) -> dict[str, Any]:
     props: dict[str, Any] = {"category": f"category-{index % 8}"}
     if event_type in {"CONTENT_VIEW", "SEARCH", "LIKE", "FAVORITE", "SHARE"}:
@@ -147,6 +155,7 @@ def properties_for(event_type: str, rng: random.Random, index: int) -> dict[str,
     return props
 
 
+# 组合可复现 ID、用户、类型、目标、时间与业务属性，登录和搜索事件的 targetId 保持 None。
 def generated_event(
     scenario: str,
     seed: int,
@@ -171,6 +180,7 @@ def generated_event(
     }
 
 
+# 按指定规模和种子生成覆盖一小时、一天、七天和三十天窗口的常规事件。
 def normal_events(scale: str, seed: int, scenario: str = "normal") -> list[dict[str, Any]]:
     config = SCALES[scale]
     rng = random.Random(seed)
@@ -201,6 +211,7 @@ def normal_events(scale: str, seed: int, scenario: str = "normal") -> list[dict[
     return rows
 
 
+# 生成完全重复、同 ID 冲突载荷及多次重放样例，并记录首条事实应保留的期望。
 def duplicate_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rng = random.Random(seed + 101)
     base: list[dict[str, Any]] = []
@@ -250,6 +261,7 @@ def duplicate_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     return rows, details
 
 
+# 生成事件时间与到达顺序不同的浏览、点击和支付样例，附带末次点击归因预期及当前链路限制。
 def out_of_order_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rng = random.Random(seed + 202)
     user_id = USER_BASES["out-of-order"] + 1
@@ -320,6 +332,7 @@ def out_of_order_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]
     }
 
 
+# 生成时钟偏差边界和严重迟到样例，明确记录当前接入实现按整分钟比较的行为。
 def late_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rng = random.Random(seed + 303)
     cases = [
@@ -366,6 +379,7 @@ def late_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     }
 
 
+# 生成缺字段、错误类型及其他非法载荷，使用当前控制器行为给出每条预期 HTTP 状态。
 def invalid_payload_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     base_user = USER_BASES["invalid"]
     valid = {
@@ -477,6 +491,7 @@ def invalid_payload_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, A
     }
 
 
+# 为单个隔离用户生成有界数量的浏览与搜索事件，模拟热点用户而非无限流量。
 def hot_user_events(scale: str, seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     count = 1_000 if scale == "SMALL" else 10_000
     rng = random.Random(seed + 404)
@@ -542,6 +557,7 @@ def concurrency_events(scale: str, seed: int) -> tuple[list[dict[str, Any]], dic
     }
 
 
+# 生成频控、点击和转化关联样例，记录依赖测试 SQL fixture 与定时任务的边界。
 def campaign_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rng = random.Random(seed + 505)
     user_id = USER_BASES["campaign"] + 1
@@ -622,6 +638,7 @@ def campaign_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     }
 
 
+# 按事件类型累计次数、时长和 Decimal 金额；忽略非法数值并把金额输出为固定两位小数字符串。
 def metric_totals(rows: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     totals: dict[str, dict[str, Any]] = defaultdict(
         lambda: {"eventCount": 0, "durationSum": 0, "amountSum": Decimal("0.00")}
@@ -665,6 +682,7 @@ def canonical_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
+# 由首条事件事实、统计与场景详情生成数据集清单，记录事件归属范围、预期指标和回放限制。
 def manifest_for(
     dataset_id: str,
     scenario: str,
@@ -763,6 +781,7 @@ def manifest_for(
     return manifest
 
 
+# 写入稳定 JSONL 并计算文件 SHA-256，再保存清单；返回包含摘要的 manifest。
 def write_dataset(output_dir: Path, manifest: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     data_path = output_dir / manifest["dataFile"]
@@ -782,6 +801,7 @@ def write_dataset(output_dir: Path, manifest: dict[str, Any], rows: list[dict[st
     return manifest
 
 
+# 按单一场景调用对应生成器，组装清单并写出数据文件；未知场景抛出 ValueError。
 def generate_one(output_dir: Path, scenario: str, scale: str, seed: int) -> dict[str, Any]:
     if scenario == "normal":
         rows = normal_events(scale, seed)
@@ -814,6 +834,7 @@ def generate_one(output_dir: Path, scenario: str, scale: str, seed: int) -> dict
     return write_dataset(output_dir, manifest, rows)
 
 
+# 解析场景、规模、种子与输出目录，使用显式枚举限制支持的数据集配置。
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scale", choices=sorted(SCALES), default="SMALL")
@@ -830,6 +851,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# 按命令行选择生成单个或全部场景，输出数据集结果并返回进程退出码。
 def main() -> int:
     args = parse_args()
     scenarios = [

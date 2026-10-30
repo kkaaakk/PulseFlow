@@ -128,6 +128,9 @@ public class CampaignDslValidator {
         return DslValidationResult.ok(warnings);
     }
 
+    /**
+     * 检查人群组合逻辑、条件列表与各项条件，把错误和警告累积到调用方提供的列表。
+     */
     private void validateAudience(AudienceGroup audience, List<String> errors, List<String> warnings) {
         if (audience.getLogic() == null || !VALID_LOGIC.contains(audience.getLogic())) {
             errors.add("audience.logic must be AND or OR");
@@ -150,6 +153,9 @@ public class CampaignDslValidator {
         }
     }
 
+    /**
+     * 按字段白名单检查字段存在性、启用状态、允许操作符及条件值，使用 prefix 标注错误位置。
+     */
     private void validateCondition(AudienceCondition c, String prefix,
                                    List<String> errors, List<String> warnings) {
         if (c.getField() == null || c.getField().isBlank()) {
@@ -204,6 +210,9 @@ public class CampaignDslValidator {
         validateValue(c, fd, prefix, errors, warnings);
     }
 
+    /**
+     * 依据字段类型检查值格式、数值范围或枚举取值；负向标签匹配仅添加警告。
+     */
     private void validateValue(AudienceCondition c, CampaignFieldRegistry.FieldDescriptor fd,
                                String prefix, List<String> errors, List<String> warnings) {
         Object value = c.getValue();
@@ -276,6 +285,9 @@ public class CampaignDslValidator {
         }
     }
 
+    /**
+     * 校验 ONCE 调度、带偏移发送时间与有效时区；缺失发送时间记为待补充字段，过去时间按一分钟容差判断。
+     */
     private void validateSchedule(CampaignSchedule schedule, List<String> errors,
                                    List<String> missingFields, List<String> warnings) {
         if (schedule.getType() == null || !VALID_SCHEDULE_TYPES.contains(schedule.getType())) {
@@ -317,6 +329,9 @@ public class CampaignDslValidator {
         }
     }
 
+    /**
+     * 要求频控次数与窗口小时数均已提供且大于零，错误累积到 errors。
+     */
     private void validateFrequencyCap(FrequencyCap cap, List<String> errors) {
         if (cap.getMaxTimes() == null || cap.getMaxTimes() <= 0) {
             errors.add("frequencyCap.maxTimes must be > 0");
@@ -326,6 +341,9 @@ public class CampaignDslValidator {
         }
     }
 
+    /**
+     * 判断渠道字符串是否与现有 ChannelType 枚举名称精确匹配。
+     */
     private boolean isValidChannel(String channel) {
         for (ChannelType ct : ChannelType.values()) {
             if (ct.name().equals(channel)) return true;
@@ -333,6 +351,9 @@ public class CampaignDslValidator {
         return false;
     }
 
+    /**
+     * 解析带时区偏移的 ISO-8601 时间；格式错误时返回 null 交由上层生成校验消息。
+     */
     private OffsetDateTime parseOffsetDateTime(String s) {
         try {
             return OffsetDateTime.parse(s);
@@ -341,6 +362,9 @@ public class CampaignDslValidator {
         }
     }
 
+    /**
+     * 检查输入的字符串表示是否可解析为 long，不允许小数文本。
+     */
     private boolean isParsableInteger(Object v) {
         try {
             Long.parseLong(String.valueOf(v));
@@ -350,6 +374,9 @@ public class CampaignDslValidator {
         }
     }
 
+    /**
+     * 检查输入的字符串表示是否可解析为 BigDecimal。
+     */
     private boolean isParsableDecimal(Object v) {
         try {
             new BigDecimal(String.valueOf(v));
@@ -359,11 +386,17 @@ public class CampaignDslValidator {
         }
     }
 
+    /**
+     * 将已通过类型检查的条件值转换为 long；数值输入使用其 longValue。
+     */
     private long toLong(Object v) {
         if (v instanceof Number n) return n.longValue();
         return Long.parseLong(String.valueOf(v));
     }
 
+    /**
+     * 把已验证的数值或文本转换为 BigDecimal，原 BigDecimal 直接复用。
+     */
     private BigDecimal toBigDecimal(Object v) {
         if (v instanceof BigDecimal bd) return bd;
         if (v instanceof Number n) return BigDecimal.valueOf(n.doubleValue());

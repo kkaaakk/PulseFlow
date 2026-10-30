@@ -25,6 +25,9 @@ public class DispatchRetryJob {
     private final KafkaTemplate<String, String> kafkaTemplate;
     private static final String DELIVERY_TOPIC = "pulseflow.delivery";
 
+    /**
+     * 每次扫描最多一百条创建超过三十秒且仍未发布的 PENDING 任务，等待 Kafka 确认后标记 PUBLISHED；失败留待下轮重试。
+     */
     @XxlJob("dispatchRetryJob")
     public void execute() {
         log.info("DispatchRetryJob started");

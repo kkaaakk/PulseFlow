@@ -17,11 +17,17 @@ const detail = ref<CampaignDetailData>()
 const deliveryTrend = ref<TrendPoint[]>([])
 const campaignId = computed(() => Number(route.params.id))
 const campaign = computed(() => detail.value?.campaign)
+/**
+ * 并行加载路由中 Campaign 的详情与触达趋势，统一处理错误与加载状态。
+ */
 const load = async () => {
   loading.value = true
   try { const [campaignResult, trendResult] = await Promise.all([getCampaign(campaignId.value), getCampaignDeliveryTrend(campaignId.value)]); detail.value = campaignResult; deliveryTrend.value = trendResult } catch (error) { ElMessage.error(error instanceof Error ? error.message : 'Campaign 详情加载失败') } finally { loading.value = false }
 }
 
+/**
+ * 按规则名称寻找配置并序列化为 JSON；规则或配置不可用时返回缺失占位符。
+ */
 const configValue = (key: string) => {
   const config = detail.value?.rules.find((rule) => rule.name === key)?.config
   return typeof config === 'object' && config !== null ? JSON.stringify(config) : '—'

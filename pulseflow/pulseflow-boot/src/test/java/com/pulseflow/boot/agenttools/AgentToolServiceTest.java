@@ -33,6 +33,9 @@ class AgentToolServiceTest {
     private final AudiencePreviewService preview = mock(AudiencePreviewService.class);
     private final AgentToolService service = new AgentToolService(campaigns, summaries, validator, preview);
 
+    /**
+     * 验证绩效接口读取预计算结果而不触发业务写入。
+     */
     @Test
     void performanceReadsCalculatorSummaryWithoutWriting() {
         when(campaigns.selectById(9L)).thenReturn(Campaign.builder().id(9L).build());
@@ -49,6 +52,9 @@ class AgentToolServiceTest {
         verifyNoInteractions(validator, preview);
     }
 
+    /**
+     * 验证人群接口复用 DSL 校验器，且不回显不安全警告文本。
+     */
     @Test
     void audienceRunsExistingValidatorAndDoesNotEchoUnsafeWarning() {
         CampaignDsl dsl = CampaignDsl.builder().build();
@@ -65,6 +71,9 @@ class AgentToolServiceTest {
         verify(preview).preview(dsl);
     }
 
+    /**
+     * 验证预估失败标记为不可用，不把零当作权威人数。
+     */
     @Test
     void failedPreviewDoesNotPretendZeroIsAnAuthoritativeCount() {
         CampaignDsl dsl = CampaignDsl.builder().build();
@@ -78,6 +87,9 @@ class AgentToolServiceTest {
         assertThat(response.toString()).doesNotContain("raw sensitive detail");
     }
 
+    /**
+     * 验证 DSL 无效时不继续执行人群预估。
+     */
     @Test
     void invalidAudienceSkipsPreview() {
         CampaignDsl dsl = CampaignDsl.builder().build();

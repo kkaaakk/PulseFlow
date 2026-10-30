@@ -26,6 +26,9 @@ class AgentMetricServiceTest {
     private final TimeRange period = new TimeRange(OffsetDateTime.parse("2026-09-01T00:00:00+08:00"),
             OffsetDateTime.parse("2026-09-08T00:00:00+08:00"));
 
+    /**
+     * 验证 CTR 分母与计算器一致，响应只包含聚合指标。
+     */
     @Test
     void ctrUsesCalculatorFormulaAndReturnsOnlyAggregates() {
         fakeFacts();
@@ -39,6 +42,9 @@ class AgentMetricServiceTest {
         assertThat(result.rows().get(0).toString()).doesNotContain("userId", "taskId", "SQL");
     }
 
+    /**
+     * 验证绝对与相对变化由 Java 计算，零基期行为明确。
+     */
     @Test
     void compareIsCalculatedInJavaAndZeroBaselineIsExplicit() {
         fakeFacts();
@@ -48,6 +54,9 @@ class AgentMetricServiceTest {
         assertThat(result.rows().get(0).relativeDelta()).isEqualByComparingTo("0.0000");
     }
 
+    /**
+     * 验证零基期的相对变化为 null 并附稳定警告。
+     */
     @Test
     void zeroBaselineProducesNullRelativeDeltaAndWarning() {
         when(jdbc.queryForList(anyString(), any(MapSqlParameterSource.class))).thenAnswer(invocation -> {
@@ -70,6 +79,9 @@ class AgentMetricServiceTest {
         assertThat(response.metadata().warnings()).contains("baseline_zero");
     }
 
+    /**
+     * 验证非法指标、维度和时间范围在访问 JDBC 前被拒绝。
+     */
     @Test
     void invalidRegistryValuesAndRangeAreRejectedBeforeJdbc() {
         assertThatThrownBy(() -> service.query(new QueryRequest(null, period, null, null, null)))
@@ -88,6 +100,9 @@ class AgentMetricServiceTest {
         verifyNoInteractions(jdbc);
     }
 
+    /**
+     * 验证行数截断和无维度汇总的稳定语义。
+     */
     @Test
     void rowLimitAndNullDimensionHaveStableMeaning() {
         when(jdbc.queryForList(anyString(), any(MapSqlParameterSource.class))).thenAnswer(invocation -> {
@@ -104,6 +119,9 @@ class AgentMetricServiceTest {
         assertThat(result.metadata().warnings()).contains("row_limit_reached");
     }
 
+    /**
+     * 验证归因仅返回计数与去重人数，不泄漏原始行。
+     */
     @Test
     void attributionReturnsCountsWithoutRawRows() {
         when(jdbc.queryForList(anyString(), any(MapSqlParameterSource.class))).thenReturn(
@@ -115,6 +133,9 @@ class AgentMetricServiceTest {
         assertThat(result.rows().get(0).toString()).doesNotContain("userId", "targetEventId");
     }
 
+    /**
+     * 验证过滤值通过参数绑定传入，不能成为 SQL 片段。
+     */
     @Test
     void filterValuesAreBoundParametersRatherThanSqlFragments() {
         fakeFacts();
@@ -134,6 +155,9 @@ class AgentMetricServiceTest {
                 .isEqualTo(List.of(9L));
     }
 
+    /**
+     * 创建带固定发送、点击和归因聚合行的 JDBC 替身。
+     */
     private void fakeFacts() {
         when(jdbc.queryForList(anyString(), any(MapSqlParameterSource.class))).thenAnswer(invocation -> {
             String sql = invocation.getArgument(0);

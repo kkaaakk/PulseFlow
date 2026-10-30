@@ -20,6 +20,9 @@ public class CampaignPerformanceSummaryJob {
     private final CampaignMapper campaignMapper;
     private final PerformanceSummaryCalculator calculator;
 
+    /**
+     * 逐个重算最近七十二小时内结束的 Campaign 绩效；单个活动失败仅记录日志，继续处理其他活动。
+     */
     @XxlJob("campaignPerformanceSummaryJob")
     public void execute() {
         LocalDateTime now = LocalDateTime.now();

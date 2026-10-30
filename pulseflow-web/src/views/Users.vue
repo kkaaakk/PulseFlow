@@ -14,13 +14,28 @@ const page = ref(1)
 const pageSize = ref(10)
 const result = ref<PageResponse<UserListItem>>({ items: [], page: 1, pageSize: 10, total: 0, totalPages: 0 })
 
+/**
+ * 按当前分页和关键词加载用户列表，统一处理错误并结束加载状态。
+ */
 const load = async () => {
   loading.value = true
   try { result.value = await listUsers(page.value, pageSize.value, keyword.value || undefined) } catch (error) { ElMessage.error(error instanceof Error ? error.message : '用户数据加载失败') } finally { loading.value = false }
 }
+/**
+ * 应用用户关键词筛选并回到第一页。
+ */
 const filter = () => { page.value = 1; load() }
+/**
+ * 跳转到指定业务用户 ID 的画像详情页。
+ */
 const openUser = (userId: number) => router.push(`/users/${userId}`)
+/**
+ * 从表格行提取 userId 并复用用户详情导航。
+ */
 const openUserRow = (row: UserListItem) => openUser(row.userId)
+/**
+ * 更新页码并重新加载当前筛选下的用户列表。
+ */
 const changePage = (value: number) => { page.value = value; load() }
 onMounted(load)
 </script>

@@ -12,11 +12,17 @@ import java.util.List;
 @Component
 public class HighValueTagStrategy implements TagStrategy {
 
+    /**
+     * 返回高价值标签代码 HIGH_VALUE。
+     */
     @Override
     public String getTagName() {
         return "HIGH_VALUE";
     }
 
+    /**
+     * 累计传入日桶的 ORDER_PAID 金额，达到五百时返回 1，否则返回 0。
+     */
     @Override
     public String compute(Long userId, List<UserMetricDaily> metrics) {
         BigDecimal total = metrics.stream()

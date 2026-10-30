@@ -22,6 +22,7 @@ class AdmissionRejected(Exception):
 
 
 class RunAdmission:
+    # 初始化单进程活动计数、分钟滑窗和异步互斥锁；配额取自 settings，关闭标记初始为 False。
     def __init__(self, settings: AgentSettings) -> None:
         self.settings = settings
         self.active = 0
@@ -29,6 +30,8 @@ class RunAdmission:
         self._lock = asyncio.Lock()
         self.closing = False
 
+    # 在异步锁内清理一分钟前的启动记录并检查关闭、并发与分钟速率限制；成功占用一个运行名额，
+    # 否则抛出 AdmissionRejected。
     async def acquire(self) -> None:
         async with self._lock:
             now = monotonic()
@@ -43,6 +46,8 @@ class RunAdmission:
             self._starts.append(now)
             self.active += 1
 
+    # 释放一个已获得的运行名额，并仅记录终态与耗时；started 使用 monotonic 时间基准，
+    # 日志不含问题或凭据。
     def release(self, status: str, started: float) -> None:
         self.active -= 1
         logger.info(

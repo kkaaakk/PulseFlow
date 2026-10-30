@@ -24,6 +24,9 @@ public class TagRecalcJob {
     private final UserTagMapper userTagMapper;
     private final List<TagStrategy> tagStrategies;
 
+    /**
+     * 仅扫描近七天有日桶的用户，逐策略计算标签并追加历史记录；单个标签失败不阻塞其他用户或策略。
+     */
     @XxlJob("tagRecalcJob")
     public void execute() {
         log.info("TagRecalcJob started, {} strategies registered", tagStrategies.size());

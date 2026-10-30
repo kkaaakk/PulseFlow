@@ -37,6 +37,9 @@ class EventPersistenceServiceTest {
     private UserMetricHourlyMapper userMetricHourlyMapper;
     private EventPersistenceService service;
 
+    /**
+     * 初始化事件持久化服务及数据库 Mapper 替身。
+     */
     @BeforeEach
     void setUp() {
         userEventMapper = mock(UserEventMapper.class);
@@ -44,6 +47,9 @@ class EventPersistenceServiceTest {
         service = new EventPersistenceService(userEventMapper, userMetricHourlyMapper);
     }
 
+    /**
+     * 验证相同 eventId 重放使用规范事实且不重复累计。
+     */
     @Test
     @DisplayName("duplicate eventId → load canonical record from DB → ok=true (idempotent)")
     void duplicateEventIdIsIdempotent() {
@@ -95,6 +101,9 @@ class EventPersistenceServiceTest {
                 .upsertAccumulate(any(), any(), any(), anyInt(), anyLong(), any());
     }
 
+    /**
+     * 验证分钟精度与小数秒 ISO 时间均可持久化。
+     */
     @Test
     @DisplayName("支持 LocalDateTime 的分钟格式和小数秒格式")
     void acceptsIsoMinuteAndFractionalSecondTimestamps() {
@@ -122,6 +131,9 @@ class EventPersistenceServiceTest {
                 any(), any(), any(), anyInt(), anyLong(), any());
     }
 
+    /**
+     * 验证持久化转换保留空目标 ID。
+     */
     @Test
     @DisplayName("缺少 targetId 时保留数据库 NULL 语义")
     void preservesNullTargetId() {
@@ -143,6 +155,9 @@ class EventPersistenceServiceTest {
         assertThat(eventCaptor.getValue().getTargetId()).isNull();
     }
 
+    /**
+     * 验证数值目标 ID 不被错误置空。
+     */
     @ParameterizedTest(name = "targetId={0}")
     @ValueSource(longs = {0L, 123L})
     @DisplayName("非空 targetId 保持原始数值")

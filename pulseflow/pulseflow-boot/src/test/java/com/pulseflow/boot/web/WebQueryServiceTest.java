@@ -59,6 +59,9 @@ class WebQueryServiceTest {
 
     private WebQueryService service;
 
+    /**
+     * 初始化查询服务依赖替身和固定数据，隔离控制台聚合行为。
+     */
     @BeforeEach
     void setUp() {
         service = new WebQueryService(
@@ -68,6 +71,9 @@ class WebQueryServiceTest {
                 redissonClient);
     }
 
+    /**
+     * 验证 Campaign 列表为业务视图并具有稳定分页元数据。
+     */
     @Test
     void listCampaignsReturnsBusinessRowsAndStablePagination() {
         Campaign campaign = Campaign.builder()
@@ -113,6 +119,9 @@ class WebQueryServiceTest {
         });
     }
 
+    /**
+     * 验证空列表仍返回统一分页结构和零总页数。
+     */
     @Test
     void emptyCampaignPageUsesUnifiedEmptyPageResponse() {
         Page<Campaign> result = new Page<>(1, 10);
@@ -128,6 +137,9 @@ class WebQueryServiceTest {
         assertThat(response.totalPages()).isZero();
     }
 
+    /**
+     * 验证不存在的 Campaign ID 抛出资源缺失异常。
+     */
     @Test
     void invalidCampaignIdReturnsNotFound() {
         when(campaignMapper.selectById(404L)).thenReturn(null);
@@ -137,6 +149,9 @@ class WebQueryServiceTest {
                 .hasMessageContaining("404");
     }
 
+    /**
+     * 验证 Redis 失败时 User 360 标明降级来源并保留 MySQL 指标。
+     */
     @Test
     void user360MarksRedisFallbackAndKeepsMysqlMetrics() {
         UserProfile profile = UserProfile.builder().userId(1024L).nickname("演示用户").status(1).build();

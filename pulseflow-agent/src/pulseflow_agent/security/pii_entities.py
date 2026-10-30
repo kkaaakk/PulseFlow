@@ -31,6 +31,7 @@ class PiiEntity:
     evidence: tuple["PiiEntity", ...] = field(default=(), repr=False)
 
 
+# 判断两个以 Unicode 码点计数的左闭右开实体区间是否相交，相邻而不重叠的区间返回 False。
 def overlaps(left: PiiEntity, right: PiiEntity) -> bool:
     return left.start < right.end and right.start < left.end
 

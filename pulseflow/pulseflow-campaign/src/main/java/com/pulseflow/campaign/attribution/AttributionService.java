@@ -405,6 +405,9 @@ public class AttributionService {
 
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                /**
+                 * 在数据库事务提交后发布归因延迟任务；发布失败仅记录日志，由待处理任务对账恢复，不能再回滚已提交事务。
+                 */
                 @Override
                 public void afterCommit() {
                     try {
@@ -430,6 +433,9 @@ public class AttributionService {
         publish.run();
     }
 
+    /**
+     * 通过 Lua 原子检查待执行与处理中队列，只在未被处理占用时确保归因任务进入待执行队列。
+     */
     private boolean ensurePendingTask(String targetEventId, long executeAtMillis) {
         Object result = redissonClient.getScript(StringCodec.INSTANCE).eval(
                 RScript.Mode.READ_WRITE,
@@ -441,6 +447,9 @@ public class AttributionService {
         return result instanceof Number && ((Number) result).longValue() == 1L;
     }
 
+    /**
+     * 以 PENDING 为前置状态条件更新归因任务为 MATCHED，并关联命中的触达任务；必须恰好更新一行。
+     */
     private void markTaskMatched(AttributionTask task, Long matchedTaskId) {
         int updated = attributionTaskMapper.update(null,
                 new LambdaUpdateWrapper<AttributionTask>()
@@ -451,6 +460,9 @@ public class AttributionService {
         requireTaskUpdate(task, updated, AttributionTaskStatus.MATCHED);
     }
 
+    /**
+     * 以 PENDING 为前置条件标记归因任务 EXPIRED，未更新到唯一记录时抛出异常。
+     */
     private void markTaskExpired(AttributionTask task) {
         int updated = attributionTaskMapper.update(null,
                 new LambdaUpdateWrapper<AttributionTask>()
@@ -460,6 +472,9 @@ public class AttributionService {
         requireTaskUpdate(task, updated, AttributionTaskStatus.EXPIRED);
     }
 
+    /**
+     * 校验归因状态更新影响行数为一，否则抛出异常使调用方感知状态竞争或记录丢失。
+     */
     private void requireTaskUpdate(AttributionTask task, int updated, AttributionTaskStatus expectedStatus) {
         if (updated != 1) {
             throw new IllegalStateException("Attribution task status was not updated: targetEventId="
@@ -467,6 +482,9 @@ public class AttributionService {
         }
     }
 
+    /**
+     * 按系统时区解释本地时间并转换为 Redis 延迟队列使用的毫秒时间戳。
+     */
     private long toEpochMillis(LocalDateTime time) {
         return time.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
     }

@@ -19,18 +19,21 @@ if not database_url:
     raise RuntimeError("PULSEFLOW_AGENT_DATABASE_URL is required for migrations")
 
 
+# 使用独立 Agent 数据库 URL 生成带字面参数的迁移 SQL，不建立实际数据库连接。
 def run_migrations_offline() -> None:
     context.configure(url=database_url, target_metadata=metadata, literal_binds=True)
     with context.begin_transaction():
         context.run_migrations()
 
 
+# 在 Alembic 提供的同步连接和迁移事务中执行当前 Agent schema 的迁移。
 def do_run_migrations(connection: object) -> None:
     context.configure(connection=connection, target_metadata=metadata)
     with context.begin_transaction():
         context.run_migrations()
 
 
+# 创建异步引擎并通过 run_sync 执行迁移，无论成功失败均释放引擎连接池。
 async def run_async_migrations() -> None:
     engine = create_async_engine(database_url, pool_pre_ping=True)
     try:

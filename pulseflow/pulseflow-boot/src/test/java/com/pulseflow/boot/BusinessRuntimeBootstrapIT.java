@@ -20,6 +20,9 @@ class BusinessRuntimeBootstrapIT {
     @Import({CampaignFieldRegistry.class, CampaignDslValidator.class})
     static class BusinessConfiguration {}
 
+    /**
+     * 验证业务校验容器无需装配 AI 运行时即可启动。
+     */
     @Test
     void businessValidationStartsWithoutAiRuntime() {
         new ApplicationContextRunner().withUserConfiguration(BusinessConfiguration.class)
@@ -61,6 +64,9 @@ class BusinessRuntimeBootstrapIT {
                 .withPassword("test")
                 .withReuse(true);
 
+        /**
+         * 验证完整 Flyway 迁移建立业务状态机所需字段。
+         */
         @Test
         @DisplayName("V1~V6 迁移成功，review 状态机、重试索引和 campaign 归属存在")
         void flywayMigrationCreatesStateMachineColumns() throws Exception {
@@ -101,6 +107,9 @@ class BusinessRuntimeBootstrapIT {
             }
         }
 
+        /**
+         * 验证迁移后的数据库包含核心业务表。
+         */
         @Test
         @DisplayName("V1~V7 迁移成功，核心表和 Proposal Draft 关联存在")
         void coreTablesExistAfterMigration() throws Exception {

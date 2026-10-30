@@ -149,6 +149,9 @@ public class CampaignContentValidator {
         return result;
     }
 
+    /**
+     * 从输入的 forbiddenWords 列表提取非空元素并去重，其他类型视为没有额外禁用词。
+     */
     @SuppressWarnings("unchecked")
     private Set<String> collectForbidden(java.util.Map<String, Object> input) {
         Set<String> out = new HashSet<>();
@@ -208,6 +211,9 @@ public class CampaignContentValidator {
         return out;
     }
 
+    /**
+     * 将可解析数值加入允许集合，忽略空值和非法数字文本。
+     */
     private void addNumber(Set<BigDecimal> out, Object v) {
         if (v == null) return;
         if (v instanceof Number n) {
@@ -218,6 +224,9 @@ public class CampaignContentValidator {
         }
     }
 
+    /**
+     * 扫描文案中的数值，发现不属于允许促销事实的数字时返回 true；空文案不触发此检查。
+     */
     private boolean hasUnknownNumber(String text, Set<BigDecimal> allowed) {
         if (text == null || text.isBlank()) return false;
         Matcher m = NUMBER_PATTERN.matcher(text);
@@ -230,6 +239,9 @@ public class CampaignContentValidator {
         return false;
     }
 
+    /**
+     * 判断目标数与任一允许数的绝对差是否不超过 0.01，容忍格式转换带来的微小偏差。
+     */
     private boolean anyMatch(Set<BigDecimal> candidates, BigDecimal target) {
         for (BigDecimal c : candidates) {
             if (c.subtract(target).abs().compareTo(new BigDecimal("0.01")) <= 0) return true;
@@ -237,13 +249,22 @@ public class CampaignContentValidator {
         return false;
     }
 
+    /**
+     * 按小写文本判断包含关系，任一输入为 null 时返回 false。
+     */
     private boolean containsIgnoreCase(String hay, String needle) {
         if (hay == null || needle == null) return false;
         return hay.toLowerCase().contains(needle.toLowerCase());
     }
 
+    /**
+     * 将 null 文本替换为空字符串，便于后续文案拼接和校验。
+     */
     private String safe(String s) { return s == null ? "" : s; }
 
+    /**
+     * 读取数值或整数字符串，缺失或解析失败时返回调用方指定默认值。
+     */
     private int asInt(Object v, int dflt) {
         if (v == null) return dflt;
         if (v instanceof Number n) return n.intValue();
@@ -251,6 +272,9 @@ public class CampaignContentValidator {
         catch (NumberFormatException e) { return dflt; }
     }
 
+    /**
+     * 仅接受 Boolean 类型，其他类型及空值均使用指定默认值。
+     */
     private boolean asBoolean(Object v, boolean dflt) {
         if (v == null) return dflt;
         if (v instanceof Boolean b) return b;

@@ -30,6 +30,9 @@ const kpis = computed(() => {
   ]
 })
 
+/**
+ * 并行获取运营汇总、趋势和前五条 Campaign，成功后统一更新页面状态，失败显示提示并结束加载。
+ */
 const load = async () => {
   loading.value = true
   try {

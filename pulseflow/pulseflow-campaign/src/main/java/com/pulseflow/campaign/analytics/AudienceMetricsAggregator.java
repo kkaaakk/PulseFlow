@@ -44,6 +44,9 @@ public class AudienceMetricsAggregator {
     private final UserBehaviorSummaryMapper behaviorSummaryMapper;
     private final CampaignFieldRegistry fieldRegistry;
 
+    /**
+     * 从最多五万名启用用户中解析 DSL 人群，计算标签、活跃和消费聚合指标，并以候选池作为基线；不返回用户明细。
+     */
     public AudienceMetrics aggregate(CampaignDsl dsl) {
         // 1. Candidate pool
         List<UserProfile> candidates = userProfileMapper.selectList(
@@ -56,8 +59,7 @@ public class AudienceMetricsAggregator {
             return emptyMetrics();
         }
 
-        // 2. Resolve matched user set (AND of all conditions, OR not fully
-        //    supported in v1 aggregator — falls back to AND)
+        // 2. 按组合逻辑合并条件集合：AND 取交集，OR 取并集。
         Set<Long> matched = resolveMatched(dsl.getAudience(), candidateIds);
 
         if (matched.isEmpty()) {
@@ -107,6 +109,9 @@ public class AudienceMetricsAggregator {
                 .build();
     }
 
+    /**
+     * 逐个求解人群条件，AND 取交集，其他逻辑取并集；无条件时返回完整候选集的副本。
+     */
     private Set<Long> resolveMatched(AudienceGroup audience, Set<Long> candidateIds) {
         if (audience.getConditions() == null || audience.getConditions().isEmpty()) {
             return new HashSet<>(candidateIds);
@@ -126,6 +131,9 @@ public class AudienceMetricsAggregator {
         return result == null ? new HashSet<>() : result;
     }
 
+    /**
+     * 根据字段注册信息匹配标签或最新行为指标；未知字段不匹配，标签分支按值为 1 查询。
+     */
     private Set<Long> evalOne(AudienceCondition c, Set<Long> candidateIds) {
         CampaignFieldRegistry.FieldDescriptor fd = fieldRegistry.get(c.getField());
         if (fd == null) return new HashSet<>();
@@ -164,6 +172,9 @@ public class AudienceMetricsAggregator {
         return matched;
     }
 
+    /**
+     * 分别统计高价值、价格敏感与流失风险标签的去重用户占比，分母为传入人群总数。
+     */
     private Map<String, BigDecimal> computeTagRatios(Set<Long> userIds) {
         Map<String, BigDecimal> out = new HashMap<>();
         for (String tag : List.of("HIGH_VALUE", "PRICE_SENSITIVE", "CHURN_RISK")) {
@@ -180,6 +191,9 @@ public class AudienceMetricsAggregator {
         return out;
     }
 
+    /**
+     * 按计算时间选取各用户最新指标，返回值大于零的用户占整个人群的比例；缺失指标不计入分子。
+     */
     private BigDecimal computeMetricPositiveRate(Set<Long> userIds, String metricType) {
         if (userIds.isEmpty()) return BigDecimal.ZERO;
         List<UserBehaviorSummary> summaries = behaviorSummaryMapper.selectList(
@@ -198,6 +212,9 @@ public class AudienceMetricsAggregator {
         return ratio(positive.size(), userIds.size());
     }
 
+    /**
+     * 对各用户最新指标求平均，分母仅包含查到指标的用户；保留两位小数，空结果为零。
+     */
     private BigDecimal computeMetricAverage(Set<Long> userIds, String metricType) {
         if (userIds.isEmpty()) return BigDecimal.ZERO;
         List<UserBehaviorSummary> summaries = behaviorSummaryMapper.selectList(
@@ -216,6 +233,9 @@ public class AudienceMetricsAggregator {
         return sum.divide(BigDecimal.valueOf(latest.size()), 2, RoundingMode.HALF_UP);
     }
 
+    /**
+     * 以近七天活跃且近三十天消费为零的用户比例近似购物未转化率，当前实现不直接读取购物车。
+     */
     private BigDecimal computeCartWithoutPurchaseRate(Set<Long> userIds) {
         // Simplified: fraction of users with active_7d>0 but spend_30d==0
         if (userIds.isEmpty()) return BigDecimal.ZERO;
@@ -250,10 +270,16 @@ public class AudienceMetricsAggregator {
         return ratio(activeNoSpend, userIds.size());
     }
 
+    /**
+     * 构造人群数为零、其余指标未填充的空聚合结果。
+     */
     private AudienceMetrics emptyMetrics() {
         return AudienceMetrics.builder().audienceCount(0).build();
     }
 
+    /**
+     * 执行 EQ、NE、GT、GTE、LT、LTE 数值比较，未知操作符返回 false。
+     */
     private boolean compare(double left, String op, double right) {
         return switch (op) {
             case "EQ"  -> left == right;
@@ -266,12 +292,18 @@ public class AudienceMetricsAggregator {
         };
     }
 
+    /**
+     * 转换数值或可解析文本为 double，非法文本及 null 按零处理。
+     */
     private double toDouble(Object v) {
         if (v instanceof Number n) return n.doubleValue();
         try { return Double.parseDouble(String.valueOf(v)); }
         catch (NumberFormatException e) { return 0.0; }
     }
 
+    /**
+     * 计算四位小数、四舍五入的人群占比；总人数为零时返回零。
+     */
     private BigDecimal ratio(int part, int total) {
         if (total == 0) return BigDecimal.ZERO;
         return BigDecimal.valueOf(part)

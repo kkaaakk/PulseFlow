@@ -17,6 +17,9 @@ import java.util.Map;
  */
 public final class WebDtos {
 
+    /**
+     * 禁止实例化仅用于组织控制台响应类型的容器类。
+     */
     private WebDtos() {
     }
 
@@ -27,6 +30,9 @@ public final class WebDtos {
             long total,
             int totalPages
     ) {
+        /**
+         * 构造分页响应并防御性复制 items；空列表统一为不可变空列表。
+         */
         public PageResponse {
             items = items == null ? List.of() : List.copyOf(items);
             page = Math.max(page, 1);
@@ -56,6 +62,9 @@ public final class WebDtos {
             List<TrendPoint> deliveries,
             List<TrendPoint> conversions
     ) {
+        /**
+         * 构造总览趋势响应并防御性复制各趋势序列，空序列统一为空列表。
+         */
         public DashboardTrends {
             events = events == null ? List.of() : List.copyOf(events);
             deliveries = deliveries == null ? List.of() : List.copyOf(deliveries);
@@ -116,6 +125,9 @@ public final class WebDtos {
             String calculationMode,
             List<String> warnings
     ) {
+        /**
+         * 构造人群预估视图并复制警告列表，避免调用方随后修改响应内容。
+         */
         public AudienceView {
             warnings = warnings == null ? List.of() : List.copyOf(warnings);
         }
@@ -146,6 +158,9 @@ public final class WebDtos {
             DeliverySummary deliverySummary,
             AttributionSummary attributionSummary
     ) {
+        /**
+         * 组合 Campaign、规则、人群和效果摘要，并对规则列表作防御性复制。
+         */
         public CampaignDetail {
             rules = rules == null ? List.of() : List.copyOf(rules);
         }
@@ -177,6 +192,9 @@ public final class WebDtos {
             BigDecimal spend30d,
             List<String> tags
     ) {
+        /**
+         * 构造用户列表项，复制标签列表并将缺失标签统一为空列表。
+         */
         public UserListItem {
             tags = tags == null ? List.of() : List.copyOf(tags);
         }
@@ -201,6 +219,9 @@ public final class WebDtos {
             List<String> tags,
             PageResponse<EventView> recentEvents
     ) {
+        /**
+         * 组合基础画像、实时与窗口指标、标签及事件分页，对集合字段作防御性复制。
+         */
         public UserDetail {
             realtimeMetrics = realtimeMetrics == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(realtimeMetrics));
             windowMetrics = windowMetrics == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(windowMetrics));
@@ -220,6 +241,9 @@ public final class WebDtos {
             boolean clockSkew,
             Map<String, Object> properties
     ) {
+        /**
+         * 构造事件视图并复制 properties，缺失事件属性统一为空映射。
+         */
         public EventView {
             properties = properties == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(properties));
         }
@@ -260,6 +284,9 @@ public final class WebDtos {
             LocalDateTime clickTime,
             Map<String, Object> properties
     ) {
+        /**
+         * 构造点击视图并复制 properties，避免外部修改原映射影响响应。
+         */
         public ClickView {
             properties = properties == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(properties));
         }
@@ -285,6 +312,9 @@ public final class WebDtos {
             List<ClickView> clicks,
             List<AttributionView> attributions
     ) {
+        /**
+         * 组合触达任务、发送记录、点击与归因明细，并复制明细列表。
+         */
         public DeliveryDetail {
             clicks = clicks == null ? List.of() : List.copyOf(clicks);
             attributions = attributions == null ? List.of() : List.copyOf(attributions);

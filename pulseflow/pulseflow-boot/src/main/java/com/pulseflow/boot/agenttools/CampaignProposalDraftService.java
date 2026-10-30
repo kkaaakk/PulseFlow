@@ -36,6 +36,9 @@ public class CampaignProposalDraftService {
             FrequencyCap frequencyCap, List<PromotionFact> promotionFacts,
             List<String> supportingEvidenceIds) {}
 
+    /**
+     * 校验提案、调查归属、证据引用与 DSL，在归属行锁保护下幂等生成草稿。人群预估失败则拒绝创建，整个 Java 写入过程由事务保护。
+     */
     @Transactional
     public CampaignDraft create(String proposalId, Long operatorId) {
         AgentInvestigationOwnership.validId(proposalId);
@@ -93,11 +96,17 @@ public class CampaignProposalDraftService {
         return draft;
     }
 
+    /**
+     * 用提案 ID 作为 requestId 查询既有草稿，为重复请求提供幂等命中依据。
+     */
     private CampaignDraft find(String proposalId) {
         return draftMapper.selectOne(new LambdaQueryWrapper<CampaignDraft>()
                 .eq(CampaignDraft::getRequestId, proposalId));
     }
 
+    /**
+     * 要求草稿关联调查且当前操作员同时拥有调查和草稿；通过后从草稿服务重新加载记录。
+     */
     private CampaignDraft ownedDraft(CampaignDraft draft, Long operatorId) {
         if (draft.getInvestigationId() == null) throw new CampaignConflictException("legacy_draft_collision");
         ownership.assertOwner(draft.getInvestigationId(), operatorId);

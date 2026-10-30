@@ -7,6 +7,7 @@ import urllib.request
 BASE = "http://127.0.0.1:8080"
 
 
+# 请求本地 Java 网关，可选传入登录令牌；按是否有 body 选择 GET 或 POST，返回 HTTP 状态与 JSON。
 def call(path, body=None, token=None):
     headers = {"Content-Type": "application/json"}
     if token:

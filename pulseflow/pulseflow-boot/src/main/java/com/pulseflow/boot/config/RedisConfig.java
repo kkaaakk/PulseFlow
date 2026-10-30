@@ -22,6 +22,9 @@ public class RedisConfig {
     @Value("${spring.redis.database}")
     private int database;
 
+    /**
+     * 按主机、端口、数据库和可选密码创建单节点 Redisson 客户端；连接池由 Spring 在销毁时关闭。
+     */
     @Bean(destroyMethod = "shutdown")
     public RedissonClient redissonClient() {
         Config config = new Config();

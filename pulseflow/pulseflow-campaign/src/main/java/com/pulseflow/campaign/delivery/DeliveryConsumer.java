@@ -36,6 +36,9 @@ public class DeliveryConsumer {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .registerModule(new JavaTimeModule());
 
+    /**
+     * 解析并通过条件更新抢占触达任务，再执行频控与渠道发送；频控拒绝标记 CANCELLED，发送异常标记 WAIT_RETRY 并安排五分钟后重试。
+     */
     @KafkaListener(topics = "pulseflow.delivery", groupId = "pulseflow-delivery-group",
             concurrency = "2")
     public void consume(ConsumerRecord<String, String> record) {
@@ -227,6 +230,9 @@ public class DeliveryConsumer {
         }
     }
 
+    /**
+     * 反序列化 Kafka 触达任务消息；非法 JSON 记录错误并返回 null，由消费者跳过。
+     */
     private DeliveryTask parseTask(String json) {
         try {
             return OBJECT_MAPPER.readValue(json, DeliveryTask.class);

@@ -8,6 +8,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 class MapperRegistrationTest {
     static class RegistrationProbeComplete extends RuntimeException { }
 
+    /**
+     * 验证实际应用在打开外部资源前只注册数据库 Mapper，避免误扫描业务接口。
+     */
     @Test void actualApplicationRegistersOnlyDatabaseMappersBeforeOpeningResources() {
         AtomicBoolean checked = new AtomicBoolean();
         new ApplicationContextRunner().withUserConfiguration(PulseFlowApplication.class)

@@ -53,6 +53,9 @@ public class CompensationJob {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .registerModule(new JavaTimeModule());
 
+    /**
+     * 恢复超时处理中补偿任务，再短事务抢占一条到期任务，在事务外重放业务；按结果标记完成或安排重试。
+     */
     @XxlJob("compensationJob")
     public void execute() {
         log.info("CompensationJob started");
@@ -94,6 +97,9 @@ public class CompensationJob {
         }
     }
 
+    /**
+     * 将指定补偿任务标记 DONE，并清除处理锁定时间。
+     */
     private void markDone(Long taskId) {
         compensationTaskMapper.update(null,
                 new LambdaUpdateWrapper<DataCompensationTask>()
@@ -102,6 +108,10 @@ public class CompensationJob {
                         .set(DataCompensationTask::getLockedAt, null));
     }
 
+    /**
+     * 保存至多 512 字符的错误说明并清除锁定时间；未达上限时增加重试计数，
+     * 按 30 × 2^新重试次数秒退避后恢复 PENDING，达到上限则标记 FAILED。
+     */
     private void handleFailure(DataCompensationTask task, Exception e) {
         int newRetryCount = task.getRetryCount() + 1;
         String errMsg = e.getMessage() != null
@@ -129,6 +139,9 @@ public class CompensationJob {
         }
     }
 
+    /**
+     * 将补偿载荷 JSON 解析为事件上下文，解析异常交由补偿失败流程处理。
+     */
     private Map<String, Object> parseEvent(String json) {
         try {
             return OBJECT_MAPPER.readValue(json, new TypeReference<Map<String, Object>>() {});

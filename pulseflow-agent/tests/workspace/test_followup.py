@@ -28,6 +28,7 @@ PERIOD = {"fromInclusive": "2026-09-01T00:00:00+08:00",
           "toExclusive": "2026-09-08T00:00:00+08:00"}
 
 
+# 构造调查追问测试所需的隔离配置。
 def settings(database_url: str) -> AgentSettings:
     return AgentSettings.model_validate({
         "pulseflow_agent_env": "test",
@@ -37,6 +38,7 @@ def settings(database_url: str) -> AgentSettings:
     })
 
 
+# 创建追问场景使用的 Java 聚合工具返回。
 def returns(messages: list[ModelMessage]) -> list[Any]:
     contents: list[Any] = []
     for message in messages:
@@ -52,12 +54,14 @@ def returns(messages: list[ModelMessage]) -> list[Any]:
     return contents
 
 
+# 构造引用已有证据的最终诊断响应。
 def final(info: AgentInfo, body: dict[str, object]) -> ModelResponse:
     if info.output_tools:
         return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, body)])
     return ModelResponse(parts=[TextPart(json.dumps(body))])
 
 
+# 模拟首轮调查的工具选择与假设记录。
 async def first_model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
     items = returns(messages)
     if len(items) == 0:
@@ -89,6 +93,7 @@ async def first_model(messages: list[ModelMessage], info: AgentInfo) -> ModelRes
     })
 
 
+# 模拟后续轮次使用已有证据或更新范围的模型行为。
 async def followup_model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
     items = returns(messages)
     if not items:
@@ -106,6 +111,7 @@ async def followup_model(messages: list[ModelMessage], info: AgentInfo) -> Model
     })
 
 
+# 验证追问和范围变更保留假设历史，且不会捏造新证据。
 @pytest.mark.asyncio
 async def test_hypotheses_and_scope_followup_persist_without_fake_evidence(
     database_url: str,
@@ -115,6 +121,7 @@ async def test_hypotheses_and_scope_followup_persist_without_fake_evidence(
     config = settings(database_url)
     java_calls = 0
 
+    # 按追问场景请求返回固定的权威业务聚合结果。
     def java(_request: httpx.Request) -> httpx.Response:
         nonlocal java_calls
         java_calls += 1
@@ -163,6 +170,7 @@ async def test_hypotheses_and_scope_followup_persist_without_fake_evidence(
     await engine.dispose()
 
 
+# 验证取消模型运行后调查持久化状态为 CANCELLED。
 @pytest.mark.asyncio
 async def test_cancelled_model_run_records_cancelled_status(database_url: str) -> None:
     engine = create_async_engine(database_url)
@@ -170,11 +178,13 @@ async def test_cancelled_model_run_records_cancelled_status(database_url: str) -
     config = settings(database_url)
     ids: list[str] = []
 
+    # 创建供取消测试持久化状态的工作区。
     async def factory(question: str) -> InvestigationWorkspace:
         created = await repo.create(question)
         ids.append(created.id)
         return InvestigationWorkspace(goal=question, id=created.id, repository=repo)
 
+    # 模拟模型运行被取消，驱动调查器取消清理路径。
     async def cancel(_messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
         raise CancelledError()
 

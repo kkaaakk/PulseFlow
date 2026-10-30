@@ -20,6 +20,9 @@ public class EventController {
 
     private final EventService eventService;
 
+    /**
+     * 先执行请求字段校验，再交由事件服务修正时钟偏差并等待 Kafka 确认，返回事件接收结果。
+     */
     @PostMapping
     public ApiResponse<EventResponse> acceptEvent(@Valid @RequestBody EventRequest request) {
         log.info("Received event: eventId={}, userId={}, eventType={}",

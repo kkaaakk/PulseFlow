@@ -14,6 +14,9 @@ public class DailyMetricJob {
 
     private final JdbcTemplate jdbcTemplate;
 
+    /**
+     * 将已完成小时桶汇总到日桶，重算更新聚合值，以便重复调度保持幂等。
+     */
     @XxlJob("dailyMetricJob")
     public void execute() {
         log.info("DailyMetricJob started");

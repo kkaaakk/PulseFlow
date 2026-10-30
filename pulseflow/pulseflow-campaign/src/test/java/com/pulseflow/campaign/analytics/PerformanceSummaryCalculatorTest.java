@@ -12,6 +12,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class PerformanceSummaryCalculatorTest {
+    /**
+     * 验证从触达、点击和归因事实正确计算绩效计数与比率。
+     */
     @Test
     void computesCountsAndRatesFromDeliveryClickAndAttributionFacts() {
         CampaignMapper campaigns = mock(CampaignMapper.class);

@@ -14,6 +14,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 class AgentProposalGatewayTest {
+    /**
+     * 验证 Java 登录身份绑定提案所有者，提案请求本身不创建草稿。
+     */
     @Test void javaSessionBindsProposalToOwnerWithoutCreatingDraft() throws Exception {
         String id = UUID.randomUUID().toString();
         AgentInvestigationOwnership ownership = mock(AgentInvestigationOwnership.class);

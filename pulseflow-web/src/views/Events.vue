@@ -17,12 +17,24 @@ const result = ref<PageResponse<EventView>>({ items: [], page: 1, pageSize: 20, 
 const drawerVisible = ref(false)
 const selectedEvent = ref<EventView>()
 
+/**
+ * 按当前分页、事件类型和用户 ID 查询事件流，集中处理错误并释放加载状态。
+ */
 const load = async () => {
   loading.value = true
   try { result.value = await listEvents(page.value, pageSize.value, eventType.value || undefined, userId.value ? Number(userId.value) : undefined) } catch (error) { ElMessage.error(error instanceof Error ? error.message : '事件数据加载失败') } finally { loading.value = false }
 }
+/**
+ * 应用事件筛选并重置至第一页。
+ */
 const filter = () => { page.value = 1; load() }
+/**
+ * 把选中事件设置为抽屉数据并打开 JSON 详情，无需重复请求已加载记录。
+ */
 const openEvent = (event: EventView) => { selectedEvent.value = event; drawerVisible.value = true }
+/**
+ * 更新页码并重新获取当前筛选下的事件列表。
+ */
 const changePage = (value: number) => { page.value = value; load() }
 onMounted(load)
 </script>

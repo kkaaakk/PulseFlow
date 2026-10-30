@@ -9,6 +9,9 @@ import com.pulseflow.campaign.dsl.CampaignDsl;
  */
 public interface AudiencePreviewService {
 
+    /**
+     * 根据已解析的 Campaign DSL 预估聚合人群规模，并返回计算时间、数据版本及警告；不执行触达。
+     */
     AudiencePreviewResult preview(CampaignDsl dsl);
 
     /**

@@ -12,6 +12,9 @@ class LocalAuthSessionConfigTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withUserConfiguration(LocalAuthSessionConfig.class);
 
+    /**
+     * 验证内存会话配置提供本地 Sa-Token DAO。
+     */
     @Test
     void memoryStoreProvidesLocalSaTokenDao() {
         contextRunner
@@ -23,6 +26,9 @@ class LocalAuthSessionConfigTest {
                 });
     }
 
+    /**
+     * 验证选择 Redis 会话配置时不覆盖为本地 DAO。
+     */
     @Test
     void redisStoreDoesNotInstallLocalDao() {
         contextRunner

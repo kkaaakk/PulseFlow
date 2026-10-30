@@ -20,6 +20,9 @@ class WebQueryControllerTest {
     @Mock private WebQueryService queryService;
     @InjectMocks private WebQueryController controller;
 
+    /**
+     * 验证总览接口使用统一 ApiResponse 信封。
+     */
     @Test
     void dashboardUsesTheUnifiedApiResponseEnvelope() {
         WebDtos.DashboardSummary summary = new WebDtos.DashboardSummary(
@@ -33,6 +36,9 @@ class WebQueryControllerTest {
         verify(queryService).dashboardSummary();
     }
 
+    /**
+     * 验证 Campaign 列表接口完整转发分页与筛选参数。
+     */
     @Test
     void campaignListPassesPaginationAndFiltersToTheQueryService() {
         WebDtos.PageResponse<WebDtos.CampaignListItem> page =

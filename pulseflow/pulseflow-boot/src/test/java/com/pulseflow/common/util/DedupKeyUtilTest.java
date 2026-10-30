@@ -18,6 +18,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  */
 class DedupKeyUtilTest {
 
+    /**
+     * 验证事件触发幂等键的字段顺序与分隔格式。
+     */
     @Test
     @DisplayName("EVENT 触发: {campaignId}:{userId}:{eventId}")
     void forEvent_format() {
@@ -25,6 +28,9 @@ class DedupKeyUtilTest {
                 DedupKeyUtil.forEvent(5L, 1024L, "evt_001"));
     }
 
+    /**
+     * 验证延迟触发幂等键编码购物车条目和源事件。
+     */
     @Test
     @DisplayName("DELAYED 触发: {campaignId}:{userId}:{cartItemId}:{addCartEventId}")
     void forDelayed_format() {
@@ -32,6 +38,9 @@ class DedupKeyUtilTest {
                 DedupKeyUtil.forDelayed(5L, 1024L, "ci_501", "evt_100"));
     }
 
+    /**
+     * 验证定时触达幂等键由执行实例与用户组成。
+     */
     @Test
     @DisplayName("SCHEDULED 触发: {campaignExecutionId}:{userId}")
     void forScheduled_format() {
@@ -39,6 +48,9 @@ class DedupKeyUtilTest {
                 DedupKeyUtil.forScheduled(42L, 1024L));
     }
 
+    /**
+     * 验证相同延迟任务输入始终产生相同幂等键。
+     */
     @Test
     @DisplayName("同一参数多次调用结果一致（ZADD 去重依赖此性质）")
     void forDelayed_deterministic() {
@@ -47,6 +59,9 @@ class DedupKeyUtilTest {
         assertEquals(k1, k2, "same params must produce same key for ZADD dedup");
     }
 
+    /**
+     * 验证不同购物车条目产生不同延迟幂等键。
+     */
     @Test
     @DisplayName("不同 cartItemId 产生不同 key（避免不同购物车项撞键）")
     void forDelayed_distinctCartItem() {
@@ -55,6 +70,9 @@ class DedupKeyUtilTest {
         assert !k1.equals(k2) : "different cartItemId must yield different key";
     }
 
+    /**
+     * 验证幂等键工具类不能被实例化。
+     */
     @Test
     @DisplayName("工具类不可实例化")
     void utilityClass_notInstantiable() {

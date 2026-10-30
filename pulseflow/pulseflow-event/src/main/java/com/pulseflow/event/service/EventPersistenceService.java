@@ -124,6 +124,9 @@ public class EventPersistenceService {
         return ctx;
     }
 
+    /**
+     * 将 Kafka 事件上下文转换为事件实体，保留原始、接收和有效时间，并序列化业务属性。
+     */
     private UserEvent buildUserEvent(Map<String, Object> eventMap) {
         return UserEvent.builder()
                 .eventId((String) eventMap.get("eventId"))
@@ -138,6 +141,9 @@ public class EventPersistenceService {
                 .build();
     }
 
+    /**
+     * 提取事件上下文的 properties 映射，缺失或类型不符时返回空映射。
+     */
     @SuppressWarnings("unchecked")
     private Map<String, Object> getProperties(Map<String, Object> eventMap) {
         Object props = eventMap.get("properties");
@@ -147,6 +153,9 @@ public class EventPersistenceService {
         return Collections.emptyMap();
     }
 
+    /**
+     * 解析已存储的属性 JSON；空文本、空对象或解析失败均按空属性处理。
+     */
     @SuppressWarnings("unchecked")
     private Map<String, Object> parseProperties(String json) {
         if (json == null || json.isEmpty() || "{}".equals(json)) {
@@ -159,6 +168,9 @@ public class EventPersistenceService {
         }
     }
 
+    /**
+     * 序列化事件属性；输入为空或序列化失败时回退为 JSON 空对象。
+     */
     private String propsToJson(Object props) {
         if (props == null) return "{}";
         try {
@@ -168,6 +180,9 @@ public class EventPersistenceService {
         }
     }
 
+    /**
+     * 兼容省略秒数的 ISO 本地时间与空格分隔时间；null 使用当前时间，格式非法时继续抛出异常。
+     */
     private LocalDateTime parseDateTime(String dt) {
         if (dt == null) return LocalDateTime.now();
         // LocalDateTime.toString() 在秒数为 0 时会省略秒（例如
@@ -177,12 +192,18 @@ public class EventPersistenceService {
         return LocalDateTime.parse(normalized, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
     }
 
+    /**
+     * 转换数值或整数字符串，null 按零处理；不吞掉非法数值异常。
+     */
     private Long toLong(Object val) {
         if (val == null) return 0L;
         if (val instanceof Number) return ((Number) val).longValue();
         return Long.parseLong(String.valueOf(val));
     }
 
+    /**
+     * 转换可选目标 ID，保留 null 与空白文本为 null，非法非空文本抛出解析异常。
+     */
     private Long toNullableLong(Object val) {
         if (val == null) return null;
         if (val instanceof Number) return ((Number) val).longValue();
@@ -198,22 +219,40 @@ public class EventPersistenceService {
         private final UserEvent event;
         private final Map<String, Object> context;
 
+        /**
+         * 组合持久化结果、事件实体及供后续画像和决策使用的上下文。
+         */
         private PersistResult(boolean ok, UserEvent event, Map<String, Object> context) {
             this.ok = ok;
             this.event = event;
             this.context = context;
         }
 
+        /**
+         * 构造成功结果，携带已确定的事件事实和标准化处理上下文。
+         */
         static PersistResult ok(UserEvent event, Map<String, Object> context) {
             return new PersistResult(true, event, context);
         }
 
+        /**
+         * 构造失败结果，事件和上下文均为空，通知消费者不要继续业务处理。
+         */
         static PersistResult fail() {
             return new PersistResult(false, null, null);
         }
 
+        /**
+         * 返回事件持久化阶段是否成功。
+         */
         public boolean isOk() { return ok; }
+        /**
+         * 返回持久化阶段确定的事件实体；失败结果中为 null。
+         */
         public UserEvent getEvent() { return event; }
+        /**
+         * 返回后续处理应使用的事件上下文；失败结果中为 null。
+         */
         public Map<String, Object> getContext() { return context; }
     }
 }

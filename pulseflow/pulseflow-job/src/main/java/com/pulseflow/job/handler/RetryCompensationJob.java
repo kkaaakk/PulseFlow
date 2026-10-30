@@ -22,6 +22,9 @@ public class RetryCompensationJob {
     private final DeliveryTaskMapper deliveryTaskMapper;
     private final DataCompensationTaskMapper compensationTaskMapper;
 
+    /**
+     * 重置到期触达重试任务并恢复超时处理任务；对达到五次上限的触达或处理中补偿任务标记 FAILED。
+     */
     @XxlJob("retryCompensationJob")
     public void execute() {
         log.info("RetryCompensationJob started");

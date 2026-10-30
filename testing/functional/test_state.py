@@ -18,9 +18,11 @@ import state  # noqa: E402
 
 
 class FunctionalOwnershipTests(unittest.TestCase):
+    # 初始化 Functional 归属范围与生成器测试数据。
     def setUp(self) -> None:
         self.scope = state.load_scope()
 
+    # 验证生成器事件命名空间与预留用户范围均属于声明测试范围。
     def test_generator_namespaces_and_reserved_user_ranges_are_owned(self) -> None:
         self.assertTrue(self.scope.owns_event_id("pf-normal-20260827-00000000"))
         self.assertTrue(self.scope.owns_event_id("pf-fixture-smoke-v1-0001"))
@@ -29,6 +31,7 @@ class FunctionalOwnershipTests(unittest.TestCase):
         self.assertFalse(self.scope.owns_event_id("business-order-1"))
         self.assertFalse(self.scope.owns_user_id(42))
 
+    # 验证 Redis 清理不选择未归属、外形类似生产业务的键。
     def test_redis_cleanup_never_selects_unowned_production_shaped_keys(self) -> None:
         task_ids = {9203}
         owned = [
@@ -49,6 +52,7 @@ class FunctionalOwnershipTests(unittest.TestCase):
         for key in unowned:
             self.assertFalse(state.key_is_owned(key, self.scope, task_ids), key)
 
+    # 验证 MySQL 清理 SQL 仅覆盖测试命名空间且无全库删除语句。
     def test_mysql_cleanup_is_namespace_scoped_and_not_destructive(self) -> None:
         sql = state.build_mysql_cleanup_sql(self.scope).upper()
         self.assertIn("EVENT_ID LIKE 'PF-%'", sql)
@@ -58,6 +62,7 @@ class FunctionalOwnershipTests(unittest.TestCase):
         self.assertNotIn("DROP DATABASE", sql)
         self.assertNotIn("TRUNCATE", sql)
 
+    # 验证当前清单范围不会扩大到其他测试场景。
     def test_current_manifest_scope_does_not_expand_to_other_scenarios(self) -> None:
         manifest = {
             "scenario": "normal",

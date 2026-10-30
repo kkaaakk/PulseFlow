@@ -16,10 +16,16 @@ public final class AgentToolAuthFilter extends OncePerRequestFilter {
     static final String HEADER = "X-PulseFlow-Agent-Token";
     private final byte[] expectedHash;
 
+    /**
+     * 仅保存配置令牌的 SHA-256 摘要；空配置保留为不可用状态。
+     */
     AgentToolAuthFilter(String token) {
         expectedHash = token == null || token.isBlank() ? null : hash(token);
     }
 
+    /**
+     * 内部令牌未配置时返回 503；请求令牌缺失、过长或摘要不匹配时返回 401，通过后继续过滤器链。
+     */
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
@@ -36,6 +42,9 @@ public final class AgentToolAuthFilter extends OncePerRequestFilter {
         chain.doFilter(request, response);
     }
 
+    /**
+     * 对 UTF-8 令牌计算 SHA-256，生成可用于恒定时间比较的定长摘要。
+     */
     private static byte[] hash(String value) {
         try {
             return MessageDigest.getInstance("SHA-256")

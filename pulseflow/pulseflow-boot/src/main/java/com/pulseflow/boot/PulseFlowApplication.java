@@ -20,6 +20,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @MapperScan(basePackages = {"com.pulseflow.mapper", "com.pulseflow.campaign"}, annotationClass = Mapper.class)
 @EnableScheduling
 public class PulseFlowApplication {
+    /**
+     * 以传入的命令行参数启动 Spring Boot，装配事件、画像、Campaign 与 Web 服务。
+     */
     public static void main(String[] args) {
         SpringApplication.run(PulseFlowApplication.class, args);
     }

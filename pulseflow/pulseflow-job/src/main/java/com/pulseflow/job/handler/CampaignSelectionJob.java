@@ -31,6 +31,9 @@ public class CampaignSelectionJob {
     private final DecisionEngine decisionEngine;
     private final UserProfileMapper userProfileMapper;
 
+    /**
+     * 先恢复卡住的执行实例，再为到期活动建立实例，最后按计划时间处理最多十个 PENDING 实例。
+     */
     @XxlJob("campaignSelectionJob")
     public void execute() {
         log.info("CampaignSelectionJob started");
@@ -74,6 +77,9 @@ public class CampaignSelectionJob {
                 activeScheduled.size(), pendingExecutions.size());
     }
 
+    /**
+     * 恢复运行超过十分钟且未满三次重试的实例为 PENDING，已达上限的实例标记 FAILED。
+     */
     private void recoverStuckExecutions() {
         LocalDateTime tenMinutesAgo = LocalDateTime.now().minusMinutes(10);
 
@@ -95,6 +101,9 @@ public class CampaignSelectionJob {
                         .set(CampaignExecution::getStatus, ExecutionStatus.FAILED.name()));
     }
 
+    /**
+     * 用版本号条件更新抢占活动的本次计划时间并推进下次时间；再写入执行实例，重复计划槽由唯一键去重。
+     */
     private void createExecutionInstance(Campaign campaign) {
         LocalDateTime scheduledAt = campaign.getNextTriggerAt();
 
@@ -158,6 +167,9 @@ public class CampaignSelectionJob {
         }
     }
 
+    /**
+     * 条件抢占实例后按主键游标每批五百名启用用户执行决策；成功标记 DONE，异常恢复 PENDING 并增加重试计数。
+     */
     private void executeCampaign(CampaignExecution execution) {
         // CAS claim PENDING → RUNNING (only one node proceeds)
         int claimed = campaignExecutionMapper.update(null,

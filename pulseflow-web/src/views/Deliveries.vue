@@ -19,10 +19,25 @@ const result = ref<PageResponse<DeliveryListItem>>({ items: [], page: 1, pageSiz
 const drawerVisible = ref(false)
 const detail = ref<DeliveryDetail>()
 
+/**
+ * 按页码、Campaign、用户和状态筛选触达任务，保证请求结束后恢复加载状态。
+ */
 const load = async () => { loading.value = true; try { result.value = await listDeliveries(page.value, pageSize.value, campaignId.value ? Number(campaignId.value) : undefined, userId.value || undefined, status.value || undefined) } catch (error) { ElMessage.error(error instanceof Error ? error.message : '触达数据加载失败') } finally { loading.value = false } }
+/**
+ * 重置至第一页并应用当前触达筛选条件。
+ */
 const filter = () => { page.value = 1; load() }
+/**
+ * 先请求 taskId 对应详情，成功后打开抽屉；失败时仅显示错误。
+ */
 const openDelivery = async (taskId: number) => { try { detail.value = await getDelivery(taskId); drawerVisible.value = true } catch (error) { ElMessage.error(error instanceof Error ? error.message : '触达详情加载失败') } }
+/**
+ * 从触达列表行提取 taskId，再复用详情加载方法。
+ */
 const openDeliveryRow = (row: DeliveryListItem) => openDelivery(row.taskId)
+/**
+ * 更新页码并重新加载当前筛选下的触达记录。
+ */
 const changePage = (value: number) => { page.value = value; load() }
 onMounted(() => { campaignId.value = typeof route.query.campaignId === 'string' ? route.query.campaignId : ''; load() })
 </script>

@@ -11,11 +11,17 @@ import java.util.List;
 @Component
 public class AiPreferenceTagStrategy implements TagStrategy {
 
+    /**
+     * 返回 AI 兴趣代理标签代码 AI_PREF。
+     */
     @Override
     public String getTagName() {
         return "AI_PREF";
     }
 
+    /**
+     * 以搜索占总事件数大于百分之三十近似 AI 偏好，零事件返回 0；该规则不分析搜索文本。
+     */
     @Override
     public String compute(Long userId, List<UserMetricDaily> metrics) {
         long searchCount = metrics.stream()

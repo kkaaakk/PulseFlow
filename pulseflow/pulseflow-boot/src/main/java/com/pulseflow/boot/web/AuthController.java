@@ -20,6 +20,9 @@ public class AuthController {
 
     private final LocalAuthProperties authProperties;
 
+    /**
+     * 使用本地操作员目录验证账号密码；成功后建立 Sa-Token 会话并返回令牌，失败返回业务码 401。
+     */
     @PostMapping("/login")
     public ApiResponse<WebDtos.AuthSession> login(@Valid @RequestBody LoginRequest request) {
         LocalAuthProperties.AuthenticatedOperator operator =
@@ -32,12 +35,18 @@ public class AuthController {
         return ApiResponse.success(toSession(operator, StpUtil.getTokenValue()));
     }
 
+    /**
+     * 注销当前 Sa-Token 会话，返回无数据的成功响应。
+     */
     @PostMapping("/logout")
     public ApiResponse<Void> logout() {
         StpUtil.logout();
         return ApiResponse.success();
     }
 
+    /**
+     * 读取当前会话的操作员展示信息；无有效登录时返回业务码 401，不重复下发令牌。
+     */
     @GetMapping("/me")
     public ApiResponse<WebDtos.AuthSession> me() {
         Long loginId = currentLoginId();
@@ -48,6 +57,9 @@ public class AuthController {
         return ApiResponse.success(toSession(operator, null));
     }
 
+    /**
+     * 把操作员身份与可选令牌转换为前端会话契约，统一声明 token 请求头名称。
+     */
     private WebDtos.AuthSession toSession(LocalAuthProperties.AuthenticatedOperator operator,
                                           String tokenValue) {
         return new WebDtos.AuthSession(
@@ -59,6 +71,9 @@ public class AuthController {
                 String.valueOf(operator.id()));
     }
 
+    /**
+     * 尝试把 Sa-Token 登录标识转换为 Long；无会话或解析失败时返回 null。
+     */
     private Long currentLoginId() {
         try {
             Object loginId = StpUtil.getLoginId();

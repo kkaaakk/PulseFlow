@@ -13,6 +13,7 @@ from pulseflow_agent.workspace.repository import (
 )
 
 
+# 验证证据、假设、可见消息与范围版本在仓储重载后完整保留。
 @pytest.mark.asyncio
 async def test_evidence_hypotheses_messages_and_scope_survive_reload(database_url: str) -> None:
     engine = create_async_engine(database_url)
@@ -84,6 +85,7 @@ async def test_evidence_hypotheses_messages_and_scope_survive_reload(database_ur
     await second_engine.dispose()
 
 
+# 验证生产配置必须使用独立 Agent schema 和专用数据库用户。
 def test_production_settings_require_dedicated_agent_schema() -> None:
     from pydantic import SecretStr, ValidationError
 

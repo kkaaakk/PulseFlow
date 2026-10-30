@@ -11,6 +11,8 @@ branch_labels = None
 depends_on = None
 
 
+# 为提案添加所有者、独立状态和草稿 ID；保留历史草稿关联但将缺少所有者的旧记录隔离为 CANCELLED，
+# 再移除旧快照列。
 def upgrade() -> None:
     op.add_column("agent_campaign_proposal", sa.Column("owner_id", sa.BigInteger(), nullable=True))
     op.add_column(
@@ -36,6 +38,7 @@ def upgrade() -> None:
     op.drop_column("agent_campaign_proposal", "draft_json")
 
 
+# 恢复旧 draft_json 列并删除新边界字段；不重建旧草稿 JSON 内容，因此回退不恢复原快照数据。
 def downgrade() -> None:
     op.add_column("agent_campaign_proposal", sa.Column("draft_json", sa.JSON()))
     op.drop_column("agent_campaign_proposal", "updated_at")

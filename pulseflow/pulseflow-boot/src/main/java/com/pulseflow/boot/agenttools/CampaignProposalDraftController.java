@@ -19,6 +19,9 @@ public class CampaignProposalDraftController {
 
     public record Response(Long draftId, String status, Long estimatedAudienceCount, String dataVersion) {}
 
+    /**
+     * 要求登录并按提案幂等创建 Java 草稿，再尽力回写 Agent 状态；回写失败不影响已提交草稿的返回。
+     */
     @PostMapping("/{proposalId}/draft")
     public ApiResponse<Response> create(@PathVariable String proposalId) {
         StpUtil.checkLogin();

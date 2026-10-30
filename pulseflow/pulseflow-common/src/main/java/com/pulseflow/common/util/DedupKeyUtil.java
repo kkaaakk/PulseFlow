@@ -12,6 +12,9 @@ package com.pulseflow.common.util;
  */
 public final class DedupKeyUtil {
 
+    /**
+     * 禁止实例化统一幂等键工具，确保各业务链路通过静态方法生成约定键格式。
+     */
     private DedupKeyUtil() {
         throw new UnsupportedOperationException("Utility class should not be instantiated");
     }

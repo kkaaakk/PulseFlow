@@ -219,6 +219,9 @@ public class DecisionEngine {
 
     // ---------- rule evaluation ----------
 
+    /**
+     * 读取指定 Campaign 已启用的规则，并按优先级升序返回。
+     */
     private List<CampaignRule> loadRules(Long campaignId) {
         return campaignRuleMapper.selectList(
                 new LambdaQueryWrapper<CampaignRule>()
@@ -227,6 +230,9 @@ public class DecisionEngine {
                         .orderByAsc(CampaignRule::getPriority));
     }
 
+    /**
+     * 逐条执行规则并在首个失败处短路；空规则列表按全部匹配处理。
+     */
     private boolean allRulesMatched(List<CampaignRule> rules, Long userId, Map<String, Object> eventMap) {
         for (CampaignRule rule : rules) {
             if (!evaluateRule(rule, userId, eventMap)) {
@@ -236,6 +242,9 @@ public class DecisionEngine {
         return true;
     }
 
+    /**
+     * 检查当前本地时间是否位于 Campaign 起止窗口内；未配置的边界不限制，恰好等于边界时允许。
+     */
     private boolean inActiveWindow(Campaign campaign) {
         LocalDateTime now = LocalDateTime.now();
         if (campaign.getStartTime() != null && now.isBefore(campaign.getStartTime())) return false;
@@ -243,6 +252,9 @@ public class DecisionEngine {
         return true;
     }
 
+    /**
+     * 解析并执行画像、事件属性或频次规则；未知类型当前放行，解析或求值异常记录后按不匹配处理。
+     */
     private boolean evaluateRule(CampaignRule rule, Long userId, Map<String, Object> eventMap) {
         try {
             Map<String, Object> ruleConfig = JsonUtil.fromJson(rule.getRuleConfig(), Map.class);
@@ -290,6 +302,9 @@ public class DecisionEngine {
         }
     }
 
+    /**
+     * 将缺失数值按零处理并执行受支持的整数比较，未知操作符返回 false。
+     */
     private boolean compare(Long left, String operator, Long right) {
         if (left == null) left = 0L;
         if (right == null) right = 0L;
@@ -304,6 +319,9 @@ public class DecisionEngine {
         };
     }
 
+    /**
+     * 从事件上下文提取 properties 映射；缺失或类型不符时返回空映射。
+     */
     @SuppressWarnings("unchecked")
     private Map<String, Object> getProperties(Map<String, Object> eventMap) {
         Object props = eventMap.get("properties");
@@ -311,6 +329,9 @@ public class DecisionEngine {
         return Collections.emptyMap();
     }
 
+    /**
+     * 将数值或整数字符串转换为 Long，null 返回零；非法文本继续抛出解析异常。
+     */
     private Long toLong(Object val) {
         if (val == null) return 0L;
         if (val instanceof Number) return ((Number) val).longValue();

@@ -15,6 +15,7 @@
 
 . (Join-Path $PSScriptRoot 'common.ps1')
 
+# 将统一编排退出码零映射为 PASS、二映射为 NOT_RUN，其余映射为 FAIL。
 function Convert-ExitCodeToStatus {
     param([int]$ExitCode)
     if ($ExitCode -eq 0) { return 'PASS' }
@@ -22,6 +23,7 @@ function Convert-ExitCodeToStatus {
     return 'FAIL'
 }
 
+# 优先读取报告中合法的最终状态，文件缺失、解析错误或未知值使用调用方给定回退状态。
 function Read-ReportStatus {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -41,6 +43,7 @@ function Read-ReportStatus {
     return $Fallback
 }
 
+# 安全读取可选对象属性，在严格模式下仍允许对象或属性不存在。
 function Get-JsonProperty {
     param([object]$Object, [string]$Name)
     if ($null -eq $Object) { return $null }
@@ -49,6 +52,7 @@ function Get-JsonProperty {
     return $null
 }
 
+# 按整数或两位小数格式化汇总值并附单位；缺失值显示占位符，异常输入保留文本。
 function Format-SummaryMetric {
     param([object]$Value, [string]$Unit = '', [switch]$Integer)
     if ($null -eq $Value) { return '—' }
@@ -60,12 +64,14 @@ function Format-SummaryMetric {
     }
 }
 
+# 把汇总比例转为两位百分比，缺失值显示占位符，解析失败保留原文。
 function Format-SummaryPercent {
     param([object]$Value)
     if ($null -eq $Value) { return '—' }
     try { return '{0:P2}' -f [double]$Value } catch { return [string]$Value }
 }
 
+# 组合功能与性能结论、运行标识和报告位置写入总报告，未选择性能场景时明确标注未执行。
 function Write-RunAllSummary {
     param(
         [Parameter(Mandatory = $true)][string]$RunRoot,

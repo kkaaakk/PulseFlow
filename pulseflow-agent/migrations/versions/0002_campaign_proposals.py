@@ -9,6 +9,7 @@ branch_labels = None
 depends_on = None
 
 
+# 新增与调查关联的 Campaign 提案表，保存提案、草稿快照及范围版本。
 def upgrade() -> None:
     op.create_table(
         "agent_campaign_proposal",
@@ -31,6 +32,7 @@ def upgrade() -> None:
     )
 
 
+# 删除提案表并撤销本次迁移创建的提案持久化结构。
 def downgrade() -> None:
     op.drop_index("idx_agent_proposal_investigation", table_name="agent_campaign_proposal")
     op.drop_table("agent_campaign_proposal")

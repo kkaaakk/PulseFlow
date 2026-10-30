@@ -55,6 +55,9 @@ public class EventConsumer {
     /** Events that represent a conversion goal and therefore seed attribution. */
     private static final Set<String> ATTRIBUTION_TARGET_EVENTS = Set.of("ORDER_PAID");
 
+    /**
+     * 顺序执行事件幂等持久化、实时画像更新与活动决策；后两阶段失败时写补偿任务，持久化失败则抛出以触发 Kafka 重投。
+     */
     @KafkaListener(topics = "pulseflow.raw.events", groupId = "pulseflow-event-group",
             concurrency = "4")
     public void consume(ConsumerRecord<String, String> record) {
@@ -162,6 +165,9 @@ public class EventConsumer {
 
     // --- Helpers ---
 
+    /**
+     * 反序列化 Kafka 事件上下文；解析失败包装为 RuntimeException 向外传播，使消息不被当作成功消费。
+     */
     @SuppressWarnings("unchecked")
     private Map<String, Object> parseEvent(String json) {
         try {

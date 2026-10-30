@@ -38,6 +38,9 @@ public class WindowMetricJob {
     private static final int WINDOW_30D = 30;
     private static final int WINDOW_7D = 7;
 
+    /**
+     * 扫描近三十天有日桶的用户，逐用户计算窗口指标；单个用户失败后继续处理其他用户。
+     */
     @XxlJob("windowMetricJob")
     public void execute() {
         log.info("WindowMetricJob started");
@@ -66,6 +69,9 @@ public class WindowMetricJob {
         log.info("WindowMetricJob completed, processed {} users", processed);
     }
 
+    /**
+     * 一次读取近三十日日桶及当前小时桶，计算搜索、浏览活跃、支付金额和收藏指标，并保存各自窗口边界。
+     */
     private void processUser(Long userId, LocalDateTime now, LocalDateTime currentHour) {
         // 读取该用户近 30 天全部日桶（一次性，减少查询次数）
         LocalDate since30d = now.toLocalDate().minusDays(WINDOW_30D);
@@ -109,6 +115,9 @@ public class WindowMetricJob {
                 calculatedAt, since7d.atStartOfDay(), now);
     }
 
+    /**
+     * 将指定用户、指标值、计算时间与窗口范围追加为行为汇总快照。
+     */
     private void computeAndSave(Long userId, String metricType, BigDecimal value,
                                  LocalDateTime calculatedAt,
                                  LocalDateTime windowStart, LocalDateTime windowEnd) {
@@ -123,6 +132,9 @@ public class WindowMetricJob {
         behaviorSummaryMapper.insert(summary);
     }
 
+    /**
+     * 筛选指定事件类型并求和小时桶计数，空计数按零处理。
+     */
     private BigDecimal sumHourlyEventCount(List<UserMetricHourly> metrics, String eventType) {
         return metrics.stream()
                 .filter(m -> eventType.equals(m.getEventType()))
@@ -130,6 +142,9 @@ public class WindowMetricJob {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
+    /**
+     * 筛选指定事件类型并求和日桶计数，空计数按零处理。
+     */
     private BigDecimal sumDailyEventCount(List<UserMetricDaily> metrics, String eventType) {
         return metrics.stream()
                 .filter(m -> eventType.equals(m.getEventType()))
@@ -137,6 +152,9 @@ public class WindowMetricJob {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
+    /**
+     * 筛选指定事件类型并累计日桶金额，空金额按零处理。
+     */
     private BigDecimal sumDailyAmount(List<UserMetricDaily> metrics, String eventType) {
         return metrics.stream()
                 .filter(m -> eventType.equals(m.getEventType()))

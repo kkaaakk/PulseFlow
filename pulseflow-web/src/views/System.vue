@@ -14,7 +14,13 @@ const services = [
   { key: 'kafka', label: 'Kafka', note: '事件与触达消息' },
 ] as const
 
+/**
+ * 把 UP、MOCK、REAL 映射为成功色，DEGRADED 为警告，DOWN 为危险，其余为信息色。
+ */
 const tone = (value?: string) => ['UP', 'MOCK', 'REAL'].includes(value || '') ? 'success' : value === 'DEGRADED' ? 'warning' : value === 'DOWN' ? 'danger' : 'info'
+/**
+ * 读取系统状态并处理错误提示，无论成功失败均恢复加载状态。
+ */
 const load = async () => { loading.value = true; try { status.value = await getSystemStatus() } catch (error) { ElMessage.error(error instanceof Error ? error.message : '系统状态加载失败') } finally { loading.value = false } }
 onMounted(load)
 </script>

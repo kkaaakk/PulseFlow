@@ -31,6 +31,9 @@ class AgentMetricQueryIT {
 
     static AgentMetricService service;
 
+    /**
+     * 为真实数据库指标集成测试装配固定触达、点击与归因事实。
+     */
     @BeforeAll
     static void prepare() {
         Flyway.configure().dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
@@ -59,6 +62,9 @@ class AgentMetricQueryIT {
                 + "(203,'agent-conversion-2',1002,9,102,'2026-09-02 12:05:00')");
     }
 
+    /**
+     * 验证时间段比率与权威计算器口径一致，归因接口仅输出聚合值。
+     */
     @Test
     void periodRatesMatchCalculatorSemanticsAndAttributionIsAggregateOnly() {
         TimeRange range = new TimeRange(OffsetDateTime.parse("2026-09-01T00:00:00+08:00"),

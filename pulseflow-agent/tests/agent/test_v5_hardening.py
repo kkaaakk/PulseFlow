@@ -19,6 +19,7 @@ from tests.test_foundation import azure_response, settings
 from tests.workspace.test_followup import final
 
 
+# 验证带空白连接的业务标识不因 Azure 误报变为电话。
 @pytest.mark.parametrize(
     "text",
     [
@@ -42,6 +43,7 @@ async def test_spaced_identifiers_are_not_phones_even_with_azure_claim(text: str
         await AzurePiiGuardrail(settings(real=True), http).check(text)
 
 
+# 验证合法联系方式写法仍被正确阻断。
 @pytest.mark.parametrize(
     "text",
     [
@@ -63,6 +65,7 @@ async def test_legitimate_contact_notation_still_blocks(text: str) -> None:
             await AzurePiiGuardrail(settings(real=True), http).check(text)
 
 
+# 验证完整字段概念问句不会跳过 Azure 隐私检查。
 @pytest.mark.parametrize(
     "text",
     [
@@ -78,6 +81,7 @@ async def test_legitimate_contact_notation_still_blocks(text: str) -> None:
 async def test_complete_concept_questions_still_call_azure(text: str) -> None:
     calls = 0
 
+    # 记录并模拟 Azure 概念问句检查响应。
     def provider(_: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
@@ -88,6 +92,7 @@ async def test_complete_concept_questions_still_call_azure(text: str) -> None:
     assert calls == 1
 
 
+# 验证实际值、嵌套字段和复合请求不能滥用概念问句语法。
 @pytest.mark.parametrize(
     "value",
     [
@@ -115,6 +120,7 @@ async def test_values_nested_keys_and_composite_requests_cannot_use_concept_exem
             await AzurePiiGuardrail(settings(real=True), http).check(value)
 
 
+# 验证概念问句在 PII 服务故障时也拒绝继续。
 async def test_concept_questions_do_not_bypass_provider_failure() -> None:
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(lambda _: httpx.Response(429))
@@ -123,6 +129,7 @@ async def test_concept_questions_do_not_bypass_provider_failure() -> None:
             await AzurePiiGuardrail(settings(real=True), http).check("rawEvents 字段是什么意思？")
 
 
+# 验证第四版五个历史失败案例保持修复状态。
 def test_v4_five_old_failures_are_fixed_development_regression() -> None:
     path = Path(__file__).parents[1] / "fixtures/pii_historical_regressions.json"
     cases = json.loads(path.read_text(encoding="utf-8"))["cases"]
@@ -131,9 +138,11 @@ def test_v4_five_old_failures_are_fixed_development_regression() -> None:
     assert all(not StructuredPiiDetector().detect(c["text"]) for c in selected)
 
 
+# 验证安全概念目标通过真实上下文校验后才到达模拟模型。
 async def test_concept_goal_passes_actual_context_check_before_mock_model() -> None:
     calls = 0
 
+    # 模拟安全概念调查的最终模型响应。
     async def model(_: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         nonlocal calls
         calls += 1
@@ -163,6 +172,7 @@ async def test_concept_goal_passes_actual_context_check_before_mock_model() -> N
     assert calls == 1 and result.diagnosis.status == "INSUFFICIENT_EVIDENCE"
 
 
+# 验证上下文渲染前逐一检查所有可见业务值。
 def test_context_payload_checks_every_visible_value_before_rendering() -> None:
     workspace = InvestigationWorkspace(goal="rawEvents 字段是什么意思？", scope="overall")
     assert workspace.context_payload()["goal"] == workspace.goal
@@ -173,15 +183,18 @@ def test_context_payload_checks_every_visible_value_before_rendering() -> None:
         _texts(workspace.context_payload())
 
 
+# 验证持久化上下文中的危险内容在下次模型调用前被阻断。
 @pytest.mark.parametrize("location", ["scope", "history"])
 async def test_unsafe_persisted_context_stops_before_the_next_mock_model(location: str) -> None:
     calls = 0
 
+    # 记录模型调用，用于证明危险历史上下文没有到达下一轮。
     async def model(_: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
         nonlocal calls
         calls += 1
         pytest.fail("Persisted forbidden content reached model")
 
+    # 装载含危险历史值的工作区，驱动真实上下文边界测试。
     async def workspace_factory(prompt: str) -> InvestigationWorkspace:
         workspace = InvestigationWorkspace(goal=prompt)
         if location == "scope":

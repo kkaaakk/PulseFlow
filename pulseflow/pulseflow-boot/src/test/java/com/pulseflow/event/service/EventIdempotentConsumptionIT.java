@@ -68,6 +68,9 @@ class EventIdempotentConsumptionIT {
             .withPassword("test")
             .withReuse(true);
 
+    /**
+     * 把集成测试数据库及所需依赖配置注入 Spring 测试上下文。
+     */
     @DynamicPropertySource
     static void overrideProps(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url",
@@ -119,6 +122,9 @@ class EventIdempotentConsumptionIT {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    /**
+     * 构造供真实 MySQL 幂等持久化测试复用的标准事件上下文。
+     */
     private Map<String, Object> buildEvent(String eventId, String eventType) {
         Map<String, Object> eventMap = new LinkedHashMap<>();
         eventMap.put("eventId", eventId);
@@ -138,6 +144,9 @@ class EventIdempotentConsumptionIT {
         return eventMap;
     }
 
+    /**
+     * 验证首次持久化在同一事务写入事件和小时指标。
+     */
     @Test
     @Transactional
     @DisplayName("首次 persist：user_event + user_metric_hourly 同事务落库")
@@ -156,6 +165,9 @@ class EventIdempotentConsumptionIT {
         assertEquals("evt_it_001", result.getContext().get("eventId"));
     }
 
+    /**
+     * 验证重复事件不重复计数，并使用数据库首条事实恢复上下文。
+     */
     @Test
     @Transactional
     @DisplayName("重复 persist 同一 eventId：不抛异常，返回 DB 标准事件（幂等）")
@@ -172,6 +184,9 @@ class EventIdempotentConsumptionIT {
         assertEquals("evt_it_002", second.getEvent().getEventId());
     }
 
+    /**
+     * 验证同小时指标键按事件累计，保持数据库 upsert 语义。
+     */
     @Test
     @Transactional
     @DisplayName("指标桶累加：同一小时桶多次写入 event_count 正确累加（ON DUPLICATE KEY UPDATE）")
@@ -194,6 +209,9 @@ class EventIdempotentConsumptionIT {
                 "amount_sum should accumulate, got " + metric.getAmountSum());
     }
 
+    /**
+     * 验证 null 目标与数值零经过 MySQL 后仍保持区别。
+     */
     @Test
     @Transactional
     @DisplayName("targetId NULL and zero remain distinct through MyBatis INSERT and MySQL")

@@ -67,6 +67,9 @@ const pacingSeconds = Number(__ENV.PACE_SECONDS || selectedConfig.pacingSeconds)
 
 export const options = selectedConfig.options;
 
+/**
+ * 每次虚拟用户迭代发送一个事件，记录 HTTP 与业务接收校验和失败率，再按配置休眠控制节奏。
+ */
 export default function () {
   const response = http.post(
     `${baseUrl}/api/events`,
@@ -79,7 +82,13 @@ export default function () {
   const accepted = isAccepted(response);
   apiFailures.add(!accepted);
   check(response, {
+    /**
+     * 检查事件接入请求的 HTTP 状态是否为 200。
+     */
     'event ingress returns HTTP 200': (res) => res.status === 200,
+    /**
+     * 复用完整业务接收校验结果，作为 k6 的业务断言。
+     */
     'ApiResponse code and accepted flag are valid': () => accepted,
   });
   if (pacingSeconds > 0) sleep(pacingSeconds);

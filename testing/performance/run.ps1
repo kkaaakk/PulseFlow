@@ -16,12 +16,14 @@ $script:PerformanceStatusLabels = @{
     NOT_RUN = '⚠️ NOT_RUN（未执行）'
 }
 
+# 把性能验证状态转换为预设展示名称，未知状态原样返回。
 function Get-PerformanceStatusLabel {
     param([string]$Status)
     if ($script:PerformanceStatusLabels.ContainsKey($Status)) { return $script:PerformanceStatusLabels[$Status] }
     return $Status
 }
 
+# 在严格模式下安全读取可选 JSON 属性，对象或属性缺失时返回 null。
 function Get-JsonPropertyValue {
     param([object]$Object, [string]$Name)
     if ($null -eq $Object) { return $null }
@@ -30,12 +32,14 @@ function Get-JsonPropertyValue {
     return $null
 }
 
+# 从指定 k6 指标对象读取某一统计字段，缺失时返回 null。
 function Get-K6MetricField {
     param([object]$Metrics, [string]$MetricName, [string]$Field)
     $metric = Get-JsonPropertyValue -Object $Metrics -Name $MetricName
     return Get-JsonPropertyValue -Object $metric -Name $Field
 }
 
+# 解析 k6 汇总中的请求量、吞吐、时延及错误率；文件缺失、结构不符或解析失败时返回 null。
 function Get-K6Metrics {
     param([Parameter(Mandatory = $true)][string]$SummaryPath)
     if (-not (Test-Path -LiteralPath $SummaryPath)) { return $null }
@@ -58,6 +62,7 @@ function Get-K6Metrics {
     }
 }
 
+# 把可选数值格式化为整数或两位小数并附单位，缺失值使用占位符，非法数值保留文本。
 function Format-PerformanceMetric {
     param([object]$Value, [string]$Unit = '', [switch]$Integer)
     if ($null -eq $Value) { return '—' }
@@ -69,12 +74,14 @@ function Format-PerformanceMetric {
     }
 }
 
+# 将比例格式化为两位百分比；空值使用占位符，无法转换时保留原文。
 function Format-PerformancePercent {
     param([object]$Value)
     if ($null -eq $Value) { return '—' }
     try { return '{0:P2}' -f [double]$Value } catch { return ([string]$Value) }
 }
 
+# 将 smoke、load 和 stress 转换为性能报告中的说明名称。
 function Get-PerformanceScenarioLabel {
     param([string]$Scenario)
     switch ($Scenario) {
@@ -85,6 +92,7 @@ function Get-PerformanceScenarioLabel {
     }
 }
 
+# 组合场景、目标、阈值结果和实测指标生成性能报告；输出异常仅告警并保留 JSON。
 function Write-PerformanceMarkdown {
     param(
         [Parameter(Mandatory = $true)][string]$ReportDir,

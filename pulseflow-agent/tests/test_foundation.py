@@ -19,6 +19,7 @@ from pulseflow_agent.main import create_app
 from pulseflow_agent.security.pii_guardrail import AzurePiiGuardrail, PiiBlockedError
 
 
+# 生成基础 Agent 测试配置，支持按案例覆盖依赖设置。
 def settings(real: bool = False, **overrides: object) -> AgentSettings:
     values: dict[str, object] = {
         "pulseflow_java_base_url": "http://localhost:8080",
@@ -37,6 +38,7 @@ def settings(real: bool = False, **overrides: object) -> AgentSettings:
     return AgentSettings.model_validate(values)
 
 
+# 构造 Azure PII 契约形状的模拟返回。
 def azure_response(entities: list[dict[str, object]] | None = None) -> dict[str, object]:
     return {
         "kind": "PiiEntityRecognitionResults",
@@ -44,6 +46,7 @@ def azure_response(entities: list[dict[str, object]] | None = None) -> dict[str,
     }
 
 
+# 验证离线 Agent 结构化输出与调用预算限制。
 @pytest.mark.asyncio
 async def test_offline_agent_structured_output_and_usage_limit(
     monkeypatch: pytest.MonkeyPatch,
@@ -79,10 +82,12 @@ async def test_offline_agent_structured_output_and_usage_limit(
         assert limited.diagnosis.summary == "Investigation stopped at its usage budget."
 
 
+# 验证受禁业务字段在 Azure 和模型调用之前即被阻断。
 @pytest.mark.asyncio
 async def test_local_fields_block_before_azure_or_model() -> None:
     requests: list[httpx.Request] = []
 
+    # 记录不应被调用的 Azure 请求，证明本地字段边界先执行。
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         return httpx.Response(200, json=azure_response())
@@ -134,6 +139,7 @@ async def test_local_fields_block_before_azure_or_model() -> None:
         assert len(requests) == 1
 
 
+# 验证 Azure 返回失败时守卫不放行内容。
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("response", "reason"),
@@ -165,10 +171,12 @@ async def test_azure_fail_closed(response: httpx.Response, reason: str | None) -
             assert "13800138000" not in str(error.value)
 
 
+# 验证 Azure 超时拒绝继续，空输入按约定避免无意义调用。
 @pytest.mark.asyncio
 async def test_azure_timeout_and_blank_input() -> None:
     calls = 0
 
+    # 为超时与空输入测试模拟 Azure 传输行为。
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
@@ -184,6 +192,7 @@ async def test_azure_timeout_and_blank_input() -> None:
         assert "sensitive" not in str(error.value)
 
 
+# 验证被阻断的问题绝不会进入模型。
 @pytest.mark.asyncio
 async def test_blocked_prompt_never_reaches_model(monkeypatch: pytest.MonkeyPatch) -> None:
     config = settings()
@@ -198,6 +207,7 @@ async def test_blocked_prompt_never_reaches_model(monkeypatch: pytest.MonkeyPatc
         model_run.assert_not_awaited()
 
 
+# 验证健康端点和真实模型配置缺失时的启动校验。
 def test_health_and_invalid_real_configuration() -> None:
     with TestClient(create_app(settings())) as client:
         assert client.get("/health/live").json() == {"status": "live"}
@@ -213,6 +223,7 @@ def test_health_and_invalid_real_configuration() -> None:
             pass
 
 
+# 验证内部调查接口同时保留鉴权与 PII 的拒绝边界。
 def test_internal_investigation_auth_and_pii_are_fail_closed() -> None:
     with TestClient(create_app(settings())) as client:
         path = "/internal/v1/investigations"

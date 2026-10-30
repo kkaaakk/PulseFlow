@@ -14,6 +14,7 @@ from pulseflow_agent.domain.investigation import Diagnosis, InvestigationWorkspa
 from pulseflow_agent.workspace.repository import SqlAlchemyInvestigationRepository
 
 
+# 验证独立 Agent schema 在真实 MySQL 上完成迁移并持久化调查数据。
 @pytest.mark.asyncio
 async def test_agent_schema_migrates_and_persists_on_mysql(
     monkeypatch: pytest.MonkeyPatch,

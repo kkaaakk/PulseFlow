@@ -36,6 +36,9 @@ public class AgentToolService {
     private final CampaignDslValidator validator;
     private final AudiencePreviewService previewService;
 
+    /**
+     * 校验 Campaign 存在后读取已落库的绩效快照；不触发重新计算或写库，未汇总时返回不可用标记。
+     */
     @WithSpan("agent-tools.performance")
     public PerformanceResponse performance(Long campaignId) {
         if (campaignId == null || campaignId <= 0) throw new IllegalArgumentException("invalid_campaign_id");
@@ -62,6 +65,9 @@ public class AgentToolService {
                 summary.getConversionRate(), calculatedAt);
     }
 
+    /**
+     * 先执行 DSL 校验，再预估汇总人群规模；校验或预估失败转为稳定错误码，不回传内部异常文本。
+     */
     @WithSpan("agent-tools.audience-preview")
     public AudienceResponse audience(AudienceRequest request) {
         if (request == null || request.dsl() == null) throw new IllegalArgumentException("invalid_campaign_dsl");
@@ -85,6 +91,9 @@ public class AgentToolService {
         return new AudienceResponse(meta, failed ? null : result.getEstimatedCount(), validation);
     }
 
+    /**
+     * 按指标服务的业务时区解释本地时间并转换为 Instant，空值原样保留。
+     */
     private Instant toInstant(LocalDateTime value) {
         return value == null ? null : value.atZone(AgentMetricService.BUSINESS_ZONE).toInstant();
     }

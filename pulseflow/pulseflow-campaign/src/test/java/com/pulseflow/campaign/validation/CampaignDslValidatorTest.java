@@ -27,6 +27,9 @@ class CampaignDslValidatorTest {
     private static CampaignFieldRegistry registry;
     private static CampaignDslValidator validator;
 
+    /**
+     * 初始化字段注册表与真实 DSL 校验器。
+     */
     @BeforeAll
     static void setUp() {
         registry = new CampaignFieldRegistry();
@@ -35,6 +38,9 @@ class CampaignDslValidatorTest {
         validator = new CampaignDslValidator(registry);
     }
 
+    /**
+     * 构造可复用的合法 Campaign DSL 基线。
+     */
     private CampaignDsl validDsl() {
         return CampaignDsl.builder()
                 .schemaVersion(1)
@@ -77,6 +83,9 @@ class CampaignDslValidatorTest {
                 .build();
     }
 
+    /**
+     * 验证完整合法 DSL 通过校验。
+     */
     @Test
     @DisplayName("valid DSL with all fields passes")
     void validDslPasses() {
@@ -85,6 +94,9 @@ class CampaignDslValidatorTest {
         assertThat(result.getErrors()).isEmpty();
     }
 
+    /**
+     * 验证缺失促销事实被标记为需要补充确认。
+     */
     @Test
     @DisplayName("DSL missing promotionFacts → NEEDS_CONFIRMATION")
     void missingPromotionFacts() {
@@ -95,6 +107,9 @@ class CampaignDslValidatorTest {
         assertThat(result.getMissingFields()).contains("promotionFacts");
     }
 
+    /**
+     * 验证未登记人群字段被拒绝。
+     */
     @Test
     @DisplayName("DSL with unknown field → INVALID")
     void unknownField() {
@@ -110,6 +125,9 @@ class CampaignDslValidatorTest {
         assertThat(result.getErrors()).anyMatch(e -> e.contains("not in registry"));
     }
 
+    /**
+     * 验证字段不允许的操作符被拒绝。
+     */
     @Test
     @DisplayName("DSL with wrong operator for field → INVALID")
     void wrongOperator() {
@@ -126,6 +144,9 @@ class CampaignDslValidatorTest {
         assertThat(result.getErrors()).anyMatch(e -> e.contains("not allowed for field"));
     }
 
+    /**
+     * 验证条件值类型与字段类型不一致时失败。
+     */
     @Test
     @DisplayName("DSL with wrong valueType → INVALID")
     void wrongValueType() {
@@ -135,6 +156,9 @@ class CampaignDslValidatorTest {
         assertThat(result.getErrors()).anyMatch(e -> e.contains("does not match field type"));
     }
 
+    /**
+     * 验证低于字段下限的值被拒绝。
+     */
     @Test
     @DisplayName("DSL with value below minimum → INVALID")
     void valueBelowMin() {
@@ -144,6 +168,9 @@ class CampaignDslValidatorTest {
         assertThat(result.getErrors()).anyMatch(e -> e.contains("below min"));
     }
 
+    /**
+     * 验证七日活跃天数字段不能超过七。
+     */
     @Test
     @DisplayName("activeDays7d exceeding 7 → INVALID (business rule)")
     void activeDaysExceedsSeven() {
@@ -153,6 +180,9 @@ class CampaignDslValidatorTest {
         assertThat(result.getErrors()).anyMatch(e -> e.contains("activeDays7d"));
     }
 
+    /**
+     * 验证过去的发送时间触发校验失败。
+     */
     @Test
     @DisplayName("DSL with past sendAt → INVALID")
     void pastSendAt() {
@@ -162,6 +192,9 @@ class CampaignDslValidatorTest {
         assertThat(result.getErrors()).anyMatch(e -> e.contains("must be in the future"));
     }
 
+    /**
+     * 验证非法时区标识被拒绝。
+     */
     @Test
     @DisplayName("DSL with invalid timezone → INVALID")
     void invalidTimezone() {
@@ -171,6 +204,9 @@ class CampaignDslValidatorTest {
         assertThat(result.getErrors()).anyMatch(e -> e.contains("not a valid ZoneId"));
     }
 
+    /**
+     * 验证非正频控次数或窗口被拒绝。
+     */
     @Test
     @DisplayName("DSL with invalid frequencyCap (maxTimes=0) → INVALID")
     void invalidFrequencyCap() {
@@ -180,6 +216,9 @@ class CampaignDslValidatorTest {
         assertThat(result.getErrors()).anyMatch(e -> e.contains("maxTimes must be > 0"));
     }
 
+    /**
+     * 验证人群条件数量超限时失败。
+     */
     @Test
     @DisplayName("DSL with more than 10 conditions → INVALID")
     void tooManyConditions() {
@@ -197,6 +236,9 @@ class CampaignDslValidatorTest {
         assertThat(result.getErrors()).anyMatch(e -> e.contains("exceeds max"));
     }
 
+    /**
+     * 验证未知业务目标被拒绝。
+     */
     @Test
     @DisplayName("DSL with invalid objective → INVALID")
     void invalidObjective() {
@@ -206,6 +248,9 @@ class CampaignDslValidatorTest {
         assertThat(result.getErrors()).anyMatch(e -> e.contains("objective must be one of"));
     }
 
+    /**
+     * 验证未支持渠道被拒绝。
+     */
     @Test
     @DisplayName("DSL with invalid channel → INVALID")
     void invalidChannel() {
@@ -215,6 +260,9 @@ class CampaignDslValidatorTest {
         assertThat(result.getErrors()).anyMatch(e -> e.contains("channel must be one of"));
     }
 
+    /**
+     * 验证空白活动名称被拒绝。
+     */
     @Test
     @DisplayName("DSL with blank campaignName → INVALID")
     void blankName() {
@@ -224,6 +272,9 @@ class CampaignDslValidatorTest {
         assertThat(result.getErrors()).anyMatch(e -> e.contains("campaignName is required"));
     }
 
+    /**
+     * 验证整个 DSL 为空时返回明确校验错误。
+     */
     @Test
     @DisplayName("DSL with null → INVALID")
     void nullDsl() {
@@ -231,6 +282,9 @@ class CampaignDslValidatorTest {
         assertThat(result.getErrors()).contains("DSL is null");
     }
 
+    /**
+     * 验证标签字段接受类型正确的 true 值。
+     */
     @Test
     @DisplayName("TAG field with boolean true value passes")
     void tagFieldBooleanTrue() {

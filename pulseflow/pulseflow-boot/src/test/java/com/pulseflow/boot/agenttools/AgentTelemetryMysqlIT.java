@@ -16,6 +16,9 @@ class AgentTelemetryMysqlIT extends AgentTelemetryTest {
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0")
             .withDatabaseName("pulseflow_otel_test").withUsername("test").withPassword("test");
 
+    /**
+     * 将测试 MySQL 容器连接信息注入 Spring 属性。
+     */
     @DynamicPropertySource
     static void mysqlProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
@@ -24,5 +27,8 @@ class AgentTelemetryMysqlIT extends AgentTelemetryTest {
         registry.add("spring.datasource.driver-class-name", () -> "com.mysql.cj.jdbc.Driver");
     }
 
+    /**
+     * 声明当前集成测试预期的数据库遥测类型为 MySQL。
+     */
     @Override protected String expectedDatabaseSystem() { return "mysql"; }
 }

@@ -28,6 +28,9 @@ public class LocalAuthProperties {
     private String adminPassword = "pulseflow-admin";
     private String adminName = "Administrator";
 
+    /**
+     * 在本地登录启用时匹配配置的操作员或管理员账号密码；凭据缺失或不匹配时返回 null。
+     */
     public AuthenticatedOperator authenticate(Long requestedId, String password) {
         if (!localEnabled || requestedId == null || password == null) {
             return null;
@@ -41,6 +44,9 @@ public class LocalAuthProperties {
         return null;
     }
 
+    /**
+     * 将登录 ID 转换为展示身份；配置账号保留其角色，其他有效 ID 使用默认操作员身份。
+     */
     public AuthenticatedOperator describe(Long loginId) {
         if (loginId == null) {
             return null;
@@ -54,6 +60,9 @@ public class LocalAuthProperties {
         return new AuthenticatedOperator(loginId, "OPERATOR", "Operator " + loginId);
     }
 
+    /**
+     * 比较提交密码与配置密码的 UTF-8 字节，使用 MessageDigest.isEqual；未配置密码时直接失败。
+     */
     private boolean matches(String presented, String configured) {
         if (configured == null) {
             return false;

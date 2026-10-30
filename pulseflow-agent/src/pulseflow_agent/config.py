@@ -33,6 +33,7 @@ class AgentSettings(BaseSettings):
     azure_language_key: SecretStr | None = None
     azure_language_pii_language: str = "zh-hans"
 
+    # 将可选环境配置中的空字符串归一为 None，便于后续 URL 和 SecretStr 校验。
     @field_validator(
         "pulseflow_agent_api_key",
         "pulseflow_agent_base_url",
@@ -45,10 +46,13 @@ class AgentSettings(BaseSettings):
     def empty_optional_setting(cls, value: object) -> object:
         return None if value == "" else value
 
+    # 判断当前模型名是否为离线 test 模型。
     @property
     def is_test_model(self) -> bool:
         return self.pulseflow_agent_model == "test"
 
+    # 要求配置独立 Agent 数据库；生产环境限制 MySQL schema、用户和真实模型，
+    # 并校验模型凭据、HTTPS PII 服务及内部令牌。
     @model_validator(mode="after")
     def validate_real_model(self) -> "AgentSettings":
         database_url = (

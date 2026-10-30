@@ -15,6 +15,9 @@ public class DataCleanupJob {
 
     private final JdbcTemplate jdbcTemplate;
 
+    /**
+     * 按各表保留期限清理历史事件、指标与任务等数据；执行失败记录日志并向调度器抛出。
+     */
     @XxlJob("dataCleanupJob")
     public void execute() {
         log.info("DataCleanupJob started");

@@ -30,11 +30,13 @@ DSL = {
 }
 
 
+# 构造具有固定来源、时间和查询 ID 的工具元数据。
 def meta(source: str, data_version: str | None = None) -> dict[str, object]:
     return {"queryId": str(uuid4()), "generatedAt": "2026-09-25T00:00:00Z",
             "dataVersion": data_version, "source": source, "warnings": []}
 
 
+# 准备查询、绩效和人群预估工具的类型化测试返回。
 def tool_results(messages: list[ModelMessage]) -> list[ToolObservation]:
     items: list[ToolObservation] = []
     for message in messages:
@@ -47,6 +49,7 @@ def tool_results(messages: list[ModelMessage]) -> list[ToolObservation]:
     return items
 
 
+# 按照工具调用顺序提供模拟模型响应，驱动多工具调查。
 async def sequence(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
     results = tool_results(messages)
     if len(results) == 0:
@@ -69,6 +72,7 @@ async def sequence(messages: list[ModelMessage], info: AgentInfo) -> ModelRespon
     return ModelResponse(parts=[TextPart(json.dumps(diagnosis))])
 
 
+# 验证查询、绩效和预估工具生成经过安全处理且可追溯的证据。
 @pytest.mark.asyncio
 async def test_query_performance_and_preview_create_sanitized_evidence() -> None:
     config = AgentSettings.model_validate({
@@ -78,6 +82,7 @@ async def test_query_performance_and_preview_create_sanitized_evidence() -> None
     })
     paths: list[str] = []
 
+    # 为工具覆盖测试按请求路径返回固定 Java 聚合响应。
     def java(request: httpx.Request) -> httpx.Response:
         paths.append(request.url.path)
         if request.url.path.endswith("/metrics/query"):

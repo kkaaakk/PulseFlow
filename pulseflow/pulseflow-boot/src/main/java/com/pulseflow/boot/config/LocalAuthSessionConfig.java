@@ -20,6 +20,9 @@ import org.springframework.context.annotation.Primary;
         havingValue = "memory")
 public class LocalAuthSessionConfig {
 
+    /**
+     * 提供优先使用的进程内 Sa-Token 会话存储；会话随进程重启失效，适用于当前本地鉴权配置。
+     */
     @Bean
     @Primary
     public SaTokenDao localAuthSaTokenDao() {

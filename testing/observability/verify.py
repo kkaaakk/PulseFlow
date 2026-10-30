@@ -36,6 +36,7 @@ FORBIDDEN = {
 }
 
 
+# 最多轮询九十次健康地址，短暂 HTTP 错误继续等待，超时抛出断言失败。
 def wait_ready(client: httpx.Client, url: str) -> None:
     for _ in range(90):
         try:
@@ -47,6 +48,7 @@ def wait_ready(client: httpx.Client, url: str) -> None:
     raise AssertionError("service readiness timed out")
 
 
+# 最多轮询六十次 Jaeger 指定 trace，只有收到满足 predicate 的链路才返回。
 def read_trace(client: httpx.Client, trace_id: str, predicate):
     for _ in range(60):
         response = client.get(f"http://jaeger:16686/api/traces/{trace_id}")
@@ -58,18 +60,22 @@ def read_trace(client: httpx.Client, trace_id: str, predicate):
     raise AssertionError("Jaeger did not receive the required spans")
 
 
+# 把 Jaeger span 的标签列表转换为键值映射，缺少标签时返回空映射。
 def tags(span):
     return {item["key"]: item["value"] for item in span.get("tags", [])}
 
 
+# 通过 span 的 processID 从 trace 元数据读取服务名。
 def service(trace, span):
     return trace["processes"][span["processID"]]["serviceName"]
 
 
+# 返回首个 CHILD_OF 引用的父 span ID，没有该引用时返回 None。
 def parent(span):
     return next((r["spanID"] for r in span["references"] if r["refType"] == "CHILD_OF"), None)
 
 
+# 断言导出链路不含私有哨兵、令牌、原始问题、受禁属性、HTTP 头及非白名单资源信息。
 def check_privacy(trace, token):
     raw = json.dumps(trace, ensure_ascii=False)
     assert all(value not in raw for value in (*SENTINELS, token)), "private value exported"
@@ -85,12 +91,14 @@ def check_privacy(trace, token):
             "non-allowlisted resource exported"
 
 
+# 验证 trace ID、父子完整性及 FastAPI、Agent、Tool、HTTP、Java 和数据库调用的祖先关系。
 def check_chain(trace, trace_id):
     spans = trace["spans"]
     by_id = {span["spanID"]: span for span in spans}
     assert all(span["traceID"] == trace_id for span in spans), "trace IDs differ"
     assert all(parent(s) is None or parent(s) in by_id for s in spans), "parent span missing"
 
+    # 逐级产出当前 span 的祖先，并用已访问集合检测父链循环。
     def ancestors(span):
         seen = set()
         current = parent(span)
@@ -121,6 +129,8 @@ def check_chain(trace, trace_id):
                for s in spans), "Agent MySQL span missing"
 
 
+# 在隔离验收进程中使用离线策略驱动真实 HTTP 与数据库链路，验证 Jaeger 父子关系、错误状态及隐私过
+# 滤。
 def run():
     models.ALLOW_MODEL_REQUESTS = False
     settings = AgentSettings()
@@ -134,6 +144,7 @@ def run():
     case = next(EvalCase.model_validate(c) for c in cases if c["fixtures"]["mode"] == "query")
     policy = OfflinePolicy(case)
 
+    # 复用离线策略返回并注入私有输出哨兵，验证遥测导出时不会包含模型可见内容。
     async def offline(messages, info):
         response = await policy.respond(messages, info)
         for part in response.parts:

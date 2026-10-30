@@ -107,6 +107,9 @@ public class SimulatorController {
         return ApiResponse.success(Map.of("total", count, "success", success, "failed", failed));
     }
 
+    /**
+     * 使用用户、事件类型、目标和可选属性构造带唯一事件 ID 的请求，交由事件服务接入模拟链路。
+     */
     private void sendEvent(Long userId, String eventType, Long targetId, Map<String, Object> props) {
         String eventId = "evt_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
         EventRequest request = EventRequest.builder()

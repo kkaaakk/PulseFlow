@@ -19,6 +19,7 @@
 
 . (Join-Path $PSScriptRoot '..\common.ps1')
 
+# 按选定场景和规模展开需要执行的数据集计划，返回场景名与数据集 ID。
 function Get-ScenarioPlan {
     param([string]$SelectedScenario, [string]$SelectedScale)
     $scaleName = $SelectedScale.ToLowerInvariant()
@@ -52,6 +53,7 @@ function Get-ScenarioPlan {
     }
 }
 
+# 将编排场景映射为生成器场景列表，固定 fixture 无需重新生成。
 function Get-GeneratorScenarios {
     param([string]$SelectedScenario)
     switch ($SelectedScenario) {
@@ -65,6 +67,7 @@ function Get-GeneratorScenarios {
     }
 }
 
+# 将功能校验退出码零映射为 PASS、一映射为 FAIL，其他值映射为 NOT_RUN。
 function Get-StatusFromExitCode {
     param([int]$ExitCode)
     if ($ExitCode -eq 0) { return 'PASS' }
@@ -72,6 +75,7 @@ function Get-StatusFromExitCode {
     return 'NOT_RUN'
 }
 
+# 调用归属受限的 state.py 执行 reset 或 verify，传入报告与可选清单并返回原始退出码。
 function Invoke-FunctionalStateCommand {
     param(
         [Parameter(Mandatory = $true)][ValidateSet('reset', 'verify')][string]$Mode,
@@ -154,6 +158,7 @@ $script:ReportScenarioLabels = @{
     campaign = 'Campaign 营销 / 频控 / 归因'
 }
 
+# 查询状态展示名，部分未执行的 NOT_RUN 使用明确提示，未知值保留原文。
 function Get-ReportStatusLabel {
     param([string]$Status, [switch]$Partial)
     if ($Partial -and $Status -eq 'NOT_RUN') { return '⚠️ NOT_RUN（部分未执行）' }
@@ -161,6 +166,7 @@ function Get-ReportStatusLabel {
     return $Status
 }
 
+# 查询模块中文展示名，未知模块使用原值，空模块使用默认说明。
 function Get-ReportModuleLabel {
     param([string]$Module)
     if ($script:ReportModuleLabels.ContainsKey($Module)) { return $script:ReportModuleLabels[$Module] }
@@ -168,6 +174,7 @@ function Get-ReportModuleLabel {
     return '未知模块'
 }
 
+# 优先使用检查 ID 对应名称，再回退到描述或原 ID，均为空时返回未命名提示。
 function Get-ReportCheckLabel {
     param([string]$CheckId, [string]$Description = '')
     if ($script:ReportCheckLabels.ContainsKey($CheckId)) { return $script:ReportCheckLabels[$CheckId] }
@@ -176,6 +183,7 @@ function Get-ReportCheckLabel {
     return '未命名校验'
 }
 
+# 将场景代码转换为报告名称，未知场景保留原值，空值使用默认提示。
 function Get-ReportScenarioLabel {
     param([string]$Scenario)
     if ($script:ReportScenarioLabels.ContainsKey($Scenario)) { return $script:ReportScenarioLabels[$Scenario] }
@@ -183,6 +191,7 @@ function Get-ReportScenarioLabel {
     return '未知场景'
 }
 
+# 将简单值转为有长度上限的转义文本；集合提示查看 JSON，空值使用占位符。
 function Get-ReportShortValue {
     param([object]$Value)
     if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) { return '—' }
@@ -195,6 +204,7 @@ function Get-ReportShortValue {
     return $text
 }
 
+# 汇总 PASS、FAIL 和 NOT_RUN 检查数，缺失汇总使用占位符，无适用检查时明确显示零。
 function Get-ReportCheckCountText {
     param([object]$Summary)
     if ($null -eq $Summary -or $null -eq $Summary.checkCounts) { return '—' }
@@ -203,6 +213,7 @@ function Get-ReportCheckCountText {
     return "通过 $($Summary.checkCounts.PASS) / 失败 $($Summary.checkCounts.FAIL) / 未执行 $($Summary.checkCounts.NOT_RUN)"
 }
 
+# 根据场景结果和检查证据生成可读功能报告；Markdown 输出失败仅告警，不覆盖已保存的 JSON 证据。
 function Write-FunctionalMarkdown {
     param(
         [Parameter(Mandatory = $true)][string]$ReportRoot,
@@ -254,6 +265,7 @@ function Write-FunctionalMarkdown {
     }
 }
 
+# 在验证存储主机后导入测试 Campaign SQL 并检查规则 JSON；密码通过环境临时传递且始终恢复原值。
 function Prepare-CampaignFixture {
     param([string]$MysqlDatabase)
     $mysqlBin = if ($env:PULSEFLOW_TEST_MYSQL_BIN) { $env:PULSEFLOW_TEST_MYSQL_BIN } else { 'mysql' }

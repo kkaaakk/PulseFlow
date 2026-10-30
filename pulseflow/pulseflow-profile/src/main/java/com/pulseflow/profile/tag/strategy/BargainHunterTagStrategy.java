@@ -11,11 +11,17 @@ import java.util.List;
 @Component
 public class BargainHunterTagStrategy implements TagStrategy {
 
+    /**
+     * 返回促销偏好标签代码 BARGAIN_HUNTER。
+     */
     @Override
     public String getTagName() {
         return "BARGAIN_HUNTER";
     }
 
+    /**
+     * 无支付时加购超过五次，或加购次数与支付次数之比大于三时返回 1，其余返回 0。
+     */
     @Override
     public String compute(Long userId, List<UserMetricDaily> metrics) {
         long addCart = metrics.stream()

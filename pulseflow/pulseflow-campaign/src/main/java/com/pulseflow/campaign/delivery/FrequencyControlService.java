@@ -40,9 +40,21 @@ public class FrequencyControlService {
         private boolean allowed;
         private String reason;
 
+        /**
+         * 构造首次通过频控、已预占额度的允许结果。
+         */
         public static FreqResult ok() { return new FreqResult(true, "OK"); }
+        /**
+         * 构造重复任务可继续发送的允许结果，标记 RETRY_OK 供调用方区分幂等重试。
+         */
         public static FreqResult retryOk() { return new FreqResult(true, "RETRY_OK"); }
+        /**
+         * 构造用户全局频控超限的拒绝结果。
+         */
         public static FreqResult userLimit() { return new FreqResult(false, "USER_LIMIT"); }
+        /**
+         * 构造用户在当前 Campaign 下频控超限的拒绝结果。
+         */
         public static FreqResult campaignLimit() { return new FreqResult(false, "CAMPAIGN_LIMIT"); }
     }
 

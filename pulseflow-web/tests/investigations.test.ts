@@ -7,7 +7,7 @@ import type { CampaignDraft, Investigation } from '@/types/investigation'
 
 vi.mock('@/api/investigations', () => ({ getInvestigation: vi.fn(), startInvestigation: vi.fn(), followUpInvestigation: vi.fn(), cancelInvestigation: vi.fn(), watchInvestigation: vi.fn(), proposeCampaign: vi.fn(), createDraft: vi.fn(), getDraft: vi.fn(), refreshDraft: vi.fn(), confirmDraft: vi.fn() }))
 vi.mock('@/api/demo', () => ({ isDemoMode: false }))
-vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: 'investigation-1' } }), useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }))
+vi.mock('vue-router', () => ({ /** 提供固定调查 ID 的路由替身，供页面加载测试使用。 */ useRoute: () => ({ params: { id: 'investigation-1' } }), /** 提供可记录导航调用的路由器替身，供新建和切换调查测试使用。 */ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }))
 const sample: Investigation = {
   id: 'investigation-1', goal: '分析转化下降', status: 'COMPLETED', scope: '最近7天', scope_version: 1,
   messages: [{ role: 'USER', content: '分析转化下降' }, { role: 'ASSISTANT', content: '渠道差异需要验证。' }],
@@ -18,6 +18,9 @@ const sample: Investigation = {
 const draft: CampaignDraft = { draftId: 77, status: 'VALIDATED', dsl: { campaignName: '召回测试', objective: 'RETENTION', channel: 'PUSH', audience: { logic: 'AND', conditions: [{ field: 'activeDays7d', operator: 'GTE', value: 5 }] }, schedule: { type: 'ONCE', sendAt: '2026-10-01T10:00:00+08:00', timezone: 'Asia/Shanghai' }, frequencyCap: { maxTimes: 1, windowHours: 24 }, promotionFacts: [] }, errors: [], warnings: ['请人工检查计划时间'], estimatedAudienceCount: 42, dataVersion: 'v1' }
 const proposed: Investigation = { ...sample, proposals: [{ id: 'proposal-1', investigationId: sample.id, scopeVersion: 1, status: 'GENERATED', draftId: null, proposal: { campaignName: '召回测试', objective: 'RETENTION', rationale: '聚合数据支持召回方案', targetAudience: draft.dsl.audience, channel: 'PUSH', schedule: draft.dsl.schedule, frequencyCap: draft.dsl.frequencyCap, promotionFacts: [], supportingEvidenceIds: ['evidence-1'] } }] }
 const wrappers: ReturnType<typeof mount>[] = []
+/**
+ * 挂载调查页面并登记待卸载组件，返回供交互断言使用的 wrapper。
+ */
 const open = () => { const wrapper = mount(Investigations, { global: { plugins: [ElementPlus], stubs: { teleport: true, RouterLink: { template: '<a><slot /></a>' } } } }); wrappers.push(wrapper); return wrapper }
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(api.getInvestigation).mockResolvedValue(structuredClone(sample)); vi.mocked(api.proposeCampaign).mockResolvedValue(structuredClone(proposed)); vi.mocked(api.createDraft).mockResolvedValue({ draftId: 77 }); vi.mocked(api.getDraft).mockResolvedValue(structuredClone(draft)); vi.mocked(api.confirmDraft).mockResolvedValue({ campaignId: 99 }) })
 afterEach(() => { wrappers.splice(0).forEach(wrapper => wrapper.unmount()); vi.restoreAllMocks() })

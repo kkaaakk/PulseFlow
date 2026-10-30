@@ -10,6 +10,7 @@ BASE = ROOT / "testing/docker-compose.test.yml"
 OVERRIDE = ROOT / "testing/docker-compose.observability.yml"
 
 
+# 调用 Docker Compose 配置解析命令并返回结果，供静态检查使用。
 def config(*args):
     result = subprocess.run(
         ["docker", "compose", "-f", str(BASE), *args, "config", "--format", "json"],
@@ -20,6 +21,7 @@ def config(*args):
     return json.loads(result.stdout)
 
 
+# 验证观测测试栈的 Compose 配置、服务和必要约束，不启动业务负载。
 def run():
     base = config("--profile", "agent")
     default = config("-f", str(OVERRIDE))

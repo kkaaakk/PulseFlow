@@ -27,10 +27,12 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[2]
 
 
+# 对回放输入和证据使用排序键、紧凑且保留中文的 JSON 编码。
 def stable_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+# 要求有效 HTTP(S) 地址；非回环目标必须同时显式启用测试环境和非本地测试许可。
 def assert_safe_base_url(base_url: str) -> None:
     parsed = urlparse(base_url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -48,6 +50,7 @@ def assert_safe_base_url(base_url: str) -> None:
         )
 
 
+# 对样本排序并在相邻位置间线性插值，结果保留三位小数；空样本返回 None。
 def percentile(values: list[float], fraction: float) -> float | None:
     if not values:
         return None
@@ -61,6 +64,7 @@ def percentile(values: list[float], fraction: float) -> float | None:
     return round(ordered[lower] * (1 - weight) + ordered[upper] * weight, 3)
 
 
+# 解析数据集、目标地址、并发、节奏、超时、报告位置和 dry-run 等回放选项。
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", required=True, type=Path)
@@ -83,6 +87,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# 优先读取同名清单，必要时查找唯一名称前缀匹配的清单；找不到时返回 None。
 def load_manifest(dataset: Path) -> dict[str, Any] | None:
     manifest = dataset.with_name(dataset.stem + ".manifest.json")
     if not manifest.exists():
@@ -116,6 +121,8 @@ def rebase_event_time(body: Any, manifest: dict[str, Any] | None) -> Any:
     return result
 
 
+# 兼容普通事件与带 body、expectedStatus 的案例包装，按需平移事件时间并返回请求体、预期状态和案例
+# ID。
 def request_body(record: dict[str, Any], manifest: dict[str, Any] | None,
                  rebase: bool) -> tuple[Any, int, str | None]:
     if "body" in record:
@@ -125,6 +132,8 @@ def request_body(record: dict[str, Any], manifest: dict[str, Any] | None,
     return body, 200, None
 
 
+# 向 /api/events 发送 JSON 或给定原始文本，返回 HTTP 状态、解析响应、错误和毫秒耗时；
+# 网络失败不伪装为 HTTP 响应。
 def send_json(base_url: str, body: Any, timeout: float) -> tuple[int | None, Any, str | None, float]:
     payload = body if isinstance(body, str) else stable_json(body)
     request = Request(
@@ -146,6 +155,7 @@ def send_json(base_url: str, body: Any, timeout: float) -> tuple[int | None, Any
         return None, None, str(error), (time.perf_counter() - started) * 1000
 
 
+# 解析响应 JSON；空响应为 None，非 JSON 保留最多 4096 字符并标记 parseError。
 def parse_response_body(raw: str) -> Any:
     if not raw:
         return None
@@ -155,6 +165,7 @@ def parse_response_body(raw: str) -> Any:
         return {"raw": raw[:4_096], "parseError": True}
 
 
+# 将大于 16384 字符的输入截断为文本并标记截断，较小输入保持原类型。
 def compact_input(body: Any) -> tuple[Any, bool]:
     text = body if isinstance(body, str) else stable_json(body)
     if len(text) <= 16_384:
@@ -174,6 +185,7 @@ def response_passed(expected_status: int, status: int | None, response_body: Any
     return True
 
 
+# 解析单行 JSON 对象并准备请求；非法 JSON 或非对象输入返回带行号的可复现失败证据。
 def parse_record(line_number: int, line: str, manifest: dict[str, Any] | None,
                  rebase: bool, dataset_id: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     try:
@@ -213,6 +225,7 @@ def parse_record(line_number: int, line: str, manifest: dict[str, Any] | None,
     }, None
 
 
+# 执行一条真实或 dry-run 回放，检查 HTTP 和业务接收契约，返回逐条结果及可选失败证据。
 def execute_record(prepared: dict[str, Any], args: argparse.Namespace,
                    dataset: Path) -> tuple[dict[str, Any], dict[str, Any] | None]:
     body = prepared["body"]
@@ -277,6 +290,7 @@ def execute_record(prepared: dict[str, Any], args: argparse.Namespace,
     return result, failure
 
 
+# 逐行读取非空 JSONL 内容并保留源文件行号，避免一次加载整个数据集。
 def iter_lines(dataset: Path) -> Iterator[tuple[int, str]]:
     with dataset.open("r", encoding="utf-8") as source:
         for line_number, line in enumerate(source, start=1):
@@ -284,6 +298,7 @@ def iter_lines(dataset: Path) -> Iterator[tuple[int, str]]:
                 yield line_number, line
 
 
+# 验证目标和配置后执行有界并发回放，保存逐条证据及汇总；单并发模式保留到达顺序。
 def main() -> int:
     args = parse_args()
     if args.concurrency < 1:
@@ -316,6 +331,7 @@ def main() -> int:
     lines_read = 0
     started_at = datetime.now(timezone.utc).isoformat()
 
+    # 将一条完成结果写入报告并累计状态、时延和可选失败证据，由主协调流程调用。
     def record_result(output: Any, result: dict[str, Any], failure: dict[str, Any] | None) -> None:
         nonlocal processed
         output.write(stable_json(result) + "\n")

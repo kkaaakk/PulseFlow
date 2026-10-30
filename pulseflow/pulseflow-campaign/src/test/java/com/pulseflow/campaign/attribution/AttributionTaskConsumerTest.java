@@ -19,12 +19,18 @@ class AttributionTaskConsumerTest {
     private AttributionService attributionService;
     private AttributionTaskConsumer consumer;
 
+    /**
+     * 初始化归因消费者及其队列、服务替身。
+     */
     @BeforeEach
     void setUp() {
         attributionService = mock(AttributionService.class);
         consumer = new AttributionTaskConsumer(attributionService);
     }
 
+    /**
+     * 验证归因成功后完成队列 claim。
+     */
     @Test
     @DisplayName("successful attribution completes the processing claim")
     void successfulAttributionCompletesClaim() {
@@ -38,6 +44,9 @@ class AttributionTaskConsumerTest {
         verify(attributionService, never()).requeueClaimedTask("target-evt-1");
     }
 
+    /**
+     * 验证归因异常重新入队，不错误完成任务。
+     */
     @Test
     @DisplayName("a temporarily invisible DB task requeues and never completes the claim")
     void attributionExceptionRequeuesInsteadOfCompleting() {
@@ -53,6 +62,9 @@ class AttributionTaskConsumerTest {
         verify(attributionService, never()).completeClaimedTask("target-evt-1");
     }
 
+    /**
+     * 验证定时对账恢复孤立的待处理归因任务。
+     */
     @Test
     @DisplayName("scheduled reconciliation restores orphaned PENDING tasks")
     void scheduledReconciliationRestoresOrphanedTasks() {
@@ -63,6 +75,9 @@ class AttributionTaskConsumerTest {
         verify(attributionService).reconcilePendingTasks();
     }
 
+    /**
+     * 验证后续轮询可重试失败任务并最终完成。
+     */
     @Test
     @DisplayName("a later poll can retry a failed task and complete it after success")
     void laterPollRetriesThenCompletes() {
@@ -80,6 +95,9 @@ class AttributionTaskConsumerTest {
         verify(attributionService).completeClaimedTask("target-evt-1");
     }
 
+    /**
+     * 验证处理后清理失败时 claim 被重新排队。
+     */
     @Test
     @DisplayName("cleanup failure keeps the task discoverable through requeue")
     void cleanupFailureRequeuesClaimedTask() {

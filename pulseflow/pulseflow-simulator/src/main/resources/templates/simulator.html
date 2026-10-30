@@ -78,12 +78,18 @@
     </div>
 
     <script>
+        /**
+         * 在输出面板追加带本地时间的日志，并滚动到最新记录。
+         */
         function log(msg) {
             const out = document.getElementById('output');
             out.textContent += '\n' + new Date().toLocaleTimeString() + ' ' + msg;
             out.scrollTop = out.scrollHeight;
         }
 
+        /**
+         * 向模拟器接口发起请求并显示返回 JSON；网络或解析异常以失败日志展示。
+         */
         async function apiCall(url) {
             try {
                 const resp = await fetch(url);
@@ -94,6 +100,9 @@
             }
         }
 
+        /**
+         * 读取表单中的用户、事件类型和目标，调用单事件模拟接口并记录发起信息。
+         */
         function generateEvent() {
             const userId = document.getElementById('userId').value;
             const eventType = document.getElementById('eventType').value;
@@ -103,17 +112,26 @@
             apiCall(url);
         }
 
+        /**
+         * 读取当前用户 ID，调用预设用户旅程模拟接口。
+         */
         function simulateJourney() {
             const userId = document.getElementById('userId').value;
             log('=== Simulating user journey for userId=' + userId + ' ===');
             apiCall('/api/simulator/user-journey?userId=' + userId);
         }
 
+        /**
+         * 按 count 请求生成有限数量的随机模拟事件，并在面板记录进度。
+         */
         function generateBulk(count) {
             log('>>> Generating ' + count + ' random events...');
             apiCall('/api/simulator/bulk?count=' + count);
         }
 
+        /**
+         * 清空模拟器输出面板并保留已清理提示。
+         */
         function clearOutput() {
             document.getElementById('output').textContent = 'Cleared.';
         }

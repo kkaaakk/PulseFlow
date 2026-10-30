@@ -12,11 +12,17 @@ import java.util.List;
 @Component
 public class PriceSensitiveTagStrategy implements TagStrategy {
 
+    /**
+     * 返回价格敏感策略实际使用的标签代码 PRICE_SEN。
+     */
     @Override
     public String getTagName() {
         return "PRICE_SEN";
     }
 
+    /**
+     * 按支付总额除以支付次数计算两位小数客单价，低于五十返回 1；无支付记录或次数为零返回 0。
+     */
     @Override
     public String compute(Long userId, List<UserMetricDaily> metrics) {
         List<UserMetricDaily> orders = metrics.stream()

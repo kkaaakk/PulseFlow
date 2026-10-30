@@ -11,11 +11,17 @@ import java.util.List;
 @Component
 public class LoyalCustomerTagStrategy implements TagStrategy {
 
+    /**
+     * 返回忠诚用户标签代码 LOYAL_CUSTOMER。
+     */
     @Override
     public String getTagName() {
         return "LOYAL_CUSTOMER";
     }
 
+    /**
+     * 统计存在正数登录计数的日桶记录，至少五条时返回 1，否则返回 0。
+     */
     @Override
     public String compute(Long userId, List<UserMetricDaily> metrics) {
         long loginDays = metrics.stream()

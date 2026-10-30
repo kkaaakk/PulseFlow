@@ -147,6 +147,9 @@ public class DelayedTaskExecutor {
         // 那种情况 task 已落库，可以视为成功创建，此处不会进 catch。
     }
 
+    /**
+     * 检查用户 Redis 购物车 HASH 是否仍含指定条目；移除或支付事件删除条目后延迟触达即不再满足条件。
+     */
     private boolean isCartItemPresent(Long userId, String cartItemId) {
         // user:cart:{userId} is a Redis HASH; field == cartItemId.
         // REMOVE_CART / ORDER_PAID both HDEL the field, so a paid/removed

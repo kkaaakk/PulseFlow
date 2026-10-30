@@ -29,6 +29,7 @@ QUESTION = "最近召回 Campaign 转化率下降了，帮我查原因。"
 EXPECTED = json.loads((Path(__file__).parent / "trajectories.json").read_text(encoding="utf-8"))
 
 
+# 构造调查轨迹测试使用的稳定工具元数据。
 def metadata(source: str = "campaign-facts") -> dict[str, Any]:
     return {
         "queryId": str(uuid4()),
@@ -39,6 +40,7 @@ def metadata(source: str = "campaign-facts") -> dict[str, Any]:
     }
 
 
+# 按场景准备不同指标事实，使相同问题能驱动不同工具路径。
 def tool_returns(messages: list[ModelMessage]) -> list[ToolObservation]:
     returns: list[ToolObservation] = []
     for message in messages:
@@ -54,6 +56,7 @@ def tool_returns(messages: list[ModelMessage]) -> list[ToolObservation]:
 class EvidenceResponsiveModel:
     """A test model: the branching policy lives here, outside production code."""
 
+    # 响应模型调用并依据已收到工具观察决定下一步。
     async def __call__(self, messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         assert {tool.name for tool in info.function_tools} == {
             "query_metric", "compare_metric", "breakdown_metric",
@@ -101,13 +104,16 @@ class EvidenceResponsiveModel:
             return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, diagnosis)])
         return ModelResponse(parts=[TextPart(json.dumps(diagnosis))])
 
+    # 构造指定工具及参数的模型工具调用响应。
     def call(self, tool: str, metric: str) -> ModelResponse:
         return ModelResponse(parts=[ToolCallPart(tool, {"request": {
             "metric": metric, "current_period": CURRENT, "baseline_period": BASELINE,
         }})])
 
 
+# 根据场景构建可复用的 Java HTTP 请求处理器。
 def java_handler(scenario: str, requests: list[str]) -> httpx.MockTransport:
+    # 根据测试请求路径返回场景规定的 Java 聚合事实。
     def respond(request: httpx.Request) -> httpx.Response:
         requests.append(request.url.path)
         assert request.headers["X-PulseFlow-Agent-Token"] == "test-internal-token"
@@ -148,6 +154,7 @@ def java_handler(scenario: str, requests: list[str]) -> httpx.MockTransport:
     return httpx.MockTransport(respond)
 
 
+# 验证相同问题因证据不同而产生不同工具轨迹，不依赖固定工作流。
 @pytest.mark.asyncio
 @pytest.mark.parametrize("scenario", ["ctr_decline", "conversion_decline", "no_anomaly"])
 async def test_same_question_uses_different_tool_paths(scenario: str) -> None:

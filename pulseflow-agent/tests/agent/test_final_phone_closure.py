@@ -44,6 +44,7 @@ NEGATIVE = [
 ]
 
 
+# 验证完整联系方式标签在 Azure 漏检时仍由本地电话验证阻断。
 @pytest.mark.parametrize("text", POSITIVE)
 async def test_complete_contact_labels_still_block_without_azure_hit(text: str) -> None:
     async with httpx.AsyncClient(
@@ -53,6 +54,7 @@ async def test_complete_contact_labels_still_block_without_azure_hit(text: str) 
             await AzurePiiGuardrail(settings(real=True), http).check(text)
 
 
+# 验证业务代码中的标签片段不能使不可靠 Azure 电话声明被信任。
 @pytest.mark.parametrize("text", NEGATIVE)
 async def test_label_fragments_inside_codes_do_not_trust_azure_phone_claim(text: str) -> None:
     assert not StructuredPiiDetector().detect(text)
@@ -64,6 +66,7 @@ async def test_label_fragments_inside_codes_do_not_trust_azure_phone_claim(text:
         await AzurePiiGuardrail(settings(real=True), http).check(text)
 
 
+# 验证含联系方式的问题在真实 Agent 调用模型前被阻断。
 async def test_contact_prompt_stops_actual_agent_before_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
