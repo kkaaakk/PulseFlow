@@ -456,7 +456,6 @@ DELETE FROM click_event
     OR click_source LIKE 'PF_TEST_%';
 DELETE FROM in_app_message WHERE business_key IN (SELECT id FROM pf_functional_task_ids);
 DELETE FROM push_record WHERE business_key IN (SELECT id FROM pf_functional_task_ids);
-DELETE FROM delivery_record WHERE task_id IN (SELECT id FROM pf_functional_task_ids);
 DELETE FROM delivery_task WHERE id IN (SELECT id FROM pf_functional_task_ids);
 
 DELETE FROM campaign_ai_review
@@ -630,8 +629,6 @@ UNION ALL SELECT 'attribution_record', COUNT(*) FROM attribution_record WHERE {t
 UNION ALL SELECT 'delivery_task', COUNT(*) FROM delivery_task
     WHERE {trigger_event_condition}
        OR {campaign_condition}
-UNION ALL SELECT 'delivery_record', COUNT(*) FROM delivery_record
-    WHERE {campaign_id_condition}
 UNION ALL SELECT 'in_app_message', COUNT(*) FROM in_app_message
     WHERE {campaign_id_condition}
 UNION ALL SELECT 'push_record', COUNT(*) FROM push_record

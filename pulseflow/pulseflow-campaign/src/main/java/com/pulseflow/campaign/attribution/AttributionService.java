@@ -6,11 +6,11 @@ import com.pulseflow.common.enums.AttributionTaskStatus;
 import com.pulseflow.entity.AttributionRecord;
 import com.pulseflow.entity.AttributionTask;
 import com.pulseflow.entity.ClickEvent;
-import com.pulseflow.entity.DeliveryRecord;
+import com.pulseflow.entity.DeliveryTask;
 import com.pulseflow.mapper.AttributionRecordMapper;
 import com.pulseflow.mapper.AttributionTaskMapper;
 import com.pulseflow.mapper.ClickEventMapper;
-import com.pulseflow.mapper.DeliveryRecordMapper;
+import com.pulseflow.mapper.DeliveryTaskMapper;
 import com.pulseflow.mapper.UserEventMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,7 +38,7 @@ public class AttributionService {
     private final AttributionTaskMapper attributionTaskMapper;
     private final AttributionRecordMapper attributionRecordMapper;
     private final ClickEventMapper clickEventMapper;
-    private final DeliveryRecordMapper deliveryRecordMapper;
+    private final DeliveryTaskMapper deliveryTaskMapper;
     private final RedissonClient redissonClient;
     private final UserEventMapper userEventMapper;
 
@@ -314,9 +314,10 @@ public class AttributionService {
 
         // SQL filters validity BEFORE ordering/limiting, including legacy rows.
         if (lastClick.getTaskId() != null) {
-            DeliveryRecord delivery = deliveryRecordMapper.selectByTaskId(lastClick.getTaskId());
+            DeliveryTask delivery = deliveryTaskMapper.selectById(lastClick.getTaskId());
 
-            if (delivery != null && delivery.getSentAt() != null
+            if (delivery != null && "SENT".equals(delivery.getStatus())
+                    && java.util.Objects.equals(delivery.getUserId(), task.getUserId()) && delivery.getSentAt() != null
                     && !lastClick.getClickTime().isBefore(delivery.getSentAt())) {
                 try {
                     AttributionRecord record = AttributionRecord.builder()

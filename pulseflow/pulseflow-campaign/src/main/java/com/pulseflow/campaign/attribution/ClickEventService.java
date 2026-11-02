@@ -3,7 +3,6 @@ package com.pulseflow.campaign.attribution;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pulseflow.entity.ClickEvent;
-import com.pulseflow.entity.DeliveryRecord;
 import com.pulseflow.entity.DeliveryTask;
 import com.pulseflow.entity.UserEvent;
 import com.pulseflow.mapper.*;
@@ -21,7 +20,6 @@ public class ClickEventService {
     private final ClickEventMapper clickEventMapper;
     private final UserEventMapper userEventMapper;
     private final DeliveryTaskMapper deliveryTaskMapper;
-    private final DeliveryRecordMapper deliveryRecordMapper;
     private final DataCompensationTaskMapper compensationTaskMapper;
 
     public enum Result { ORDINARY, VALID, REJECTED, PENDING }
@@ -56,20 +54,13 @@ public class ClickEventService {
         if ("CANCELLED".equals(task.getStatus()) || "FAILED".equals(task.getStatus())) {
             return reject(event, "TASK_NOT_SENT");
         }
-        DeliveryRecord delivery = deliveryRecordMapper.selectByTaskId(task.getId());
-        if (delivery != null && (!Objects.equals(delivery.getUserId(), event.getUserId())
-                || !Objects.equals(delivery.getCampaignId(), task.getCampaignId())
-                || !Objects.equals(delivery.getChannel(), task.getChannel()))) {
-            return reject(event, "DELIVERY_MISMATCH");
-        }
-        if (!"SENT".equals(task.getStatus()) || delivery == null || delivery.getSentAt() == null
-                || !("SENT".equals(delivery.getStatus()) || "DELIVERED".equals(delivery.getStatus()))) {
+        if (!"SENT".equals(task.getStatus()) || task.getSentAt() == null) {
             // Channel receipt and SENT status may become visible separately.
             update(event, "PENDING", "DELIVERY_NOT_VISIBLE");
             compensationTaskMapper.ensureMarketingClickPending(event.getEventId());
             return Result.PENDING;
         }
-        if (event.getEffectiveEventTime().isBefore(delivery.getSentAt())) {
+        if (event.getEffectiveEventTime().isBefore(task.getSentAt())) {
             return reject(event, "CLICK_BEFORE_SEND");
         }
         clickEventMapper.insertCanonical(ClickEvent.builder()

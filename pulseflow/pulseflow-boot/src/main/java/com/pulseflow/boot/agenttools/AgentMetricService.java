@@ -147,11 +147,11 @@ public class AgentMetricService {
     private Map<String, Counts> readCounts(TimeRange range, FilterSpec filters, Dimension dimension) {
         MapSqlParameterSource params = parameters(range, filters);
         Map<String, Counts> result = new HashMap<>();
-        String deliveryBucket = bucket(dimension, "d.campaign_id", "d.channel", "d.sent_at");
+        String deliveryBucket = bucket(dimension, "d.campaign_id", "d.channel", "d.first_send_attempt_at");
         String deliverySql = "SELECT " + deliveryBucket + " AS bucket, COUNT(*) AS total, "
-                + "COALESCE(SUM(CASE WHEN d.status IN ('SENT','DELIVERED') THEN 1 ELSE 0 END),0) "
-                + "AS delivered FROM delivery_record d "
-                + "WHERE d.sent_at >= :fromTime AND d.sent_at < :toTime"
+                + "COALESCE(SUM(CASE WHEN d.status='SENT' AND d.sent_at IS NOT NULL THEN 1 ELSE 0 END),0) "
+                + "AS delivered FROM delivery_task d "
+                + "WHERE d.first_send_attempt_at IS NOT NULL AND d.first_send_attempt_at >= :fromTime AND d.first_send_attempt_at < :toTime"
                 + filterSql("d.campaign_id", "d.channel", filters) + grouping(deliveryBucket, dimension);
         for (Map<String, Object> fact : jdbc.queryForList(deliverySql, params)) {
             Counts c = result.computeIfAbsent(key(fact, dimension), ignored -> new Counts());

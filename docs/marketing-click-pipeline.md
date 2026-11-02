@@ -49,7 +49,7 @@ POST /api/events
 基础设施故障不会导致 REJECTED；若五次尝试都无法完成，补偿 FAILED、原始事件仍为 PENDING。该状态需要运维修复依赖后重新投递，不能宣称无限自动恢复。清理任务不删除仍关联 PENDING 营销点击的 FAILED 补偿。示例操作必须限定到经过检查的单一 eventId：
 
 ```sql
--- 先检查 user_event、delivery_task/record 和该补偿行的安全原因码。
+-- 先检查 user_event、delivery_task 和该补偿行的安全原因码。
 -- 仅用于修复基础设施故障，不用于给未知历史数据授信。
 UPDATE data_compensation_task
 SET status='PENDING', retry_count=0, next_retry_at=NOW(), locked_at=NULL
@@ -63,7 +63,7 @@ MySQL 首阶段失败时 Kafka 不提交 offset，显式绑定到自定义容器
 
 ## Last-Touch 与指标
 
-`ClickEventMapper` 统一 SQL 有效性条件：原始来源可信且状态 VALID、用户和毫秒事件时间匹配、任务用户匹配且 SENT、成功回执的用户/活动/渠道匹配、发送时间不晚于点击。SQL **先过滤有效性，再按点击时间/ID 倒序取一条**。最新无效/无来源历史点击不会遮蔽较早有效点击。待补偿点击先解决，避免误把更早点击永久认作 Last-Touch。
+`ClickEventMapper` 统一 SQL 有效性条件：原始来源可信且状态 VALID、用户和毫秒事件时间匹配、任务用户匹配且 SENT、任务 sent_at 非空且不晚于点击。SQL **先过滤有效性，再按点击时间/ID 倒序取一条**。最新无效/无来源历史点击不会遮蔽较早有效点击。待补偿点击先解决，避免误把更早点击永久认作 Last-Touch。
 
 Campaign、Web 和 Agent 共用该有效点击口径；有效转化还须通过 attribution → click → task 的用户/任务/活动一致性校验。点击人数和转化人数分别按用户去重；CTR=点击人数/成功发送记录数，转化率=转化人数/点击人数；SENT 仍为发送记录总数，DELIVERED 为成功发送记录数。四位小数、HALF_UP、零分母语义保持不变。Dashboard 保留营销点击事实次数口径，Delivery 列表只显示有效点击；历史 Attribution 明细保留供追溯，不删除旧结果。
 
@@ -81,7 +81,7 @@ V8 为 click_event 增加可空 source_event_id 与唯一索引；多条历史 N
 
 长期依赖故障超过补偿预算需要运维重投；令牌未配置时营销提升按设计关闭；来源令牌和 Kafka ACL/网关属于生产部署前置条件。本次本地验收不会修改生产库或生产配置。
 
-现有 DataCleanupJob 在 90 天后删除点击和发送明细。实时事实计算反映**当前保留的数据**，不能从已经删除的明细重建全历史去重人数；超出明细保留期的长期报表应使用单独归档的已审核快照，而不是把实时接口当作永久历史账本。此次没有延长保留期或建立新归档系统。
+现有 DataCleanupJob 在 90 天后删除点击明细；V9 起发送结果随 delivery_task 和渠道幂等事实保留。实时事实计算反映**当前保留的数据**，不能从已经删除的明细重建全历史去重人数；超出明细保留期的长期报表应使用单独归档的已审核快照，而不是把实时接口当作永久历史账本。没有建立新归档系统。
 
 有效性 JOIN 会增加查询成本；现有/新增索引支持用户窗口、任务维度、原始来源唯一查找及补偿扫描。Web 列表会逐活动读取事实，适合当前有界分页，但大型活动的任务/发送统计仍会读取列表；海量场景需另行按实测优化 SQL 聚合或引入带失效策略的快照。此次不改变指标定义来换取性能，也未进行 k6 容量压测。
 
@@ -93,6 +93,8 @@ $env:PULSEFLOW_TEST_DOCKER='true'
 mvn clean verify
 ```
 
-需要 Docker。MarketingClickPipelineIT 启动真实 MySQL 8.0、Kafka 3.7.0、Redis 7.2，使用随机端口和独立数据库；只禁用外部 XXL 调度器注册，业务服务、Kafka 消费、Redis、MySQL 与 Agent Tool HTTP 均为真实实现。临时 SQL trigger 注入数据库故障；不预置有效 click_event。补偿时间测试按任务 ID推进 next_retry_at，不改变生产退避算法。主闭环保持完整五分钟事件时间宽限，通过接入允许范围内的事件时间缩短墙钟等待。
+需要 Docker。MarketingClickPipelineIT 启动真实 MySQL 8.0、Kafka 3.7.0、Redis 7.2，使用随机端口和独立数据库；只禁用外部 XXL 调度器注册，业务服务、Kafka 消费、Redis、MySQL 与 Agent Tool HTTP 均为真实实现。临时 SQL trigger 注入数据库故障；不预置有效 click_event。补偿时间测试按任务 ID推进 next_retry_at，不改变生产退避算法。V9 新增未预置成功发送事实的 DecisionEngine→Kafka→DeliveryConsumer 闭环，实际等待完整五分钟宽限。
 
 MarketingClickMigrationIT 专门检查 V7→V8 的历史兼容。AgentMetricQueryIT 保留手工事实 fixture，用于聚合 SQL 合同测试，不能用它替代业务闭环证明。Functional fixture 已移除预置点击；Replay 令牌只取环境变量，不写入证据。完整验收结果与文件清单见 [交付报告](validation/marketing-click-2026-11-02.md)。
+
+V9 后发送结果只读 delivery_task；[合并设计和指标兼容](delivery-task-consolidation.md)规定原始发送时间恢复、历史迁移及停机切换。V7→V8 专项迁移回归显式 target=8，V8→V9 由 DeliveryTaskMigrationIT 验证。

@@ -26,3 +26,21 @@ test('Campaign list and performance view', async ({ page }) => {
   await expect(page.getByText('触达表现')).toBeVisible()
   await expect(page.getByText('归因', { exact: true })).toBeVisible()
 })
+
+
+// Compatibility path: the result envelope has no independent database record ID.
+test('Delivery detail uses the task send result and exposes clicks and attribution', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await page.goto('/login')
+  await page.getByRole('button', { name: '进入控制台' }).click()
+  await page.getByRole('link', { name: 'Deliveries' }).click()
+  await expect(page.getByRole('heading', { name: 'Deliveries' })).toBeVisible()
+  await page.getByRole('button', { name: '查看详情' }).first().click()
+  const drawer = page.getByRole('dialog')
+  await expect(drawer.getByText('发送结果', { exact: true })).toBeVisible()
+  await expect(drawer.getByText('SENT', { exact: true })).toBeVisible()
+  await expect(drawer.getByRole('heading', { name: /点击/ })).toBeVisible()
+  await expect(drawer.getByRole('heading', { name: /归因/ })).toBeVisible()
+  expect(errors).toEqual([])
+})

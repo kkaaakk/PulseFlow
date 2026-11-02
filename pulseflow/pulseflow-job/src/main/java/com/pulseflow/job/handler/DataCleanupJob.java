@@ -43,10 +43,8 @@ public class DataCleanupJob {
                     java.sql.Timestamp.valueOf(expiry90Days));
             log.info("Cleaned {} expired click events", clickDeleted);
 
-            int deliveryDeleted = jdbcTemplate.update(
-                    "DELETE FROM delivery_record WHERE created_at < ?",
-                    java.sql.Timestamp.valueOf(expiry90Days));
-            log.info("Cleaned {} expired delivery records", deliveryDeleted);
+            // delivery_task now owns the durable send result. Keep task/channel idempotency
+            // facts together; deleting just a receipt would make old deliveries resendable.
 
             // user_tag 保留历史（uk = user_id + tag_name + calculated_at），
             // 清理 90 天前的旧标签记录，只保留近期历史供 hasTag 查最新值。

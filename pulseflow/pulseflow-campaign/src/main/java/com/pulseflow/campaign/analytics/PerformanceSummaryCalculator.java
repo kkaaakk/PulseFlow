@@ -1,15 +1,11 @@
 package com.pulseflow.campaign.analytics;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.pulseflow.campaign.analytics.CampaignPerformanceSummary;
-import com.pulseflow.campaign.analytics.CampaignPerformanceSummaryMapper;
 import com.pulseflow.entity.Campaign;
-import com.pulseflow.entity.DeliveryRecord;
 import com.pulseflow.entity.DeliveryTask;
 import com.pulseflow.mapper.AttributionRecordMapper;
 import com.pulseflow.mapper.CampaignMapper;
 import com.pulseflow.mapper.ClickEventMapper;
-import com.pulseflow.mapper.DeliveryRecordMapper;
 import com.pulseflow.mapper.DeliveryTaskMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,10 +17,8 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Computes campaign performance metrics from raw event tables.
@@ -49,7 +43,6 @@ public class PerformanceSummaryCalculator {
 
     private final CampaignMapper campaignMapper;
     private final DeliveryTaskMapper deliveryTaskMapper;
-    private final DeliveryRecordMapper deliveryRecordMapper;
     private final ClickEventMapper clickEventMapper;
     private final AttributionRecordMapper attributionRecordMapper;
     private final CampaignPerformanceSummaryMapper summaryMapper;
@@ -83,22 +76,13 @@ public class PerformanceSummaryCalculator {
         List<DeliveryTask> tasks = deliveryTaskMapper.selectList(
                 new LambdaQueryWrapper<DeliveryTask>()
                         .eq(DeliveryTask::getCampaignId, campaignId));
-        Set<Long> taskIds = new HashSet<>();
-        for (DeliveryTask t : tasks) taskIds.add(t.getId());
         long targetAudienceCount = tasks.stream()
                 .map(DeliveryTask::getUserId).distinct().count();
 
-        // 2. Delivery records (sent / delivered)
-        List<DeliveryRecord> deliveries = taskIds.isEmpty()
-                ? List.of()
-                : deliveryRecordMapper.selectList(
-                        new LambdaQueryWrapper<DeliveryRecord>()
-                                .eq(DeliveryRecord::getCampaignId, campaignId));
-        long sentCount = deliveries.size();
-        long deliveredCount = deliveries.stream()
-                .filter(d -> "SENT".equalsIgnoreCase(d.getStatus())
-                        || "DELIVERED".equalsIgnoreCase(d.getStatus()))
-                .count();
+        // SENT counts attempted tasks, including failures; merely created/cancelled tasks do not count.
+        long sentCount = tasks.stream().filter(t -> t.getFirstSendAttemptAt() != null).count();
+        long deliveredCount = tasks.stream()
+                .filter(t -> "SENT".equals(t.getStatus()) && t.getSentAt() != null).count();
 
         // 3. Click events (via task_id → delivery_task)
         long clickedCount = clickEventMapper.countValidUsers(campaignId);

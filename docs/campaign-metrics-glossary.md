@@ -51,17 +51,17 @@ v1 不提供的字段：`topCategories`、`memberLevelDistribution`（schema 暂
 ## 4. 活动复盘指标
 
 实现：`PerformanceSummaryCalculator`  
-数据源：`delivery_task` / `delivery_record` / `click_event` / `attribution_record` / `campaign_performance_summary`
+数据源：`delivery_task` / `click_event` / `attribution_record` / `campaign_performance_summary`
 
 ### 4.1 基础计数
 
 | 字段 | 口径 |
 |---|---|
 | `targetAudienceCount` | `delivery_task` 中去重 `user_id` 的个数 |
-| `sentCount` | `delivery_record` 记录数 |
-| `deliveredCount` | `delivery_record` 中 `status IN ('SENT','DELIVERED')` 的记录数 |
-| `clickedCount` | `click_event` 中通过 `task_id` 关联的去重 `user_id` 数 |
-| `convertedCount` | `attribution_record` 中去重 `user_id` 数 |
+| `sentCount` | `delivery_task.first_send_attempt_at` 非空的任务数（含失败，不含未尝试任务） |
+| `deliveredCount` | `delivery_task` 中 `status='SENT' AND sent_at IS NOT NULL` 的任务数 |
+| `clickedCount` | `click_event` 中通过可信来源、成功任务及发送时间校验的去重用户数 |
+| `convertedCount` | 关联同一有效点击且用户、任务、活动一致的归因去重用户数 |
 | `unsubscribeCount` | v1 固定为 0（schema 未追踪退订） |
 
 ### 4.2 派生比率
@@ -87,6 +87,8 @@ v1 schema 不直接支持 A/B 分变体，固定为空数组 `[]`。
 
 ## 6. Agent 内部查询的时间窗聚合
 
-Phase 2 的 [只读 Tool API](agent/agent-tool-contract.md) 用同一计数和比率公式按时间窗聚合 `delivery_record.sent_at`、`click_event.click_time`、`attribution_record.credited_at`。`SENT` 为发送记录数，`DELIVERED` 为成功状态记录数，`CLICKS` / `CONVERSIONS` 为窗内去重用户数，`ATTRIBUTED_CONVERSIONS` 为归因记录数。按 `CAMPAIGN`、`CHANNEL` 或 `DAY` 分组时，去重在每个分组内进行，跨组求和可能重复计入同一用户。
+Phase 2 的 [只读 Tool API](agent/agent-tool-contract.md) 用同一计数和比率公式按时间窗聚合 `delivery_task.first_send_attempt_at`、`click_event.click_time`、`attribution_record.credited_at`。`SENT` 为发送记录数，`DELIVERED` 为成功状态记录数，`CLICKS` / `CONVERSIONS` 为窗内去重用户数，`ATTRIBUTED_CONVERSIONS` 为归因记录数。按 `CAMPAIGN`、`CHANNEL` 或 `DAY` 分组时，去重在每个分组内进行，跨组求和可能重复计入同一用户。
 
-时间窗比率使用同窗事实，不能推断为同一批触达用户的因果转化率。比较接口由 Java 计算绝对差与相对差；基线为 0 时，相对差返回 null。实时事实聚合无固定快照版本，`dataVersion=null`。Campaign 绩效端点只读已计算摘要，不触发 `PerformanceSummaryCalculator.compute()` 的写入路径。
+时间窗比率使用同窗事实，不能推断为同一批触达用户的因果转化率。比较接口由 Java 计算绝对差与相对差；基线为 0 时，相对差返回 null。实时事实聚合无固定快照版本，`dataVersion=null`。Campaign 绩效端点只读当前有效事实，不触发 `PerformanceSummaryCalculator.compute()` 的写入路径。
+
+V9 保留旧发送事实时间窗口；新失败尝试、跨日重试和渠道时间纠正的具体边界见 [合并设计](delivery-task-consolidation.md)。

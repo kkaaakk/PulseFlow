@@ -67,7 +67,7 @@ docker compose -f .\testing\docker-compose.test.yml -p pulseflow-test up -d
 
 应用默认连接测试数据库 `pulseflow_test`、MySQL `13306`、Redis `16379` 和 Kafka `19092`；完整环境变量见 [`.env.test.example`](.env.test.example)。脚本默认只允许 loopback URL 和测试数据库。
 
-营销 CLICK 验收需要后端与 Replay 进程配置相同的 `PULSEFLOW_EVENTS_TRUSTED_SOURCE_TOKEN`（至少 32 字符，仅测试用服务端令牌）。未配置时事件仍会接收，但不会成为可信营销点击。`campaign-fixture.sql` 只准备发送任务和回执，不再预插入 `click_event`。端到端自动验收见 `MarketingClickPipelineIT`，迁移、补偿与历史数据说明见 [营销点击链路](../docs/marketing-click-pipeline.md)。
+营销 CLICK 验收需要后端与 Replay 进程配置相同的 `PULSEFLOW_EVENTS_TRUSTED_SOURCE_TOKEN`（至少 32 字符，仅测试用服务端令牌）。未配置时事件仍会接收，但不会成为可信营销点击。`campaign-fixture.sql` 只准备任务发送结果的旧 CLI 合同 fixture，不再预插入 `click_event`。不预置发送成功与点击事实的完整端到端验收见 `MarketingClickPipelineIT.decisionSendClickPurchaseSummaryAndAgentCompleteTheEntireRealPipeline`，迁移、补偿与历史数据说明见 [营销点击链路](../docs/marketing-click-pipeline.md)。
 
 ## Functional Replay
 
@@ -164,3 +164,5 @@ $env:PULSEFLOW_TOKEN = '<test-token>'
 ```
 
 `run-all.ps1` 只负责创建 RunId、编排 Functional/Performance、读取两边最终状态并生成简洁的 `run-all-report.json` 与 `run-all-report.md`。详细场景、失败原因和业务校验仍由各自报告负责。
+
+V9 移除 delivery_record；validator/cleanup 使用 delivery_task，升级与部署前提见 [合并设计](../docs/delivery-task-consolidation.md)。

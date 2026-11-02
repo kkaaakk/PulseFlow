@@ -30,7 +30,6 @@ REQUIRED_TABLES = {
     "campaign_rule",
     "campaign_execution",
     "delivery_task",
-    "delivery_record",
     "in_app_message",
     "push_record",
     "click_event",
@@ -89,7 +88,7 @@ CHECK_NAMES = {
     "campaign-fixture": "Campaign 测试预置数据",
     "campaign-execution": "营销活动执行记录",
     "campaign-delivery-tasks": "营销投放任务",
-    "campaign-delivery-records": "营销投放记录",
+    "campaign-send-results": "营销投放记录",
     "campaign-channel-records": "渠道发送记录",
     "campaign-frequency-redis": "营销频控计数",
     "campaign-frequency-reservations": "营销频控配额预留",
@@ -743,12 +742,21 @@ def validate_campaign_derived_outputs(args: argparse.Namespace, campaign_details
         expected_query = (
             "SELECT c.id, "
             "(SELECT COUNT(DISTINCT user_id) FROM delivery_task t WHERE t.campaign_id = c.id), "
-            "(SELECT COUNT(*) FROM delivery_record d WHERE d.campaign_id = c.id), "
-            "(SELECT COUNT(*) FROM delivery_record d WHERE d.campaign_id = c.id "
-            "AND UPPER(d.status) IN ('SENT','DELIVERED')), "
+            "(SELECT COUNT(*) FROM delivery_task d WHERE d.campaign_id = c.id AND d.first_send_attempt_at IS NOT NULL), "
+            "(SELECT COUNT(*) FROM delivery_task d WHERE d.campaign_id = c.id "
+            "AND d.status='SENT' AND d.sent_at IS NOT NULL), "
             "(SELECT COUNT(DISTINCT ce.user_id) FROM click_event ce "
-            "JOIN delivery_task t ON t.id = ce.task_id WHERE t.campaign_id = c.id), "
-            "(SELECT COUNT(DISTINCT ar.user_id) FROM attribution_record ar WHERE ar.campaign_id = c.id) "
+            "JOIN delivery_task t ON t.id=ce.task_id JOIN user_event e ON e.event_id=ce.source_event_id "
+            "WHERE t.campaign_id=c.id AND e.marketing_trusted=1 AND e.marketing_click_status='VALID' "
+            "AND e.event_type='CLICK' AND e.user_id=ce.user_id AND e.effective_event_time=ce.click_time "
+            "AND t.user_id=ce.user_id AND t.status='SENT' AND t.sent_at IS NOT NULL AND t.sent_at<=ce.click_time), "
+            "(SELECT COUNT(DISTINCT ar.user_id) FROM attribution_record ar "
+            "JOIN click_event ce ON ce.id=ar.click_event_id AND ce.task_id=ar.task_id AND ce.user_id=ar.user_id "
+            "JOIN delivery_task t ON t.id=ce.task_id AND t.campaign_id=ar.campaign_id "
+            "JOIN user_event e ON e.event_id=ce.source_event_id WHERE ar.campaign_id=c.id "
+            "AND e.marketing_trusted=1 AND e.marketing_click_status='VALID' AND e.event_type='CLICK' "
+            "AND e.user_id=ce.user_id AND e.effective_event_time=ce.click_time AND t.user_id=ce.user_id "
+            "AND t.status='SENT' AND t.sent_at IS NOT NULL AND t.sent_at<=ce.click_time) "
             f"FROM campaign c WHERE c.id IN ({campaign_sql}) ORDER BY c.id"
         )
         summary_query = (
@@ -1017,12 +1025,12 @@ def validate_mysql(args: argparse.Namespace, manifest: dict[str, Any], checks: l
 
             allowed_tasks = int(detail.get("expectedAllowedByFrequency", 0))
             delivery_query = (
-                "SELECT status, COUNT(*) FROM delivery_record "
-                f"WHERE campaign_id = {int(campaign_id)} GROUP BY status ORDER BY status"
+                "SELECT status, COUNT(*) FROM delivery_task "
+                f"WHERE campaign_id = {int(campaign_id)} AND first_send_attempt_at IS NOT NULL GROUP BY status ORDER BY status"
             )
             delivery_rows, delivery_error = run_mysql(args, delivery_query)
             actual_delivery = {row[0]: int(row[1]) for row in delivery_rows or []} if not delivery_error else None
-            add_check(checks, "campaign-delivery-records", "Campaign", "Delivery records match frequency-allowed tasks",
+            add_check(checks, "campaign-send-results", "Campaign", "Attempted tasks match frequency-allowed sends",
                       "PASS" if actual_delivery == ({"SENT": allowed_tasks} if allowed_tasks else {})
                       else ("NOT_RUN" if delivery_error else "FAIL"),
                       expected={"SENT": allowed_tasks} if allowed_tasks else {}, actual=actual_delivery,
@@ -1047,11 +1055,11 @@ def validate_mysql(args: argparse.Namespace, manifest: dict[str, Any], checks: l
                 channel_name = "push_record"
             else:
                 channel_query = (
-                    "SELECT COUNT(*) FROM delivery_record "
-                    f"WHERE campaign_id = {int(campaign_id)} AND channel = 'EMAIL' AND status = 'SENT'"
+                    "SELECT COUNT(*) FROM delivery_task "
+                    f"WHERE campaign_id = {int(campaign_id)} AND channel = 'EMAIL' AND status = 'SENT' AND sent_at IS NOT NULL"
                 )
                 channel_expected = allowed_tasks
-                channel_name = "email delivery_record"
+                channel_name = "email task result"
             channel_rows, channel_error = run_mysql(args, channel_query)
             channel_actual = int(channel_rows[0][0]) if channel_rows and channel_rows[0] else None
             add_check(checks, "campaign-channel-records", "Campaign", f"{channel_name} contents match sent tasks",

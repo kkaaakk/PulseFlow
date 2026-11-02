@@ -167,7 +167,7 @@ export const demoData = {
   /**
    * 组合演示任务、可选发送记录、点击与关联归因；未知 taskId 回退为第一条任务。
    */
-  delivery: (taskId: number): DeliveryDetail => { const task = deliveryRows.find((row) => row.taskId === taskId) ?? deliveryRows[0]; return { task, record: task.sentAt ? { id: task.taskId + 1000, taskId: task.taskId, campaignId: task.campaignId, userId: task.userId, channel: task.channel, status: 'SENT', sentAt: task.sentAt } : null, clicks: task.taskId === 7001 ? [{ id: 8101, taskId, userId: task.userId, clickSource: 'IN_APP', clickTime: at(30), properties: {} }] : [], attributions: attributionRows.filter((row) => row.taskId === task.taskId) } },
+  delivery: (taskId: number): DeliveryDetail => { const task = deliveryRows.find((row) => row.taskId === taskId) ?? deliveryRows[0]; return { task, record: task.sentAt ? { id: null, taskId: task.taskId, campaignId: task.campaignId, userId: task.userId, channel: task.channel, status: 'SENT', sentAt: task.sentAt } : null, clicks: task.taskId === 7001 ? [{ id: 8101, taskId, userId: task.userId, clickSource: 'IN_APP', clickTime: at(30), properties: {} }] : [], attributions: attributionRows.filter((row) => row.taskId === task.taskId) } },
   /**
    * 按 Campaign 和用户 ID 包含关系筛选演示归因记录，再执行内存分页。
    */

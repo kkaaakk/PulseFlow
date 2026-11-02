@@ -10,7 +10,6 @@ import com.pulseflow.mapper.AttributionRecordMapper;
 import com.pulseflow.mapper.CampaignMapper;
 import com.pulseflow.mapper.CampaignRuleMapper;
 import com.pulseflow.mapper.ClickEventMapper;
-import com.pulseflow.mapper.DeliveryRecordMapper;
 import com.pulseflow.mapper.DeliveryTaskMapper;
 import com.pulseflow.mapper.UserBehaviorSummaryMapper;
 import com.pulseflow.mapper.UserEventMapper;
@@ -46,7 +45,6 @@ class WebQueryServiceTest {
     @Mock private CampaignMapper campaignMapper;
     @Mock private CampaignRuleMapper campaignRuleMapper;
     @Mock private DeliveryTaskMapper deliveryTaskMapper;
-    @Mock private DeliveryRecordMapper deliveryRecordMapper;
     @Mock private ClickEventMapper clickEventMapper;
     @Mock private AttributionRecordMapper attributionRecordMapper;
     @Mock private UserProfileMapper userProfileMapper;
@@ -66,7 +64,7 @@ class WebQueryServiceTest {
     @BeforeEach
     void setUp() {
         service = new WebQueryService(
-                campaignMapper, campaignRuleMapper, deliveryTaskMapper, deliveryRecordMapper,
+                campaignMapper, campaignRuleMapper, deliveryTaskMapper,
                 clickEventMapper, attributionRecordMapper, userProfileMapper, userEventMapper,
                 behaviorSummaryMapper, userTagMapper, profileService, jdbcTemplate,
                 redissonClient, performanceCalculator);

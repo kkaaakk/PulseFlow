@@ -5,11 +5,11 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.pulseflow.entity.AttributionRecord;
 import com.pulseflow.entity.AttributionTask;
 import com.pulseflow.entity.ClickEvent;
-import com.pulseflow.entity.DeliveryRecord;
+import com.pulseflow.entity.DeliveryTask;
 import com.pulseflow.mapper.AttributionRecordMapper;
 import com.pulseflow.mapper.AttributionTaskMapper;
 import com.pulseflow.mapper.ClickEventMapper;
-import com.pulseflow.mapper.DeliveryRecordMapper;
+import com.pulseflow.mapper.DeliveryTaskMapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,7 +62,7 @@ class AttributionServiceTest {
     private AttributionTaskMapper attributionTaskMapper;
     private AttributionRecordMapper attributionRecordMapper;
     private ClickEventMapper clickEventMapper;
-    private DeliveryRecordMapper deliveryRecordMapper;
+    private DeliveryTaskMapper deliveryTaskMapper;
     private RedissonClient redissonClient;
     private AttributionService attributionService;
 
@@ -74,11 +74,11 @@ class AttributionServiceTest {
         attributionTaskMapper = mock(AttributionTaskMapper.class);
         attributionRecordMapper = mock(AttributionRecordMapper.class);
         clickEventMapper = mock(ClickEventMapper.class);
-        deliveryRecordMapper = mock(DeliveryRecordMapper.class);
+        deliveryTaskMapper = mock(DeliveryTaskMapper.class);
         redissonClient = mock(RedissonClient.class);
         attributionService = new AttributionService(
                 attributionTaskMapper, attributionRecordMapper,
-                clickEventMapper, deliveryRecordMapper, redissonClient, mock(com.pulseflow.mapper.UserEventMapper.class));
+                clickEventMapper, deliveryTaskMapper, redissonClient, mock(com.pulseflow.mapper.UserEventMapper.class));
 
         // MyBatis returns the affected-row count from status transitions. A
         // successful unit-test fixture represents one updated PENDING row.
@@ -118,10 +118,9 @@ class AttributionServiceTest {
     /**
      * 构造已发送触达记录，供点击时间与发送时间约束测试使用。
      */
-    private DeliveryRecord deliverySentAt(LocalDateTime sentAt, Long taskId) {
-        return DeliveryRecord.builder()
-                .id(20L)
-                .taskId(taskId)
+    private DeliveryTask deliverySentAt(LocalDateTime sentAt, Long taskId) {
+        return DeliveryTask.builder()
+                .id(taskId)
                 .userId(1001L)
                 .campaignId(300L)
                 .channel("IN_APP")
@@ -145,8 +144,8 @@ class AttributionServiceTest {
         ClickEvent click = clickAt(LocalDateTime.of(2026, 8, 6, 10, 0, 0), 500L);
         when(clickEventMapper.selectLastValid(any(), any(), any())).thenReturn(click);
 
-        DeliveryRecord delivery = deliverySentAt(LocalDateTime.of(2026, 8, 6, 9, 0, 0), 500L);
-        when(deliveryRecordMapper.selectByTaskId(any())).thenReturn(delivery);
+        DeliveryTask delivery = deliverySentAt(LocalDateTime.of(2026, 8, 6, 9, 0, 0), 500L);
+        when(deliveryTaskMapper.selectById(any())).thenReturn(delivery);
         when(attributionRecordMapper.insert(any())).thenReturn(1);
 
         attributionService.executeAttribution("target-evt-1");
@@ -187,8 +186,8 @@ class AttributionServiceTest {
         ClickEvent click = clickAt(LocalDateTime.of(2026, 8, 6, 10, 0, 0), 500L);
         when(clickEventMapper.selectLastValid(any(), any(), any())).thenReturn(click);
 
-        DeliveryRecord delivery = deliverySentAt(LocalDateTime.of(2026, 8, 6, 9, 0, 0), 500L);
-        when(deliveryRecordMapper.selectByTaskId(any())).thenReturn(delivery);
+        DeliveryTask delivery = deliverySentAt(LocalDateTime.of(2026, 8, 6, 9, 0, 0), 500L);
+        when(deliveryTaskMapper.selectById(any())).thenReturn(delivery);
 
         // Insert fails — attribution already recorded by a previous run
         doThrow(new DuplicateKeyException("Duplicate target_event_id"))
@@ -341,7 +340,7 @@ class AttributionServiceTest {
         when(clickEventMapper.selectLastValid(any(), any(), any()))
                 .thenThrow(new RuntimeException("temporary click store failure"))
                 .thenReturn(click);
-        when(deliveryRecordMapper.selectByTaskId(any()))
+        when(deliveryTaskMapper.selectById(any()))
                 .thenReturn(deliverySentAt(LocalDateTime.of(2026, 8, 6, 9, 0, 0), 500L));
         when(attributionRecordMapper.insert(any())).thenReturn(1);
 
@@ -413,7 +412,7 @@ class AttributionServiceTest {
         assertThatThrownBy(() -> attributionService.executeAttribution("target-evt-1"))
                 .isInstanceOf(AttributionTaskNotFoundException.class)
                 .hasMessageContaining("target-evt-1");
-        verifyNoInteractions(clickEventMapper, attributionRecordMapper, deliveryRecordMapper);
+        verifyNoInteractions(clickEventMapper, attributionRecordMapper, deliveryTaskMapper);
     }
 
     /**
@@ -454,7 +453,7 @@ class AttributionServiceTest {
 
         assertThat(attributionService.executeAttribution("target-evt-1"))
                 .isEqualTo(AttributionService.ExecutionResult.ALREADY_TERMINAL);
-        verifyNoInteractions(clickEventMapper, attributionRecordMapper, deliveryRecordMapper);
+        verifyNoInteractions(clickEventMapper, attributionRecordMapper, deliveryTaskMapper);
     }
 
     private static final class TestTransactionManager extends AbstractPlatformTransactionManager {

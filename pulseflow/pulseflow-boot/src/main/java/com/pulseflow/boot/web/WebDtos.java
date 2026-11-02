@@ -264,6 +264,7 @@ public final class WebDtos {
     ) {
     }
 
+    /** Compatibility result envelope projected from delivery_task; id is always null. */
     public record DeliveryRecordView(
             Long id,
             Long taskId,

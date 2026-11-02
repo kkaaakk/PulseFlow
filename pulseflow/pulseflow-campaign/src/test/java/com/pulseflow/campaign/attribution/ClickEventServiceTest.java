@@ -16,19 +16,15 @@ class ClickEventServiceTest {
     final ClickEventMapper clicks = mock(ClickEventMapper.class);
     final UserEventMapper events = mock(UserEventMapper.class);
     final DeliveryTaskMapper tasks = mock(DeliveryTaskMapper.class);
-    final DeliveryRecordMapper deliveries = mock(DeliveryRecordMapper.class);
     final DataCompensationTaskMapper compensation = mock(DataCompensationTaskMapper.class);
-    final ClickEventService service = new ClickEventService(clicks, events, tasks, deliveries, compensation);
+    final ClickEventService service = new ClickEventService(clicks, events, tasks, compensation);
     final LocalDateTime time = LocalDateTime.of(2026, 11, 2, 12, 0);
     DeliveryTask task;
-    DeliveryRecord delivery;
 
     @BeforeEach void setUp() {
         task = DeliveryTask.builder().id(5L).userId(10L).campaignId(7L).channel("IN_APP").status("SENT").build();
-        delivery = DeliveryRecord.builder().taskId(5L).userId(10L).campaignId(7L).channel("IN_APP")
-                .status("SENT").sentAt(time.minusMinutes(1)).build();
+        task.setSentAt(time.minusMinutes(1));
         when(tasks.selectById(5L)).thenReturn(task);
-        when(deliveries.selectByTaskId(5L)).thenReturn(delivery);
     }
 
     UserEvent event(String properties) {
@@ -99,21 +95,15 @@ class ClickEventServiceTest {
         verifyNoInteractions(clicks, compensation);
     }
 
-    @Test void mismatchedReceiptCannotValidateClick() {
-        delivery.setCampaignId(99L);
-        assertThat(service.recordClick(event("{\"taskId\":5}"))).isEqualTo(ClickEventService.Result.REJECTED);
-        verifyNoInteractions(clicks, compensation);
-    }
-
     @Test void clickBeforeSendIsRejectedAndEqualityIsAllowed() {
-        delivery.setSentAt(time.plusSeconds(1));
+        task.setSentAt(time.plusSeconds(1));
         assertThat(service.recordClick(event("{\"taskId\":5}"))).isEqualTo(ClickEventService.Result.REJECTED);
-        delivery.setSentAt(time);
+        task.setSentAt(time);
         assertThat(service.recordClick(event("{\"taskId\":5}"))).isEqualTo(ClickEventService.Result.VALID);
     }
 
     @Test void invisibleReceiptPersistsBoundedRetryWithoutMarketingFact() {
-        when(deliveries.selectByTaskId(5L)).thenReturn(null);
+        task.setSentAt(null);
         UserEvent e = event("{\"taskId\":5}");
         assertThat(service.recordClick(e)).isEqualTo(ClickEventService.Result.PENDING);
         verify(compensation).ensureMarketingClickPending("click-1");
@@ -121,7 +111,7 @@ class ClickEventServiceTest {
     }
 
     @Test void infrastructureFailureEscapesAndIsNeverBusinessRejection() {
-        when(deliveries.selectByTaskId(5L)).thenThrow(new DataAccessResourceFailureException("offline"));
+        when(tasks.selectById(5L)).thenThrow(new DataAccessResourceFailureException("offline"));
         assertThatThrownBy(() -> service.recordClick(event("{\"taskId\":5}")))
                 .isInstanceOf(DataAccessResourceFailureException.class);
         verifyNoInteractions(clicks, events, compensation);

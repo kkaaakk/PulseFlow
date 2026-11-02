@@ -488,7 +488,7 @@ CLICK_LAST_TOUCH
 ```text
 消息发送
   ↓
-delivery_record
+delivery_task.status=SENT + sent_at
   ↓
 用户点击
   ↓
@@ -504,7 +504,7 @@ AttributionTaskConsumer
   ↓
 查询 24h 内有效 click_event
   ↓
-过滤 click_time > sent_at
+过滤 click_time >= delivery_task.sent_at
      click_time < target_event_time
   ↓
 选择最近一条 click
@@ -544,3 +544,8 @@ Flyway V1–V5 为不可变历史。`campaign_ai_draft` 仍承载草稿，`campa
 # 六、可靠性与验证
 
 事件 `eventId` 幂等、Kafka at-least-once、Redis 补偿、Campaign 规则决策、频控 Lua 原子配额、Delivery 去重和 Last-Touch 归因的业务语义保持不变。测试与 CI 流程见 [工程验证](docs/engineering-verification.md)，本轮移动与删除明细见 [Preparation Report](docs/agent/pydantic-ai-preparation-report.md)。
+
+
+## Delivery V9 数据模型精简
+
+任务与发送结果统一到 delivery_task；历史结果迁移和完整字段、恢复、指标与停机部署规则见 [合并设计](docs/delivery-task-consolidation.md)。delivery_record 已移除，不再进行双写。
