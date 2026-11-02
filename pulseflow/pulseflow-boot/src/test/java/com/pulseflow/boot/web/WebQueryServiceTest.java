@@ -56,6 +56,7 @@ class WebQueryServiceTest {
     @Mock private ProfileService profileService;
     @Mock private JdbcTemplate jdbcTemplate;
     @Mock private RedissonClient redissonClient;
+    @Mock private com.pulseflow.campaign.analytics.PerformanceSummaryCalculator performanceCalculator;
 
     private WebQueryService service;
 
@@ -68,7 +69,7 @@ class WebQueryServiceTest {
                 campaignMapper, campaignRuleMapper, deliveryTaskMapper, deliveryRecordMapper,
                 clickEventMapper, attributionRecordMapper, userProfileMapper, userEventMapper,
                 behaviorSummaryMapper, userTagMapper, profileService, jdbcTemplate,
-                redissonClient);
+                redissonClient, performanceCalculator);
     }
 
     /**
@@ -89,19 +90,12 @@ class WebQueryServiceTest {
         result.setTotal(5);
         when(campaignMapper.selectPage(any(), any())).thenReturn(result);
 
-        Map<String, Object> summary = new HashMap<>();
-        summary.put("target_audience_count", 120L);
-        summary.put("sent_count", 100L);
-        summary.put("delivered_count", 98L);
-        summary.put("clicked_count", 12L);
-        summary.put("converted_count", 3L);
-        summary.put("unsubscribe_count", 0L);
-        summary.put("delivery_rate", new BigDecimal("0.98"));
-        summary.put("click_rate", new BigDecimal("0.12"));
-        summary.put("conversion_rate", new BigDecimal("0.03"));
-        summary.put("unsubscribe_rate", BigDecimal.ZERO);
-        doReturn(List.of(summary)).when(jdbcTemplate)
-                .queryForList(contains("campaign_performance_summary"), eq(77L));
+        when(performanceCalculator.readCurrent(77L)).thenReturn(
+                com.pulseflow.campaign.analytics.CampaignPerformanceSummary.builder()
+                        .targetAudienceCount(120L).sentCount(100L).deliveredCount(98L)
+                        .clickedCount(12L).convertedCount(3L).unsubscribeCount(0L)
+                        .deliveryRate(new BigDecimal("0.98")).clickRate(new BigDecimal("0.1224"))
+                        .conversionRate(new BigDecimal("0.2500")).unsubscribeRate(BigDecimal.ZERO).build());
 
         WebDtos.PageResponse<WebDtos.CampaignListItem> response =
                 service.listCampaigns(2, 2, "召回", "ACTIVE", null, null, null);

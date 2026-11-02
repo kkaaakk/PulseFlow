@@ -17,6 +17,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ApiResponse<Void> handleMalformedJson() {
+        // Never log Jackson's raw value/source excerpt (may contain credentials or PII).
+        return ApiResponse.fail(400, "Invalid JSON request");
+    }
 
     /**
      * 将未登录请求转换为 HTTP 401 和统一 API 失败响应。

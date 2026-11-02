@@ -5,6 +5,10 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.pulseflow.campaign.decision.DecisionEngine;
+import com.pulseflow.campaign.attribution.ClickEventService;
+import com.pulseflow.campaign.attribution.ClickDeliveryNotVisibleException;
+import com.pulseflow.campaign.attribution.AttributionService;
+import com.pulseflow.common.enums.CompensationTaskType;
 import com.pulseflow.campaign.profile.RealtimeProfileUpdateService;
 import com.pulseflow.common.enums.CompensationStatus;
 import com.pulseflow.entity.DataCompensationTask;
@@ -49,6 +53,8 @@ public class CompensationJob {
     private final RealtimeProfileUpdateService realtimeProfileUpdateService;
     private final DecisionEngine decisionEngine;
     private final JdbcTemplate jdbcTemplate;
+    private final ClickEventService clickEventService;
+    private final AttributionService attributionService;
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .registerModule(new JavaTimeModule());
@@ -67,6 +73,12 @@ public class CompensationJob {
                         "retry_count = retry_count + 1, next_retry_at = NOW(), locked_at = NULL " +
                         "WHERE status = 'PROCESSING' AND locked_at < NOW() - INTERVAL 5 MINUTE " +
                         "AND retry_count < max_retry");
+        // A crash on the final attempt must also leave a visible terminal row.
+        jdbcTemplate.update("UPDATE data_compensation_task SET status = 'FAILED', locked_at = NULL "
+                + "WHERE status = 'PROCESSING' AND locked_at < NOW() - INTERVAL 5 MINUTE "
+                + "AND retry_count >= max_retry");
+        jdbcTemplate.update("UPDATE data_compensation_task SET status = 'FAILED', locked_at = NULL "
+                + "WHERE status = 'PENDING' AND retry_count >= max_retry");
 
         // Step 2: Claim one due PENDING task (atomic, multi-instance safe).
         DataCompensationTask task = compensationClaimService.claimOne();
@@ -76,6 +88,16 @@ public class CompensationJob {
 
         // Step 3: Process OUTSIDE transaction — Redis + decision are slow / external.
         try {
+            if (CompensationTaskType.MARKETING_CLICK.name().equals(task.getTaskType())) {
+                if (clickEventService.retry(task.getEventId()) == ClickEventService.Result.PENDING) {
+                    throw new ClickDeliveryNotVisibleException();
+                }
+                markDone(task.getId());
+                return;
+            }
+            if (!CompensationTaskType.EVENT_REPLAY.name().equals(task.getTaskType())) {
+                throw new IllegalStateException("unsupported_compensation_type");
+            }
             Map<String, Object> eventMap = parseEvent(task.getPayload());
 
             // Redis 重放失败：直接走 handleFailure，不能 markDone。
@@ -89,10 +111,18 @@ public class CompensationJob {
             // 决策重试：基础设施异常会从 evaluate 向外抛（DecisionEngine 已修复为不吞异常）。
             decisionEngine.evaluate(eventMap);
 
+            // Recover older EVENT_REPLAY target events too. New targets already
+            // seed their durable task inside the event persistence transaction.
+            if ("ORDER_PAID".equals(eventMap.get("eventType"))) {
+                attributionService.onTargetEvent(task.getEventId(),
+                        ((Number) eventMap.get("userId")).longValue(), "ORDER_PAID",
+                        LocalDateTime.parse((String) eventMap.get("effectiveEventTime")));
+            }
+
             markDone(task.getId());
             log.info("Compensation task {} completed", task.getEventId());
         } catch (Exception e) {
-            log.error("Compensation task {} failed: {}", task.getEventId(), e.getMessage(), e);
+            log.error("Compensation failed: type={}, exception={}", task.getTaskType(), e.getClass().getSimpleName());
             handleFailure(task, e);
         }
     }
@@ -114,15 +144,21 @@ public class CompensationJob {
      */
     private void handleFailure(DataCompensationTask task, Exception e) {
         int newRetryCount = task.getRetryCount() + 1;
-        String errMsg = e.getMessage() != null
+        String errMsg = CompensationTaskType.MARKETING_CLICK.name().equals(task.getTaskType())
+                ? (e instanceof ClickDeliveryNotVisibleException ? "DELIVERY_NOT_VISIBLE" : "INFRASTRUCTURE_FAILURE")
+                : e.getMessage() != null
                 ? e.getMessage().substring(0, Math.min(512, e.getMessage().length()))
                 : "Unknown error";
 
         if (newRetryCount >= task.getMaxRetry()) {
+            if (e instanceof ClickDeliveryNotVisibleException) {
+                clickEventService.exhaustVisibilityRetries(task.getEventId());
+            }
             compensationTaskMapper.update(null,
                     new LambdaUpdateWrapper<DataCompensationTask>()
                             .eq(DataCompensationTask::getId, task.getId())
                             .set(DataCompensationTask::getStatus, CompensationStatus.FAILED.name())
+                            .set(DataCompensationTask::getRetryCount, newRetryCount)
                             .set(DataCompensationTask::getLastError, errMsg)
                             .set(DataCompensationTask::getLockedAt, null));
         } else {

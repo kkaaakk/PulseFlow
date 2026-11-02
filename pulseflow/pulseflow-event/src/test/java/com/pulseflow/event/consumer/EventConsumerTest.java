@@ -17,7 +17,7 @@ class EventConsumerTest {
     @DisplayName("Consumer JSON parser keeps a present targetId key with null value")
     @SuppressWarnings("unchecked")
     void parserPreservesPresentNullTargetId() throws Exception {
-        EventConsumer consumer = new EventConsumer(null, null, null, null, null);
+        EventConsumer consumer = new EventConsumer(null, null, null, null);
         Method parseEvent = EventConsumer.class.getDeclaredMethod("parseEvent", String.class);
         parseEvent.setAccessible(true);
 

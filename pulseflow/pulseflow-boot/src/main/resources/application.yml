@@ -99,9 +99,14 @@ sa-token:
 logging:
   level:
     com.pulseflow: DEBUG
+    # SQL DEBUG logging includes raw user-event/click properties; keep payloads private.
+    com.pulseflow.mapper: INFO
     org.springframework.kafka: INFO
 
 pulseflow:
+  events:
+    # Only a trusted backend may hold this token. Empty disables marketing promotion.
+    trusted-source-token: ${PULSEFLOW_EVENTS_TRUSTED_SOURCE_TOKEN:}
   agent:
     service-url: ${PULSEFLOW_AGENT_SERVICE_URL:}
     # Dedicated machine secret. An empty value disables the internal API.

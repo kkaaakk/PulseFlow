@@ -1,13 +1,12 @@
 package com.pulseflow.boot.agenttools;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.pulseflow.boot.agenttools.AgentToolDtos.AudienceRequest;
 import com.pulseflow.boot.agenttools.AgentToolDtos.AudienceResponse;
 import com.pulseflow.boot.agenttools.AgentToolDtos.Metadata;
 import com.pulseflow.boot.agenttools.AgentToolDtos.PerformanceResponse;
 import com.pulseflow.boot.agenttools.AgentToolDtos.Validation;
 import com.pulseflow.campaign.analytics.CampaignPerformanceSummary;
-import com.pulseflow.campaign.analytics.CampaignPerformanceSummaryMapper;
+import com.pulseflow.campaign.analytics.PerformanceSummaryCalculator;
 import com.pulseflow.campaign.dsl.DslValidationResult;
 import com.pulseflow.campaign.exception.CampaignResourceNotFoundException;
 import com.pulseflow.campaign.preview.AudiencePreviewResult;
@@ -32,28 +31,19 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class AgentToolService {
     private final CampaignMapper campaigns;
-    private final CampaignPerformanceSummaryMapper summaries;
+    private final PerformanceSummaryCalculator calculator;
     private final CampaignDslValidator validator;
     private final AudiencePreviewService previewService;
 
     /**
-     * 校验 Campaign 存在后读取已落库的绩效快照；不触发重新计算或写库，未汇总时返回不可用标记。
+     * 按共享计算器读取当前事实；保持只读 Tool 权限，不落库、不返回陈旧快照。
      */
     @WithSpan("agent-tools.performance")
     public PerformanceResponse performance(Long campaignId) {
         if (campaignId == null || campaignId <= 0) throw new IllegalArgumentException("invalid_campaign_id");
         Campaign campaign = campaigns.selectById(campaignId);
         if (campaign == null) throw new CampaignResourceNotFoundException("Campaign not found");
-        // PerformanceSummaryCalculator.compute() upserts a row. This read-only endpoint
-        // consumes its authoritative precomputed result instead of invoking that write path.
-        CampaignPerformanceSummary summary = summaries.selectOne(
-                new LambdaQueryWrapper<CampaignPerformanceSummary>()
-                        .eq(CampaignPerformanceSummary::getCampaignId, campaignId).last("LIMIT 1"));
-        if (summary == null) {
-            return new PerformanceResponse(AgentMetricService.metadata("campaign-summary",
-                    List.of("summary_unavailable")), campaignId, false,
-                    null, null, null, null, null, null, null, null, null);
-        }
+        CampaignPerformanceSummary summary = calculator.readCurrent(campaignId);
         Instant calculatedAt = toInstant(summary.getCalculatedAt());
         Metadata meta = new Metadata(UUID.randomUUID().toString(), Instant.now(),
                 calculatedAt == null ? null : "campaign-summary:" + calculatedAt,

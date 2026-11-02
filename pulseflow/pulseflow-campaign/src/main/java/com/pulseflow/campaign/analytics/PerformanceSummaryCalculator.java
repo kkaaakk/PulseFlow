@@ -3,9 +3,7 @@ package com.pulseflow.campaign.analytics;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.pulseflow.campaign.analytics.CampaignPerformanceSummary;
 import com.pulseflow.campaign.analytics.CampaignPerformanceSummaryMapper;
-import com.pulseflow.entity.AttributionRecord;
 import com.pulseflow.entity.Campaign;
-import com.pulseflow.entity.ClickEvent;
 import com.pulseflow.entity.DeliveryRecord;
 import com.pulseflow.entity.DeliveryTask;
 import com.pulseflow.mapper.AttributionRecordMapper;
@@ -15,8 +13,8 @@ import com.pulseflow.mapper.DeliveryRecordMapper;
 import com.pulseflow.mapper.DeliveryTaskMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -57,23 +55,30 @@ public class PerformanceSummaryCalculator {
     private final CampaignPerformanceSummaryMapper summaryMapper;
 
     /**
-     * Compute (or return cached) summary for a campaign.
+     * Recompute a consistent snapshot. Serialize calculators per campaign so a
+     * slower, older snapshot cannot overwrite a newer calculation.
      */
+    @Transactional(rollbackFor = Exception.class)
     public CampaignPerformanceSummary compute(Long campaignId) {
-        // Idempotent: return existing if present
-        CampaignPerformanceSummary existing = summaryMapper.selectOne(
-                new LambdaQueryWrapper<CampaignPerformanceSummary>()
-                        .eq(CampaignPerformanceSummary::getCampaignId, campaignId)
-                        .last("LIMIT 1"));
-        if (existing != null) {
-            return existing;
-        }
-
-        Campaign campaign = campaignMapper.selectById(campaignId);
+        Campaign campaign = campaignMapper.selectForSummaryUpdate(campaignId);
         if (campaign == null) {
             throw new IllegalArgumentException("Campaign not found: " + campaignId);
         }
+        CampaignPerformanceSummary summary = calculate(campaignId);
+        summaryMapper.upsert(summary);
+        return summary;
+    }
 
+    /** Fresh facts for read-only Web/Agent tools; never writes or acquires a write lock. */
+    @Transactional(readOnly = true)
+    public CampaignPerformanceSummary readCurrent(Long campaignId) {
+        if (campaignMapper.selectById(campaignId) == null) {
+            throw new IllegalArgumentException("Campaign not found: " + campaignId);
+        }
+        return calculate(campaignId);
+    }
+
+    private CampaignPerformanceSummary calculate(Long campaignId) {
         // 1. Delivery tasks for this campaign
         List<DeliveryTask> tasks = deliveryTaskMapper.selectList(
                 new LambdaQueryWrapper<DeliveryTask>()
@@ -96,24 +101,10 @@ public class PerformanceSummaryCalculator {
                 .count();
 
         // 3. Click events (via task_id → delivery_task)
-        long clickedCount = 0;
-        if (!taskIds.isEmpty()) {
-            // click_event has no campaign_id; resolve through task_id
-            List<ClickEvent> clicks = clickEventMapper.selectList(
-                    new LambdaQueryWrapper<ClickEvent>()
-                            .in(ClickEvent::getTaskId, taskIds));
-            Set<Long> uniqueClickUsers = new HashSet<>();
-            for (ClickEvent c : clicks) uniqueClickUsers.add(c.getUserId());
-            clickedCount = uniqueClickUsers.size();
-        }
+        long clickedCount = clickEventMapper.countValidUsers(campaignId);
 
         // 4. Attribution records (converted)
-        List<AttributionRecord> attributions = attributionRecordMapper.selectList(
-                new LambdaQueryWrapper<AttributionRecord>()
-                        .eq(AttributionRecord::getCampaignId, campaignId));
-        Set<Long> uniqueConverters = new HashSet<>();
-        for (AttributionRecord a : attributions) uniqueConverters.add(a.getUserId());
-        long convertedCount = uniqueConverters.size();
+        long convertedCount = attributionRecordMapper.countValidConverters(campaignId);
 
         // 5. Unsubscribe — not tracked in v1
         long unsubscribeCount = 0;
@@ -146,15 +137,6 @@ public class PerformanceSummaryCalculator {
                 .variantMetricsJson(com.pulseflow.common.util.JsonUtil.toJson(variantMetrics))
                 .calculatedAt(LocalDateTime.now())
                 .build();
-        try {
-            summaryMapper.insert(summary);
-        } catch (DuplicateKeyException e) {
-            // Race condition — re-read
-            return summaryMapper.selectOne(
-                    new LambdaQueryWrapper<CampaignPerformanceSummary>()
-                            .eq(CampaignPerformanceSummary::getCampaignId, campaignId)
-                            .last("LIMIT 1"));
-        }
         return summary;
     }
 

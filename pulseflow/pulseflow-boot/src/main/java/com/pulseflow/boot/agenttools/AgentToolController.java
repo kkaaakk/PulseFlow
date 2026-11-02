@@ -42,7 +42,7 @@ public class AgentToolController {
     }
 
     /**
-     * 只读获取指定 Campaign 的预计算绩效快照，缺少快照时通过 available 与警告表达。
+     * 只读获取指定 Campaign 的实时权威绩效，不触发写库或业务动作。
      */
     @GetMapping("/campaigns/{campaignId}/performance")
     public PerformanceResponse performance(@PathVariable Long campaignId) {

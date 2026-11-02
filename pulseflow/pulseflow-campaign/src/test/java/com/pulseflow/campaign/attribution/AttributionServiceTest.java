@@ -78,7 +78,7 @@ class AttributionServiceTest {
         redissonClient = mock(RedissonClient.class);
         attributionService = new AttributionService(
                 attributionTaskMapper, attributionRecordMapper,
-                clickEventMapper, deliveryRecordMapper, redissonClient);
+                clickEventMapper, deliveryRecordMapper, redissonClient, mock(com.pulseflow.mapper.UserEventMapper.class));
 
         // MyBatis returns the affected-row count from status transitions. A
         // successful unit-test fixture represents one updated PENDING row.
@@ -139,14 +139,14 @@ class AttributionServiceTest {
     @DisplayName("click after delivery within 24h window → MATCHED")
     void lastTouchAttributionMatchesClickAfterDelivery() {
         AttributionTask task = pendingTask();
-        when(attributionTaskMapper.selectOne(any())).thenReturn(task);
+        when(attributionTaskMapper.selectTargetForUpdate(any())).thenReturn(task);
 
         // Click at 10:00 — within 24h before target (12:00) and after delivery sentAt (09:00)
         ClickEvent click = clickAt(LocalDateTime.of(2026, 8, 6, 10, 0, 0), 500L);
-        when(clickEventMapper.selectList(any())).thenReturn(List.of(click));
+        when(clickEventMapper.selectLastValid(any(), any(), any())).thenReturn(click);
 
         DeliveryRecord delivery = deliverySentAt(LocalDateTime.of(2026, 8, 6, 9, 0, 0), 500L);
-        when(deliveryRecordMapper.selectOne(any())).thenReturn(delivery);
+        when(deliveryRecordMapper.selectByTaskId(any())).thenReturn(delivery);
         when(attributionRecordMapper.insert(any())).thenReturn(1);
 
         attributionService.executeAttribution("target-evt-1");
@@ -164,8 +164,8 @@ class AttributionServiceTest {
     @DisplayName("no clicks in 24h window → EXPIRED")
     void noClickInWindowExpiresTask() {
         AttributionTask task = pendingTask();
-        when(attributionTaskMapper.selectOne(any())).thenReturn(task);
-        when(clickEventMapper.selectList(any())).thenReturn(List.of());
+        when(attributionTaskMapper.selectTargetForUpdate(any())).thenReturn(task);
+        when(clickEventMapper.selectLastValid(any(), any(), any())).thenReturn(null);
 
         attributionService.executeAttribution("target-evt-1");
 
@@ -182,13 +182,13 @@ class AttributionServiceTest {
     @DisplayName("duplicate attribution insert is idempotent — no re-throw and task becomes MATCHED")
     void duplicateAttributionIsIdempotent() {
         AttributionTask task = pendingTask();
-        when(attributionTaskMapper.selectOne(any())).thenReturn(task);
+        when(attributionTaskMapper.selectTargetForUpdate(any())).thenReturn(task);
 
         ClickEvent click = clickAt(LocalDateTime.of(2026, 8, 6, 10, 0, 0), 500L);
-        when(clickEventMapper.selectList(any())).thenReturn(List.of(click));
+        when(clickEventMapper.selectLastValid(any(), any(), any())).thenReturn(click);
 
         DeliveryRecord delivery = deliverySentAt(LocalDateTime.of(2026, 8, 6, 9, 0, 0), 500L);
-        when(deliveryRecordMapper.selectOne(any())).thenReturn(delivery);
+        when(deliveryRecordMapper.selectByTaskId(any())).thenReturn(delivery);
 
         // Insert fails — attribution already recorded by a previous run
         doThrow(new DuplicateKeyException("Duplicate target_event_id"))
@@ -243,7 +243,7 @@ class AttributionServiceTest {
     @DisplayName("successful claim completion removes the processing member")
     void completedClaimIsRemovedFromProcessingQueue() {
         RScoredSortedSet<String> processing = mock(RScoredSortedSet.class);
-        when(redissonClient.<String>getScoredSortedSet("delay:attribution:processing"))
+        when(redissonClient.<String>getScoredSortedSet("delay:attribution:processing", StringCodec.INSTANCE))
                 .thenReturn(processing);
 
         attributionService.completeClaimedTask("target-evt-1");
@@ -336,12 +336,12 @@ class AttributionServiceTest {
     @DisplayName("transient attribution failure can be retried and then completes")
     void transientAttributionFailureCanBeRetried() {
         AttributionTask task = pendingTask();
-        when(attributionTaskMapper.selectOne(any())).thenReturn(task);
+        when(attributionTaskMapper.selectTargetForUpdate(any())).thenReturn(task);
         ClickEvent click = clickAt(LocalDateTime.of(2026, 8, 6, 10, 0, 0), 500L);
-        when(clickEventMapper.selectList(any()))
+        when(clickEventMapper.selectLastValid(any(), any(), any()))
                 .thenThrow(new RuntimeException("temporary click store failure"))
-                .thenReturn(List.of(click));
-        when(deliveryRecordMapper.selectOne(any()))
+                .thenReturn(click);
+        when(deliveryRecordMapper.selectByTaskId(any()))
                 .thenReturn(deliverySentAt(LocalDateTime.of(2026, 8, 6, 9, 0, 0), 500L));
         when(attributionRecordMapper.insert(any())).thenReturn(1);
 
@@ -408,7 +408,7 @@ class AttributionServiceTest {
     @Test
     @DisplayName("a claimed task missing from MySQL is retryable, not silent success")
     void missingTaskIsRetryable() {
-        when(attributionTaskMapper.selectOne(any())).thenReturn(null);
+        when(attributionTaskMapper.selectTargetForUpdate(any())).thenReturn(null);
 
         assertThatThrownBy(() -> attributionService.executeAttribution("target-evt-1"))
                 .isInstanceOf(AttributionTaskNotFoundException.class)
@@ -450,7 +450,7 @@ class AttributionServiceTest {
     void terminalTaskIsIdempotentSuccess() {
         AttributionTask task = pendingTask();
         task.setStatus("MATCHED");
-        when(attributionTaskMapper.selectOne(any())).thenReturn(task);
+        when(attributionTaskMapper.selectTargetForUpdate(any())).thenReturn(task);
 
         assertThat(attributionService.executeAttribution("target-evt-1"))
                 .isEqualTo(AttributionService.ExecutionResult.ALREADY_TERMINAL);

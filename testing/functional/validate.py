@@ -1063,12 +1063,13 @@ def validate_mysql(args: argparse.Namespace, manifest: dict[str, Any], checks: l
         target_event_id = attribution.get("targetEventId")
         if target_event_id:
             click_query = (
-                "SELECT task_id, COUNT(*) FROM click_event "
-                f"WHERE task_id = {int(attribution.get('expectedTaskId') or 0)} GROUP BY task_id"
+                "SELECT c.task_id, COUNT(*) FROM click_event c JOIN user_event e ON e.event_id=c.source_event_id "
+                f"WHERE c.task_id = {int(attribution.get('expectedTaskId') or 0)} "
+                "AND e.marketing_trusted=1 AND e.marketing_click_status='VALID' GROUP BY c.task_id"
             )
             click_rows, click_error = run_mysql(args, click_query)
             actual_clicks = int(click_rows[0][1]) if click_rows and len(click_rows[0]) > 1 else 0
-            add_check(checks, "attribution-click-event", "Attribution", "Fixture click event is present for attribution",
+            add_check(checks, "attribution-click-event", "Attribution", "Trusted HTTP/Kafka click fact exists for attribution",
                       "PASS" if actual_clicks >= 1 else ("NOT_RUN" if click_error else "FAIL"),
                       expected={"taskId": attribution.get("expectedTaskId"), "minCount": 1},
                       actual={"count": actual_clicks}, query=click_query, reason=click_error)

@@ -26,6 +26,8 @@ public class ClickEvent {
 
     private Long taskId;
 
+    private String sourceEventId;
+
     private LocalDateTime clickTime;
 
     private String clickSource;

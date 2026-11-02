@@ -326,8 +326,8 @@ def out_of_order_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]
             "taskId": 9102,
         },
         "sourceLimitation": (
-            "The current HTTP event consumer persists CLICK as user_event but does not "
-            "call ClickEventService; attribution requires click_event rows."
+            "Marketing attribution requires a trusted replay source and matching sent-task fixtures; "
+            "this general out-of-order dataset only guarantees raw-event ordering semantics."
         ),
     }
 
@@ -584,7 +584,7 @@ def campaign_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         BASE_TIME + timedelta(minutes=1),
         rng,
     )
-    click_a["properties"].update({"taskId": 9201, "campaignId": 9201, "touch": "A"})
+    click_a["properties"].update({"taskId": 9203, "campaignId": 9203, "touch": "A"})
     click_b = generated_event(
         "campaign",
         seed,
@@ -594,7 +594,7 @@ def campaign_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         BASE_TIME + timedelta(minutes=2),
         rng,
     )
-    click_b["properties"].update({"taskId": 9202, "campaignId": 9202, "touch": "B"})
+    click_b["properties"].update({"taskId": 9203, "campaignId": 9203, "touch": "B"})
     conversion = generated_event(
         "campaign",
         seed,
@@ -632,8 +632,8 @@ def campaign_events(seed: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
             "performanceSummary": "requires-campaignPerformanceSummaryJob",
         },
         "sourceLimitation": (
-            "No HTTP endpoint currently writes click_event; the SQL fixture documents the "
-            "test-only setup needed for attribution validation."
+            "Configure the same PULSEFLOW_EVENTS_TRUSTED_SOURCE_TOKEN on backend and replay. "
+            "The SQL fixture seeds sending prerequisites only; clicks are ingested through HTTP/Kafka."
         ),
     }
 

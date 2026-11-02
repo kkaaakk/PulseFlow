@@ -67,6 +67,8 @@ docker compose -f .\testing\docker-compose.test.yml -p pulseflow-test up -d
 
 应用默认连接测试数据库 `pulseflow_test`、MySQL `13306`、Redis `16379` 和 Kafka `19092`；完整环境变量见 [`.env.test.example`](.env.test.example)。脚本默认只允许 loopback URL 和测试数据库。
 
+营销 CLICK 验收需要后端与 Replay 进程配置相同的 `PULSEFLOW_EVENTS_TRUSTED_SOURCE_TOKEN`（至少 32 字符，仅测试用服务端令牌）。未配置时事件仍会接收，但不会成为可信营销点击。`campaign-fixture.sql` 只准备发送任务和回执，不再预插入 `click_event`。端到端自动验收见 `MarketingClickPipelineIT`，迁移、补偿与历史数据说明见 [营销点击链路](../docs/marketing-click-pipeline.md)。
+
 ## Functional Replay
 
 ```powershell

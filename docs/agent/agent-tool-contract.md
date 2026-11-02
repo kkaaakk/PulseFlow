@@ -24,7 +24,7 @@ Java 在 `/internal/v1/agent-tools` 提供六个只读业务端点。Draft 创�
 | `POST /metrics/query` | `metric,timeRange,filters,dimensions,rowLimit` | 聚合 `rows[{dimensions,value,sampleSize}]` 与总 `sampleSize` |
 | `POST /metrics/compare` | `metric,currentPeriod,baselinePeriod,filters,dimensions,rowLimit` | Java 计算 `current,baseline,absoluteDelta,relativeDelta`；基线为 0 时相对变化为 `null` 并警告。`DAY` 不支持跨期直接比较。 |
 | `POST /metrics/breakdown` | `metric,timeRange,filters,dimension,rowLimit` | 指定一个白名单维度的聚合查询。 |
-| `GET /campaigns/{campaignId}/performance` | 正整数 Campaign ID | 读取 `PerformanceSummaryCalculator` 已生成的 `CampaignPerformanceSummary`；缺失时 `available=false`，不会触发计算器的写入路径。 |
+| `GET /campaigns/{campaignId}/performance` | 正整数 Campaign ID | 调用 `PerformanceSummaryCalculator.readCurrent` 读取当前有效事实；无需预生成快照，不触发写入路径，保留原响应结构。 |
 | `POST /attribution/breakdown` | `timeRange,filters,dimension,rowLimit` | `attributionCount` 与 `uniqueConverters`，只返回聚合结果。 |
 | `POST /audience/preview` | `dsl: CampaignDsl` | 先调用 `CampaignDslValidator`，再调用 `AudiencePreviewService`；无效 DSL 不执行预估。返回 `estimatedCount,dataVersion,validation`，验证错误和预估警告采用安全代码，不回显原值。预估失败时 `estimatedCount=null`，避免把故障误报成零人。 |
 

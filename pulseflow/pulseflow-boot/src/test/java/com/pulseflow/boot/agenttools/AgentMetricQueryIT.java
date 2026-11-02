@@ -52,10 +52,18 @@ class AgentMetricQueryIT {
                 + "(102,1002,9,'PUSH','SENT','2026-09-02 10:00:00'),"
                 + "(103,1003,9,'PUSH','SENT','2026-09-02 10:00:00'),"
                 + "(104,1004,9,'PUSH','FAILED','2026-09-02 10:00:00')");
-        jdbc.execute("INSERT INTO click_event (id,user_id,task_id,click_time) VALUES "
-                + "(201,1001,101,'2026-09-02 11:00:00'),"
-                + "(202,1001,101,'2026-09-02 11:01:00'),"
-                + "(203,1002,102,'2026-09-02 11:02:00')");
+        jdbc.execute("UPDATE delivery_task SET status='SENT' WHERE id IN (101,102,103)");
+        // This is a fixed aggregate-SQL contract fixture, not pipeline acceptance.
+        // MarketingClickPipelineIT exercises ingestion without inserting click facts.
+        for (int i=201;i<=203;i++) {
+            long user=i==203?1002:1001;
+            String time="2026-09-02 11:0"+(i-201)+":00";
+            jdbc.update("INSERT INTO user_event (event_id,user_id,event_type,event_time,received_at,effective_event_time,"
+                    + "marketing_trusted,marketing_click_status) VALUES (?,?,'CLICK',?,?,?,1,'VALID')",
+                    "metric-source-"+i,user,time,time,time);
+            jdbc.update("INSERT INTO click_event (id,user_id,task_id,click_time,source_event_id) VALUES (?,?,?,?,?)",
+                    i,user,i==203?102:101,time,"metric-source-"+i);
+        }
         jdbc.execute("INSERT INTO attribution_record "
                 + "(click_event_id,target_event_id,user_id,campaign_id,task_id,credited_at) VALUES "
                 + "(201,'agent-conversion-1',1001,9,101,'2026-09-02 12:00:00'),"

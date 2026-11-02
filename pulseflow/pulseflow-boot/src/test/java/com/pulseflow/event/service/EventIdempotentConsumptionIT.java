@@ -106,7 +106,8 @@ class EventIdempotentConsumptionIT {
             MybatisPlusAutoConfiguration.class
     })
     @MapperScan("com.pulseflow.mapper")
-    @Import({EventPersistenceService.class, MyMetaObjectHandler.class})
+    @Import({EventPersistenceService.class, MyMetaObjectHandler.class,
+            com.pulseflow.campaign.attribution.ClickEventService.class})
     static class TestApp {
     }
 
@@ -121,6 +122,9 @@ class EventIdempotentConsumptionIT {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.pulseflow.campaign.attribution.AttributionService attributionService;
 
     /**
      * 构造供真实 MySQL 幂等持久化测试复用的标准事件上下文。

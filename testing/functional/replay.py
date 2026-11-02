@@ -136,10 +136,15 @@ def request_body(record: dict[str, Any], manifest: dict[str, Any] | None,
 # 网络失败不伪装为 HTTP 响应。
 def send_json(base_url: str, body: Any, timeout: float) -> tuple[int | None, Any, str | None, float]:
     payload = body if isinstance(body, str) else stable_json(body)
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    # Test runner is a trusted backend source. Never record this token in replay evidence.
+    source_token = os.environ.get("PULSEFLOW_EVENTS_TRUSTED_SOURCE_TOKEN")
+    if source_token:
+        headers["X-PulseFlow-Event-Token"] = source_token
     request = Request(
         base_url.rstrip("/") + "/api/events",
         data=payload.encode("utf-8"),
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers=headers,
         method="POST",
     )
     started = time.perf_counter()
