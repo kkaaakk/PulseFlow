@@ -1,5 +1,6 @@
 package com.pulseflow.common.enums;
 
 public enum CompensationTaskType {
-    EVENT_REPLAY
+    EVENT_REPLAY,
+    MARKETING_CLICK
 }

@@ -12,6 +12,13 @@ import org.springframework.stereotype.Repository;
 @Mapper
 @Repository
 public interface DataCompensationTaskMapper extends BaseMapper<DataCompensationTask> {
+    /** Never reset an existing retry budget or claim on HTTP/Kafka duplication. */
+    @Insert("INSERT INTO data_compensation_task "
+            + "(event_id,task_type,payload,status,retry_count,max_retry,next_retry_at,last_error) "
+            + "VALUES (#{eventId},'MARKETING_CLICK',JSON_OBJECT('eventId',#{eventId}),"
+            + "'PENDING',0,5,NOW(),'DELIVERY_NOT_VISIBLE') "
+            + "ON DUPLICATE KEY UPDATE event_id = VALUES(event_id)")
+    int ensureMarketingClickPending(@Param("eventId") String eventId);
 
     /**
      * Atomic upsert for compensation task.

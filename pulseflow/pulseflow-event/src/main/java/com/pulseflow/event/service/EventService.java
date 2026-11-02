@@ -25,6 +25,7 @@ import java.util.concurrent.TimeoutException;
 public class EventService {
 
     private final KafkaTemplate<String, String> kafkaTemplate;
+    private final TrustedEventSource trustedEventSource;
 
     private static final String TOPIC = "pulseflow.raw.events";
     private static final long MAX_TIME_SKEW_MINUTES = 5;
@@ -39,7 +40,11 @@ public class EventService {
      * @throws PulseFlowException if Kafka send fails
      */
     public EventResponse acceptEvent(EventRequest request) {
-        LocalDateTime now = LocalDateTime.now();
+        return acceptEvent(request, null);
+    }
+
+    public EventResponse acceptEvent(EventRequest request, String sourceToken) {
+        LocalDateTime now = LocalDateTime.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
         LocalDateTime effectiveEventTime;
         boolean clockSkew = false;
 
@@ -50,10 +55,11 @@ public class EventService {
             log.warn("Event {} clock skew detected: eventTime={}, receivedAt={}, skew={}s",
                     request.getEventId(), request.getEventTime(), now, skew.getSeconds());
         } else {
-            effectiveEventTime = request.getEventTime();
+            effectiveEventTime = request.getEventTime().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
         }
 
-        String eventJson = buildEventPayload(request, now, effectiveEventTime, clockSkew);
+        String eventJson = buildEventPayload(request, now, effectiveEventTime, clockSkew,
+                trustedEventSource.authenticates(sourceToken));
         String key = String.valueOf(request.getUserId());
 
         sendToKafka(key, eventJson, request.getEventId());
@@ -72,7 +78,7 @@ public class EventService {
      * Builds the JSON payload to be sent to Kafka.
      */
     private String buildEventPayload(EventRequest request, LocalDateTime receivedAt,
-                                     LocalDateTime effectiveEventTime, boolean clockSkew) {
+                                     LocalDateTime effectiveEventTime, boolean clockSkew, boolean trusted) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("eventId", request.getEventId());
         payload.put("userId", request.getUserId());
@@ -82,6 +88,7 @@ public class EventService {
         payload.put("receivedAt", receivedAt.toString());
         payload.put("effectiveEventTime", effectiveEventTime.toString());
         payload.put("clockSkew", clockSkew);
+        payload.put("marketingTrusted", trusted);
         if (request.getProperties() != null && !request.getProperties().isEmpty()) {
             payload.put("properties", request.getProperties());
         }

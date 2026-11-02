@@ -66,6 +66,8 @@ npm run test:e2e:demo
 
 `mvn clean verify` 中的 Docker 集成测试在 `PULSEFLOW_TEST_DOCKER=true` 时运行，CI 强制设置该变量。Flyway V1–V5 保持原样，V6 新增调查归属与 Draft 授权表；历史 `campaign_ai_draft` 表仍承载 Campaign 草稿，`campaign_performance_summary` 仍承载绩效，旧生成/复盘表只作为历史 schema 保留。
 
+营销 CLICK 的可信上报、事务、补偿、Last-Touch 与 V8 迁移见 [营销点击链路说明](docs/marketing-click-pipeline.md)。公开 `/api/events` 保持兼容；营销事实提升要求受信服务端持有 `PULSEFLOW_EVENTS_TRUSTED_SOURCE_TOKEN`，普通客户端不能单凭 userId/taskId 生成可信营销点击。
+
 前端控制台位于 [`pulseflow-web`](pulseflow-web/README.md)。运行设计见 [pulseflow-design.md](pulseflow-design.md)，指标口径见 [Campaign Metrics Glossary](docs/campaign-metrics-glossary.md)，本次迁移见 [Preparation Report](docs/agent/pydantic-ai-preparation-report.md)。
 
 ## 调查前端与运行加固

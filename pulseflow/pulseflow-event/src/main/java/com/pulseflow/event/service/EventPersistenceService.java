@@ -1,13 +1,13 @@
 package com.pulseflow.event.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.pulseflow.entity.UserEvent;
-import com.pulseflow.entity.UserMetricHourly;
 import com.pulseflow.mapper.UserEventMapper;
 import com.pulseflow.mapper.UserMetricHourlyMapper;
+import com.pulseflow.campaign.attribution.ClickEventService;
+import com.pulseflow.campaign.attribution.AttributionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -22,7 +22,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Persists an event and its hourly metric bucket inside a single MySQL transaction.
+ * Persists raw behavior, its hourly metric, validated marketing fact (or durable
+ * retry), and target attribution task inside a single MySQL transaction.
  *
  * <p>Placed in a dedicated {@code @Service} (instead of inside {@code EventConsumer})
  * so that Spring's proxy-based {@code @Transactional} actually takes effect — the
@@ -42,42 +43,41 @@ public class EventPersistenceService {
 
     private final UserEventMapper userEventMapper;
     private final UserMetricHourlyMapper userMetricHourlyMapper;
+    private final ClickEventService clickEventService;
+    private final AttributionService attributionService;
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .registerModule(new JavaTimeModule());
 
     /**
-     * Persist event + hourly metric in one transaction.
+     * Persist the canonical event and all MySQL downstream obligations atomically.
      *
      * @return result holding the canonical event (freshly inserted or loaded from DB on duplicate)
-     *         and the normalized context map to feed Redis/decision phases; {@code ok=false} on
-     *         unexpected failure (caller should NOT ack Kafka in that case).
+     *         and the normalized context map to feed Redis/decision phases.
+     * @throws RuntimeException on failure, so the transaction rolls back and Kafka cannot ACK
      */
     @Transactional(rollbackFor = Exception.class)
     public PersistResult persist(Map<String, Object> rawEventMap) {
         String eventId = (String) rawEventMap.get("eventId");
+        UserEvent event = buildUserEvent(rawEventMap);
+        boolean inserted = true;
         try {
-            UserEvent event = buildUserEvent(rawEventMap);
             userEventMapper.insert(event);
-
-            upsertMetricHourlyAtomic(event, rawEventMap);
-
-            return PersistResult.ok(event, buildContextFromEvent(event));
         } catch (DuplicateKeyException e) {
-            // Event already in MySQL — load canonical record and continue with it.
-            log.info("Duplicate event {}, loading canonical record from DB", eventId);
-            UserEvent existing = userEventMapper.selectOne(
-                    new LambdaQueryWrapper<UserEvent>()
-                            .eq(UserEvent::getEventId, eventId));
-            if (existing == null) {
-                // Should not happen, but be safe.
-                return PersistResult.fail();
-            }
-            return PersistResult.ok(existing, buildContextFromEvent(existing));
-        } catch (Exception e) {
-            log.error("Phase 1 persist failed for event {}: {}", eventId, e.getMessage(), e);
-            return PersistResult.fail();
+            // Catch ONLY the raw-event uniqueness conflict. Metric/click errors
+            // must escape the proxy and roll back, never commit a partial event.
+            event = userEventMapper.selectByEventIdForUpdate(eventId);
+            if (event == null) throw e;
+            inserted = false;
         }
+        if (inserted) upsertMetricHourlyAtomic(event, rawEventMap);
+        clickEventService.recordClick(event);
+        if ("ORDER_PAID".equals(event.getEventType())) {
+            // Durable attribution outbox even when Redis/decision is unavailable.
+            attributionService.onTargetEvent(event.getEventId(), event.getUserId(),
+                    event.getEventType(), event.getEffectiveEventTime());
+        }
+        return PersistResult.ok(event, buildContextFromEvent(event));
     }
 
     /**
@@ -93,10 +93,20 @@ public class EventPersistenceService {
         BigDecimal amount = BigDecimal.ZERO;
         if (props != null) {
             if (props.containsKey("duration")) {
-                duration = toLong(props.get("duration"));
+                try {
+                    duration = new BigDecimal(String.valueOf(props.get("duration"))).longValueExact();
+                } catch (NumberFormatException | ArithmeticException ignored) {
+                    // Optional malformed metrics cannot poison an otherwise valid raw CLICK.
+                    duration = 0L;
+                }
             }
             if (props.containsKey("price")) {
-                amount = new BigDecimal(String.valueOf(props.get("price")));
+                try {
+                    amount = new BigDecimal(String.valueOf(props.get("price")));
+                    if (amount.abs().compareTo(new BigDecimal("9999999999.99")) > 0) amount = BigDecimal.ZERO;
+                } catch (NumberFormatException ignored) {
+                    amount = BigDecimal.ZERO;
+                }
             }
         }
 
@@ -138,6 +148,7 @@ public class EventPersistenceService {
                 .effectiveEventTime(parseDateTime((String) eventMap.get("effectiveEventTime")))
                 .clockSkew(Boolean.TRUE.equals(eventMap.get("clockSkew")) ? 1 : 0)
                 .properties(propsToJson(eventMap.get("properties")))
+                .marketingTrusted(Boolean.TRUE.equals(eventMap.get("marketingTrusted")) ? 1 : 0)
                 .build();
     }
 
@@ -189,7 +200,8 @@ public class EventPersistenceService {
         // "2026-08-23T23:00"），有小数秒时则会保留。ISO_LOCAL_DATE_TIME
         // 能同时解析这两种格式；这里也兼容历史补偿消息使用的空格分隔符。
         String normalized = dt.trim().replace(' ', 'T');
-        return LocalDateTime.parse(normalized, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        return LocalDateTime.parse(normalized, DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+                .truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
     }
 
     /**

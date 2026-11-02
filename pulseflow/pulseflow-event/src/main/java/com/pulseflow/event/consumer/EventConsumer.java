@@ -3,12 +3,10 @@ package com.pulseflow.event.consumer;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.pulseflow.campaign.attribution.AttributionService;
 import com.pulseflow.campaign.decision.DecisionEngine;
 import com.pulseflow.campaign.profile.RealtimeProfileUpdateService;
 import com.pulseflow.common.enums.CompensationTaskType;
 import com.pulseflow.common.util.JsonUtil;
-import com.pulseflow.entity.UserEvent;
 import com.pulseflow.event.service.EventPersistenceService;
 import com.pulseflow.mapper.DataCompensationTaskMapper;
 import lombok.RequiredArgsConstructor;
@@ -18,20 +16,18 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Consumes raw behavior events from {@code pulseflow.raw.events} in three phases:
  * <ol>
  *   <li><b>MySQL transaction</b> (delegated to {@link EventPersistenceService} so
  *       {@code @Transactional} is honored — previously broken by self-invocation):
- *       insert {@code user_event} + upsert {@code user_metric_hourly} atomically.
+ *       insert raw event, hourly metric and marketing click/retry or target task atomically.
  *       On {@code DuplicateKeyException} the canonical event is loaded from DB.</li>
  *   <li><b>Redis Lua</b> atomic realtime metric update with a 7-day processed flag.
  *       实现委托给 {@link RealtimeProfileUpdateService}，与 CompensationJob 重放
  *       共用同一份 Lua，避免漂移。</li>
- *   <li><b>Decision engine</b> evaluates the event against active EVENT campaigns.
- *       Target events (e.g. ORDER_PAID) also seed the attribution waiting task.</li>
+ *   <li><b>Decision engine</b> evaluates the event against active EVENT campaigns.</li>
  * </ol>
  *
  * <p><b>ACK rule</b>: ack only when Phase 1 succeeded (or duplicate = already
@@ -47,13 +43,9 @@ public class EventConsumer {
     private final DataCompensationTaskMapper compensationTaskMapper;
     private final RealtimeProfileUpdateService realtimeProfileUpdateService;
     private final DecisionEngine decisionEngine;
-    private final AttributionService attributionService;
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .registerModule(new JavaTimeModule());
-
-    /** Events that represent a conversion goal and therefore seed attribution. */
-    private static final Set<String> ATTRIBUTION_TARGET_EVENTS = Set.of("ORDER_PAID");
 
     /**
      * 顺序执行事件幂等持久化、实时画像更新与活动决策；后两阶段失败时写补偿任务，持久化失败则抛出以触发 Kafka 重投。
@@ -67,7 +59,7 @@ public class EventConsumer {
 
         log.info("Consuming event: eventId={}, offset={}", eventId, record.offset());
 
-        // Phase 1: MySQL transaction (event + hourly metric, single tx, atomic upsert)
+        // Phase 1: canonical raw event + metric + marketing/attribution obligations.
         EventPersistenceService.PersistResult phase1 =
                 eventPersistenceService.persist(rawEventMap);
         if (!phase1.isOk()) {
@@ -78,7 +70,6 @@ public class EventConsumer {
         // Downstream phases use the canonical context sourced from MySQL,
         // never the raw Kafka replay payload (MySQL is the single source of truth).
         Map<String, Object> ctx = phase1.getContext();
-        UserEvent canonical = phase1.getEvent();
 
         // Phase 2: Redis Lua atomic update (委托共享服务，与补偿重放共用同一份 Lua)
         boolean phase2Ok = executePhase2(ctx);
@@ -87,22 +78,6 @@ public class EventConsumer {
         boolean phase3Ok = false;
         if (phase2Ok) {
             phase3Ok = executePhase3(ctx);
-        }
-
-        // Attribution seeding for target (conversion) events. Best-effort: its own
-        // delay queue + DB persistence handle reliability; a failure here does not
-        // block the event pipeline (it is logged, not compensated as EVENT_REPLAY).
-        if (phase2Ok && ATTRIBUTION_TARGET_EVENTS.contains(ctx.get("eventType"))) {
-            try {
-                attributionService.onTargetEvent(
-                        canonical.getEventId(),
-                        canonical.getUserId(),
-                        canonical.getEventType(),
-                        canonical.getEffectiveEventTime());
-            } catch (Exception e) {
-                log.error("Attribution seeding failed for target event {}: {}",
-                        eventId, e.getMessage(), e);
-            }
         }
 
         // If Phase 2 or 3 failed, durably record a compensation task then ack.

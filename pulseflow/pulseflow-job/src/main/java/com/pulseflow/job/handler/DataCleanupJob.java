@@ -27,7 +27,9 @@ public class DataCleanupJob {
 
         try {
             int compDeleted = jdbcTemplate.update(
-                    "DELETE FROM data_compensation_task WHERE status IN ('DONE','FAILED') AND updated_at < ?",
+                    "DELETE FROM data_compensation_task WHERE status IN ('DONE','FAILED') AND updated_at < ? "
+                            + "AND (task_type <> 'MARKETING_CLICK' OR NOT EXISTS (SELECT 1 FROM user_event e "
+                            + "WHERE e.event_id = data_compensation_task.event_id AND e.marketing_click_status = 'PENDING'))",
                     java.sql.Timestamp.valueOf(expiry30Days));
             log.info("Cleaned {} expired compensation tasks", compDeleted);
 

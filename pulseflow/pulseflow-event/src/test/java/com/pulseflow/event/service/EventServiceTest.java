@@ -58,7 +58,7 @@ class EventServiceTest {
                 CompletableFuture.completedFuture(null);
         when(kafkaTemplate.send(anyString(), anyString(), anyString())).thenReturn(acknowledged);
 
-        EventService service = new EventService(kafkaTemplate);
+        EventService service = new EventService(kafkaTemplate, new TrustedEventSource(""));
         EventRequest request = EventRequest.builder()
                 .eventId("evt-kafka-null-target")
                 .userId(990000001L)
@@ -88,7 +88,7 @@ class EventServiceTest {
                 CompletableFuture.completedFuture(null);
         when(kafkaTemplate.send(anyString(), anyString(), anyString())).thenReturn(acknowledged);
 
-        EventService service = new EventService(kafkaTemplate);
+        EventService service = new EventService(kafkaTemplate, new TrustedEventSource(""));
         EventRequest request = EventRequest.builder()
                 .eventId("evt-kafka-zero-target")
                 .userId(990000001L)

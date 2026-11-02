@@ -2,6 +2,8 @@ package com.pulseflow.boot.agenttools;
 
 import com.pulseflow.boot.agenttools.AgentToolDtos.*;
 import com.pulseflow.campaign.analytics.PerformanceSummaryCalculator;
+import com.pulseflow.mapper.ClickEventMapper;
+import com.pulseflow.mapper.AttributionRecordMapper;
 import com.pulseflow.common.enums.ChannelType;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import lombok.RequiredArgsConstructor;
@@ -124,8 +126,8 @@ public class AgentMetricService {
         String bucket = attributionBucket(request.dimension());
         String sql = "SELECT " + bucket + " AS bucket, COUNT(*) AS total, "
                 + "COUNT(DISTINCT a.user_id) AS unique_count "
-                + "FROM attribution_record a LEFT JOIN delivery_task t ON t.id = a.task_id "
-                + "WHERE a.credited_at >= :fromTime AND a.credited_at < :toTime"
+                + AttributionRecordMapper.VALID_FROM + "WHERE" + ClickEventMapper.VALID_WHERE
+                + "AND a.credited_at >= :fromTime AND a.credited_at < :toTime"
                 + filterSql("a.campaign_id", "t.channel", filters)
                 + " GROUP BY " + bucket + " ORDER BY bucket IS NULL, bucket LIMIT " + (limit + 1);
         List<Map<String, Object>> facts = jdbc.queryForList(sql, params);
@@ -158,8 +160,8 @@ public class AgentMetricService {
         }
         String clickBucket = bucket(dimension, "t.campaign_id", "t.channel", "c.click_time");
         String clickSql = "SELECT " + clickBucket + " AS bucket, COUNT(DISTINCT c.user_id) AS total "
-                + "FROM click_event c JOIN delivery_task t ON t.id = c.task_id "
-                + "WHERE c.click_time >= :fromTime AND c.click_time < :toTime"
+                + ClickEventMapper.VALID_FROM + "WHERE" + ClickEventMapper.VALID_WHERE
+                + "AND c.click_time >= :fromTime AND c.click_time < :toTime"
                 + filterSql("t.campaign_id", "t.channel", filters) + grouping(clickBucket, dimension);
         for (Map<String, Object> fact : jdbc.queryForList(clickSql, params)) {
             result.computeIfAbsent(key(fact, dimension), ignored -> new Counts()).clicked =
@@ -168,8 +170,8 @@ public class AgentMetricService {
         String attributionBucket = bucket(dimension, "a.campaign_id", "t.channel", "a.credited_at");
         String attributionSql = "SELECT " + attributionBucket + " AS bucket, "
                 + "COUNT(DISTINCT a.user_id) AS converted, COUNT(*) AS attributed "
-                + "FROM attribution_record a LEFT JOIN delivery_task t ON t.id = a.task_id "
-                + "WHERE a.credited_at >= :fromTime AND a.credited_at < :toTime"
+                + AttributionRecordMapper.VALID_FROM + "WHERE" + ClickEventMapper.VALID_WHERE
+                + "AND a.credited_at >= :fromTime AND a.credited_at < :toTime"
                 + filterSql("a.campaign_id", "t.channel", filters) + grouping(attributionBucket, dimension);
         for (Map<String, Object> fact : jdbc.queryForList(attributionSql, params)) {
             Counts c = result.computeIfAbsent(key(fact, dimension), ignored -> new Counts());

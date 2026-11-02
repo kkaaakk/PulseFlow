@@ -44,7 +44,9 @@ class EventPersistenceServiceTest {
     void setUp() {
         userEventMapper = mock(UserEventMapper.class);
         userMetricHourlyMapper = mock(UserMetricHourlyMapper.class);
-        service = new EventPersistenceService(userEventMapper, userMetricHourlyMapper);
+        service = new EventPersistenceService(userEventMapper, userMetricHourlyMapper,
+                mock(com.pulseflow.campaign.attribution.ClickEventService.class),
+                mock(com.pulseflow.campaign.attribution.AttributionService.class));
     }
 
     /**
@@ -82,7 +84,7 @@ class EventPersistenceServiceTest {
                 .clockSkew(0)
                 .properties("{\"page\":\"home\"}")
                 .build();
-        when(userEventMapper.selectOne(any())).thenReturn(existing);
+        when(userEventMapper.selectByEventIdForUpdate(any())).thenReturn(existing);
 
         // persist() catches DuplicateKeyException internally and loads the canonical row.
         // No exception should propagate.
@@ -95,7 +97,7 @@ class EventPersistenceServiceTest {
         assertThat(result.getContext().get("eventId")).isEqualTo("evt-dup-1");
 
         // selectOne was called to load the canonical record
-        verify(userEventMapper).selectOne(any());
+        verify(userEventMapper).selectByEventIdForUpdate(any());
         // upsertAccumulate was NOT called (it's after insert in the try block, which threw)
         verify(userMetricHourlyMapper, never())
                 .upsertAccumulate(any(), any(), any(), anyInt(), anyLong(), any());
@@ -125,7 +127,7 @@ class EventPersistenceServiceTest {
         assertThat(result.getEvent().getEventTime())
                 .isEqualTo(LocalDateTime.of(2026, 8, 23, 23, 0));
         assertThat(result.getEvent().getReceivedAt())
-                .isEqualTo(LocalDateTime.of(2026, 8, 28, 15, 45, 37, 450_775_000));
+                .isEqualTo(LocalDateTime.of(2026, 8, 28, 15, 45, 37, 450_000_000));
         verify(userEventMapper).insert(any(UserEvent.class));
         verify(userMetricHourlyMapper).upsertAccumulate(
                 any(), any(), any(), anyInt(), anyLong(), any());

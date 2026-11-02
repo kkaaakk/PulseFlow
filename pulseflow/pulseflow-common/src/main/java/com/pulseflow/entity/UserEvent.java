@@ -44,6 +44,14 @@ public class UserEvent {
      */
     private String properties;
 
+    @Builder.Default
+    private Integer marketingTrusted = 0;
+
+    @Builder.Default
+    private String marketingClickStatus = "NONE";
+
+    private String marketingClickReason;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 }

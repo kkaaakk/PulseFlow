@@ -63,9 +63,10 @@ class AgentMetricServiceTest {
             MapSqlParameterSource params = invocation.getArgument(1);
             if (params.getValue("fromTime").toString().startsWith("2026-08")) return List.of();
             String sql = invocation.getArgument(0);
-            if (sql.contains("FROM delivery_record")) {
+            if (sql.contains("AS delivered FROM delivery_record")) {
                 return List.of(Map.of("bucket", "PUSH", "total", 100L, "delivered", 80L));
             }
+            if (sql.contains("AS converted")) return List.of(Map.of("bucket", "PUSH", "converted", 4L, "attributed", 5L));
             if (sql.contains("FROM click_event")) return List.of(Map.of("bucket", "PUSH", "total", 16L));
             return List.of();
         });
@@ -107,7 +108,7 @@ class AgentMetricServiceTest {
     void rowLimitAndNullDimensionHaveStableMeaning() {
         when(jdbc.queryForList(anyString(), any(MapSqlParameterSource.class))).thenAnswer(invocation -> {
             String sql = invocation.getArgument(0);
-            if (sql.contains("FROM delivery_record")) return List.of(
+            if (sql.contains("AS delivered FROM delivery_record")) return List.of(
                     Map.of("bucket", "EMAIL", "total", 1L, "delivered", BigDecimal.ONE),
                     Map.of("bucket", "PUSH", "total", 2L, "delivered", BigDecimal.ONE));
             return List.of();
@@ -161,9 +162,10 @@ class AgentMetricServiceTest {
     private void fakeFacts() {
         when(jdbc.queryForList(anyString(), any(MapSqlParameterSource.class))).thenAnswer(invocation -> {
             String sql = invocation.getArgument(0);
-            if (sql.contains("FROM delivery_record")) {
+            if (sql.contains("AS delivered FROM delivery_record")) {
                 return List.of(Map.of("bucket", "PUSH", "total", 100L, "delivered", 80L));
             }
+            if (sql.contains("AS converted")) return List.of(Map.of("bucket", "PUSH", "converted", 4L, "attributed", 5L));
             if (sql.contains("FROM click_event")) return List.of(Map.of("bucket", "PUSH", "total", 16L));
             return List.of(Map.of("bucket", "PUSH", "converted", 4L, "attributed", 5L));
         });

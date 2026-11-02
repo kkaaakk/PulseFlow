@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.pulseflow.campaign.exception.CampaignForbiddenException;
+import com.pulseflow.campaign.analytics.PerformanceSummaryCalculator;
+import com.pulseflow.campaign.analytics.CampaignPerformanceSummary;
 import com.pulseflow.campaign.exception.CampaignResourceNotFoundException;
 import com.pulseflow.common.util.JsonUtil;
 import com.pulseflow.entity.AttributionRecord;
@@ -76,6 +78,7 @@ public class WebQueryService {
     private final ProfileService profileService;
     private final JdbcTemplate jdbcTemplate;
     private final RedissonClient redissonClient;
+    private final PerformanceSummaryCalculator performanceCalculator;
 
     /**
      * 按本地当日零点统计事件、去重活跃用户、发送、点击和归因记录，并统计 ACTIVE Campaign 数。
@@ -90,8 +93,10 @@ public class WebQueryService {
                 "SELECT COUNT(*) FROM delivery_record WHERE status = 'SENT' AND sent_at >= ?", start);
         long delivered = count(
                 "SELECT COUNT(*) FROM delivery_record WHERE status = 'SENT' AND sent_at >= ?", start);
-        long todayClicks = count("SELECT COUNT(*) FROM click_event WHERE click_time >= ?", start);
-        long todayConversions = count("SELECT COUNT(*) FROM attribution_record WHERE credited_at >= ?", start);
+        long todayClicks = count("SELECT COUNT(*)" + ClickEventMapper.VALID_FROM
+                + "WHERE" + ClickEventMapper.VALID_WHERE + "AND c.click_time >= ?", start);
+        long todayConversions = count("SELECT COUNT(*)" + AttributionRecordMapper.VALID_FROM
+                + "WHERE" + ClickEventMapper.VALID_WHERE + "AND a.credited_at >= ?", start);
         long todayAttributions = todayConversions;
 
         return new WebDtos.DashboardSummary(
@@ -369,9 +374,7 @@ public class WebQueryService {
         }
         DeliveryRecord record = deliveryRecordMapper.selectOne(
                 new LambdaQueryWrapper<DeliveryRecord>().eq(DeliveryRecord::getTaskId, taskId));
-        List<ClickEvent> clicks = clickEventMapper.selectList(
-                new LambdaQueryWrapper<ClickEvent>().eq(ClickEvent::getTaskId, taskId)
-                        .orderByDesc(ClickEvent::getClickTime));
+        List<ClickEvent> clicks = clickEventMapper.selectValidByTask(taskId);
         List<AttributionRecord> attributions = attributionRecordMapper.selectList(
                 new LambdaQueryWrapper<AttributionRecord>().eq(AttributionRecord::getTaskId, taskId)
                         .orderByDesc(AttributionRecord::getCreditedAt));
@@ -576,38 +579,13 @@ public class WebQueryService {
     }
 
     /**
-     * 优先使用权威绩效汇总；快照缺失或读取失败时从事实表计算展示计数，降级比率按发送数计算。
+     * 每次读取通过权威计算器刷新事实快照，保持与 Agent 的去重和比率定义一致。
      */
     private PerformanceNumbers performanceNumbers(Long campaignId) {
-        try {
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "SELECT target_audience_count, sent_count, delivered_count, clicked_count, "
-                            + "converted_count, unsubscribe_count, delivery_rate, click_rate, conversion_rate, "
-                            + "unsubscribe_rate, calculated_at FROM campaign_performance_summary WHERE campaign_id = ?",
-                    campaignId);
-            if (!rows.isEmpty()) {
-                Map<String, Object> row = rows.get(0);
-                return new PerformanceNumbers(
-                        number(row.get("target_audience_count")), number(row.get("sent_count")),
-                        number(row.get("delivered_count")), number(row.get("clicked_count")),
-                        number(row.get("converted_count")), number(row.get("unsubscribe_count")),
-                        decimal(row.get("delivery_rate")), decimal(row.get("click_rate")),
-                        decimal(row.get("conversion_rate")), decimal(row.get("unsubscribe_rate")),
-                        localDateTime(row.get("calculated_at")));
-            }
-        } catch (DataAccessException e) {
-            log.debug("Performance summary unavailable for campaign {}: {}", campaignId, e.getMessage());
-        }
-
-        long sent = count("SELECT COUNT(*) FROM delivery_record WHERE campaign_id = ? AND status = 'SENT'", campaignId);
-        long delivered = sent;
-        long clicked = count("SELECT COUNT(*) FROM click_event ce JOIN delivery_task dt ON dt.id = ce.task_id "
-                + "WHERE dt.campaign_id = ?", campaignId);
-        long converted = attributionRecordMapper.selectCount(
-                new LambdaQueryWrapper<AttributionRecord>().eq(AttributionRecord::getCampaignId, campaignId));
-        long audience = audienceFromDraft(campaignId);
-        return new PerformanceNumbers(audience, sent, delivered, clicked, converted, 0,
-                ratio(delivered, sent), ratio(clicked, sent), ratio(converted, sent), BigDecimal.ZERO, null);
+        CampaignPerformanceSummary s = performanceCalculator.readCurrent(campaignId);
+        return new PerformanceNumbers(s.getTargetAudienceCount(), s.getSentCount(), s.getDeliveredCount(),
+                s.getClickedCount(), s.getConvertedCount(), s.getUnsubscribeCount(), s.getDeliveryRate(),
+                s.getClickRate(), s.getConversionRate(), s.getUnsubscribeRate(), s.getCalculatedAt());
     }
 
     /**

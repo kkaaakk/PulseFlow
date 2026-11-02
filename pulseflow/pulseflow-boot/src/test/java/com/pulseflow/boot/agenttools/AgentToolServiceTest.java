@@ -28,10 +28,10 @@ import static org.mockito.Mockito.when;
 
 class AgentToolServiceTest {
     private final CampaignMapper campaigns = mock(CampaignMapper.class);
-    private final CampaignPerformanceSummaryMapper summaries = mock(CampaignPerformanceSummaryMapper.class);
+    private final com.pulseflow.campaign.analytics.PerformanceSummaryCalculator calculator = mock(com.pulseflow.campaign.analytics.PerformanceSummaryCalculator.class);
     private final CampaignDslValidator validator = mock(CampaignDslValidator.class);
     private final AudiencePreviewService preview = mock(AudiencePreviewService.class);
-    private final AgentToolService service = new AgentToolService(campaigns, summaries, validator, preview);
+    private final AgentToolService service = new AgentToolService(campaigns, calculator, validator, preview);
 
     /**
      * 验证绩效接口读取预计算结果而不触发业务写入。
@@ -39,7 +39,7 @@ class AgentToolServiceTest {
     @Test
     void performanceReadsCalculatorSummaryWithoutWriting() {
         when(campaigns.selectById(9L)).thenReturn(Campaign.builder().id(9L).build());
-        when(summaries.selectOne(any(LambdaQueryWrapper.class))).thenReturn(
+        when(calculator.readCurrent(9L)).thenReturn(
                 CampaignPerformanceSummary.builder().campaignId(9L).sentCount(100L)
                         .deliveredCount(80L).clickedCount(16L).convertedCount(4L)
                         .clickRate(new BigDecimal("0.2000"))
@@ -48,7 +48,8 @@ class AgentToolServiceTest {
         assertThat(response.available()).isTrue();
         assertThat(response.clickRate()).isEqualByComparingTo("0.2000");
         assertThat(response.metadata().dataVersion()).startsWith("campaign-summary:");
-        verify(summaries).selectOne(any(LambdaQueryWrapper.class));
+        verify(calculator).readCurrent(9L);
+        org.mockito.Mockito.verify(calculator, org.mockito.Mockito.never()).compute(any());
         verifyNoInteractions(validator, preview);
     }
 

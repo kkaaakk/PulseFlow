@@ -1,5 +1,5 @@
 -- PulseFlow Phase 1 campaign/frequency/attribution fixture.
--- TEST ONLY: run against pulseflow_test after Flyway V1~V5.
+-- TEST ONLY: run against pulseflow_test after Flyway V1~V8.
 -- The wrapper refuses non-test targets; do not paste this into production.
 
 INSERT INTO campaign (
@@ -46,10 +46,9 @@ ON DUPLICATE KEY UPDATE
     event_types = VALUES(event_types), channel = VALUES(channel), message_template = VALUES(message_template),
     status = VALUES(status), created_by = VALUES(created_by);
 
--- A pre-existing sent task + click is needed because the current public raw
--- CLICK event path does not insert click_event. The conversion target is the
--- deterministic event emitted by campaign-frequency-attribution-v1 at seed
--- 20260827. Change the target id when replaying with another seed.
+-- Seed only the real sending prerequisites. Click facts must come from HTTP
+-- -> Kafka with PULSEFLOW_EVENTS_TRUSTED_SOURCE_TOKEN configured on both the
+-- test backend and replay process. Never pre-insert click_event for acceptance.
 INSERT INTO delivery_task (
     id, campaign_id, user_id, dedup_key, channel, status, dispatch_status,
     message_content, retry_count
@@ -63,12 +62,6 @@ ON DUPLICATE KEY UPDATE status = VALUES(status), dispatch_status = VALUES(dispat
 INSERT INTO delivery_record (task_id, user_id, campaign_id, channel, status, sent_at)
 SELECT 9203, 7000001, 9203, 'IN_APP', 'SENT', NOW() - INTERVAL 2 MINUTE
 WHERE NOT EXISTS (SELECT 1 FROM delivery_record WHERE task_id = 9203);
-
-INSERT INTO click_event (user_id, task_id, click_time, click_source, properties)
-SELECT 7000001, 9203, NOW() - INTERVAL 1 MINUTE, 'PF_TEST_ATTRIBUTION_V1', '{}'
-WHERE NOT EXISTS (
-    SELECT 1 FROM click_event WHERE task_id = 9203 AND click_source = 'PF_TEST_ATTRIBUTION_V1'
-);
 
 SELECT 'campaign fixture prepared' AS status,
        (SELECT id FROM campaign WHERE name = 'PF_TEST_FREQUENCY_V1') AS frequency_campaign_id,

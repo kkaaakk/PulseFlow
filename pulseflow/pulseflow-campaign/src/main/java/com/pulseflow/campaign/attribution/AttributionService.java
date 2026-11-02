@@ -11,6 +11,7 @@ import com.pulseflow.mapper.AttributionRecordMapper;
 import com.pulseflow.mapper.AttributionTaskMapper;
 import com.pulseflow.mapper.ClickEventMapper;
 import com.pulseflow.mapper.DeliveryRecordMapper;
+import com.pulseflow.mapper.UserEventMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RScript;
@@ -39,6 +40,7 @@ public class AttributionService {
     private final ClickEventMapper clickEventMapper;
     private final DeliveryRecordMapper deliveryRecordMapper;
     private final RedissonClient redissonClient;
+    private final UserEventMapper userEventMapper;
 
     private static final int GRACE_WINDOW_SECONDS = 300; // 5 minutes
     private static final int ATTRIBUTION_WINDOW_HOURS = 24;
@@ -47,6 +49,7 @@ public class AttributionService {
     private static final String ATTRIBUTION_DELAY_KEY = "delay:attribution";
     private static final String ATTRIBUTION_PROCESSING_KEY = "delay:attribution:processing";
     private static final int CLAIM_BATCH_SIZE = 100;
+    private long reconciliationCursor;
 
     public enum ExecutionResult {
         MATCHED,
@@ -73,6 +76,15 @@ public class AttributionService {
             local processingKey = KEYS[2]
             local now = tonumber(ARGV[1])
             local batchSize = tonumber(ARGV[2])
+
+            -- A worker may die after claiming. Reconciliation must not leave
+            -- this processing member owned forever. DB row locks/unique keys
+            -- still make a late worker and a recovered claimant idempotent.
+            local stuck = redis.call('ZRANGEBYSCORE', processingKey, 0, now - 300000, 'LIMIT', 0, batchSize)
+            for i, taskId in ipairs(stuck) do
+                redis.call('ZREM', processingKey, taskId)
+                redis.call('ZADD', pendingKey, now, taskId)
+            end
 
             local tasks = redis.call('ZRANGEBYSCORE', pendingKey, 0, now, 'LIMIT', 0, batchSize)
             if #tasks == 0 then
@@ -227,7 +239,7 @@ public class AttributionService {
      * 处理完成后从 processing ZSET 移除。
      */
     public void completeClaimedTask(String targetEventId) {
-        redissonClient.getScoredSortedSet(ATTRIBUTION_PROCESSING_KEY).remove(targetEventId);
+        redissonClient.getScoredSortedSet(ATTRIBUTION_PROCESSING_KEY, StringCodec.INSTANCE).remove(targetEventId);
     }
 
     /**
@@ -265,9 +277,7 @@ public class AttributionService {
     @Transactional
     public ExecutionResult executeAttribution(String targetEventId) {
         // Load the attribution task
-        AttributionTask task = attributionTaskMapper.selectOne(
-                new LambdaQueryWrapper<AttributionTask>()
-                        .eq(AttributionTask::getTargetEventId, targetEventId));
+        AttributionTask task = attributionTaskMapper.selectTargetForUpdate(targetEventId);
 
         if (task == null) {
             throw new AttributionTaskNotFoundException(targetEventId);
@@ -283,32 +293,31 @@ public class AttributionService {
                     + targetEventId + ", status=" + task.getStatus());
         }
 
-        // Query click events in attribution window (24h before target event)
+        if (task.getGraceUntil() != null && LocalDateTime.now().isBefore(task.getGraceUntil())) {
+            throw new IllegalStateException("attribution_grace_not_elapsed");
+        }
+        // Keep the original grace and state machine. A durable, unresolved click
+        // must be resolved by compensation before this task can become terminal.
         LocalDateTime windowStart = task.getTargetEventTime().minusHours(ATTRIBUTION_WINDOW_HOURS);
-        List<ClickEvent> clicks = clickEventMapper.selectList(
-                new LambdaQueryWrapper<ClickEvent>()
-                        .eq(ClickEvent::getUserId, task.getUserId())
-                        .ge(ClickEvent::getClickTime, windowStart)
-                        .lt(ClickEvent::getClickTime, task.getTargetEventTime())
-                        .orderByDesc(ClickEvent::getClickTime));
+        if (userEventMapper.countPendingMarketingClicks(task.getUserId(), windowStart,
+                task.getTargetEventTime()) > 0) {
+            throw new IllegalStateException("marketing_click_pending");
+        }
+        ClickEvent lastClick = clickEventMapper.selectLastValid(task.getUserId(), windowStart,
+                task.getTargetEventTime());
 
-        if (clicks.isEmpty()) {
+        if (lastClick == null) {
             markTaskExpired(task);
             log.info("No clicks found for attribution: targetEventId={}", targetEventId);
             return ExecutionResult.EXPIRED;
         }
 
-        // Last-touch: pick the most recent click
-        ClickEvent lastClick = clicks.get(0);
-
-        // Validate: click must be after the delivery sent time
+        // SQL filters validity BEFORE ordering/limiting, including legacy rows.
         if (lastClick.getTaskId() != null) {
-            DeliveryRecord delivery = deliveryRecordMapper.selectOne(
-                    new LambdaQueryWrapper<DeliveryRecord>()
-                            .eq(DeliveryRecord::getTaskId, lastClick.getTaskId()));
+            DeliveryRecord delivery = deliveryRecordMapper.selectByTaskId(lastClick.getTaskId());
 
             if (delivery != null && delivery.getSentAt() != null
-                    && lastClick.getClickTime().isAfter(delivery.getSentAt())) {
+                    && !lastClick.getClickTime().isBefore(delivery.getSentAt())) {
                 try {
                     AttributionRecord record = AttributionRecord.builder()
                             .clickEventId(lastClick.getId())
@@ -354,13 +363,18 @@ public class AttributionService {
      *
      * @return number of tasks newly restored to the pending ZSET
      */
-    public int reconcilePendingTasks() {
+    public synchronized int reconcilePendingTasks() {
         List<AttributionTask> pendingTasks = attributionTaskMapper.selectList(
                 new LambdaQueryWrapper<AttributionTask>()
                         .eq(AttributionTask::getStatus, AttributionTaskStatus.PENDING.name())
+                        .gt(AttributionTask::getId, reconciliationCursor)
                         .orderByAsc(AttributionTask::getId)
                         .last("LIMIT " + ATTRIBUTION_RECONCILIATION_BATCH_SIZE));
 
+        // Rotate bounded batches: always scanning the first 100 owned PENDING
+        // rows would permanently starve orphaned tasks with larger IDs.
+        reconciliationCursor = pendingTasks == null || pendingTasks.size() < ATTRIBUTION_RECONCILIATION_BATCH_SIZE
+                ? 0 : pendingTasks.get(pendingTasks.size() - 1).getId();
         int recovered = 0;
         for (AttributionTask task : pendingTasks == null
                 ? Collections.<AttributionTask>emptyList() : pendingTasks) {

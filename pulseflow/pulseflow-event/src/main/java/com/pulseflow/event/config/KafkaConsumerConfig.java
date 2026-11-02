@@ -9,12 +9,18 @@ import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.listener.ContainerProperties;
+import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.util.backoff.FixedBackOff;
 
 import java.util.HashMap;
 import java.util.Map;
 
 @Configuration
 public class KafkaConsumerConfig {
+    @Bean
+    public DefaultErrorHandler eventErrorHandler() {
+        return new DefaultErrorHandler(new FixedBackOff(1000L, FixedBackOff.UNLIMITED_ATTEMPTS));
+    }
 
     @Value("${spring.kafka.bootstrap-servers}")
     private String bootstrapServers;
@@ -24,10 +30,13 @@ public class KafkaConsumerConfig {
      */
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, String> kafkaListenerContainerFactory(
-            ConsumerFactory<String, String> consumerFactory) {
+            ConsumerFactory<String, String> consumerFactory, DefaultErrorHandler eventErrorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
+        // This is a custom factory: Boot does not attach CommonErrorHandler
+        // beans to it. Wire explicitly or the default ten-attempt skip loses data.
+        factory.setCommonErrorHandler(eventErrorHandler);
         // Listeners use normal return / exception propagation as their commit
         // contract and do not receive Acknowledgment. RECORD commits each
         // successfully handled record while leaving thrown failures for

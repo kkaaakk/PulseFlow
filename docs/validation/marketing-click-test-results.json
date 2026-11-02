@@ -1,0 +1,302 @@
+{
+  "surefire": {
+    "totals": {
+      "tests": 152,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "suites": [
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.agenttools.AgentGatewaySecurityTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.agenttools.AgentMetricServiceTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.agenttools.AgentProposalGatewayTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.agenttools.AgentTelemetryTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.agenttools.AgentToolAuthTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.agenttools.AgentToolServiceTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.agenttools.CampaignProposalDraftServiceTest",
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.config.LocalAuthSessionConfigTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.MapperRegistrationTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.web.AuthControllerTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.web.LocalAuthPropertiesTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.web.WebQueryControllerTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.web.WebQueryServiceTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.common.util.DedupKeyUtilTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-campaign",
+        "suite": "com.pulseflow.campaign.analytics.PerformanceSummaryCalculatorTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-campaign",
+        "suite": "com.pulseflow.campaign.attribution.AttributionServiceTest",
+        "tests": 14,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-campaign",
+        "suite": "com.pulseflow.campaign.attribution.AttributionTaskConsumerTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-campaign",
+        "suite": "com.pulseflow.campaign.attribution.ClickEventServiceTest",
+        "tests": 26,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-campaign",
+        "suite": "com.pulseflow.campaign.content.CampaignContentValidatorTest",
+        "tests": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-campaign",
+        "suite": "com.pulseflow.campaign.decision.DecisionEngineTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-campaign",
+        "suite": "com.pulseflow.campaign.draft.CampaignDraftServiceTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-campaign",
+        "suite": "com.pulseflow.campaign.preview.SqlAudiencePreviewServiceTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-campaign",
+        "suite": "com.pulseflow.campaign.profile.RealtimeProfileUpdateServiceTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-campaign",
+        "suite": "com.pulseflow.campaign.validation.CampaignDslValidatorTest",
+        "tests": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-event",
+        "suite": "com.pulseflow.event.consumer.EventConsumerTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-event",
+        "suite": "com.pulseflow.event.service.EventPersistenceServiceTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-event",
+        "suite": "com.pulseflow.event.service.EventServiceTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-event",
+        "suite": "com.pulseflow.event.service.TrustedEventSourceTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ]
+  },
+  "failsafe": {
+    "totals": {
+      "tests": 26,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "suites": [
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.agenttools.AgentMetricQueryIT",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.agenttools.AgentTelemetryMysqlIT",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.BusinessRuntimeBootstrapIT$FlywayMigrationIT",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.BusinessRuntimeBootstrapIT",
+        "tests": 0,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.MarketingClickMigrationIT",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.boot.MarketingClickPipelineIT",
+        "tests": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "module": "pulseflow-boot",
+        "suite": "com.pulseflow.event.service.EventIdempotentConsumptionIT",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ]
+  }
+}
