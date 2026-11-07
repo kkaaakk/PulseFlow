@@ -15,38 +15,21 @@
 | "提高 X%" vs "提高 X 个百分点" | 二者不可混淆。比例差（相对提升）= (new-old)/old；百分点差（绝对）= new-old。 |
 | 数据版本 | 人群预估提供 `profileDataVersion`，绩效摘要提供 `calculatedAt`，便于审计追溯。 |
 
-## 2. 候选池与基线
+## 2. 召回候选与基线
 
-| 项 | 口径 |
-|---|---|
-| 候选池（candidate pool） | `user_profile` 中 `status=1` 的用户，`LIMIT 50000`。 |
-| 匹配人群（matched） | 候选池 ∩ DSL 人群条件。AND 逻辑取交集（`retainAll`），OR 逻辑取并集（`addAll`）。 |
-| 基线（baseline） | **v1 用候选池作为 site-wide 基线**，而非全站。已知局限：候选池有 50000 上限且仅含 `status=1` 用户，与真实全站存在偏差。 |
-| matched 为空 | 返回 `audienceCount=0` 且其余指标字段为 null 的 `AudienceMetrics`。 |
-
-> 已知口径风险（v1）：
-> 1. baseline 与目标人群使用同一候选池，未区分时间窗口版本；
-> 2. 聚合仅读 `user_behavior_summary` 快照，不含 Redis 实时指标；
-> 3. 标签取每用户最新 `calculatedAt` 一条，缓解但不消除时间错配。
+`user_profile.status=1` 表示账号启用。预览与聚合按账号主键最多取 50,000 个启用账号，执行按每批 500 个遍历。先匹配近 7 天活跃至少两天、近 30 天无支付的窗口摘要和 AND 条件，再用 MySQL 支付事实排除刚购买的候选。基线是该候选池。预览是当前快照估算，执行时还受活动状态、偏好和频控影响。
 
 ## 3. 人群洞察指标
 
-实现：`AudienceMetricsAggregator`  
-数据源：`user_profile` / `user_tag` / `user_behavior_summary`
+| 指标 | 计算方式 |
+|---|---|
+| `audienceCount` | 符合召回条件的人数 |
+| `activeRate7d` | `active_days_7d > 0` 的人数除以人群人数 |
+| `averageSpend30d` | `spend_30d` 的总和除以人群人数，缺失用户按零 |
+| `averageOrderCount30d` | `order_count_30d` 的总和除以人群人数，缺失用户按零 |
+| `baseline.*` | 用候选池的人数和窗口快照按同样方式计算 |
 
-| 指标 | 数据来源 | 计算方式 | 空值/零值含义 |
-|---|---|---|---|
-| `audienceCount` | matched 集合 | `matched.size()` | 0 = 无匹配人群 |
-| `activeRate7d` | `user_behavior_summary(metric_type='active_7d')` | `active_7d>0 人数 / matched 人数`（取每用户最新值） | matched 为空返回 0 |
-| `averageSpend30d` | `user_behavior_summary(metric_type='spend_30d')` | `sum(每用户最新 spend_30d) / 有 spend_30d 数据的用户数`，2 位小数。**分母不含无 spend_30d 记录的用户** | 无数据用户不参与除法；全无数据返回 0 |
-| `averageOrderCount30d` | `user_behavior_summary(metric_type='order_count_30d')` | 同 `averageSpend30d`，分母为有该指标数据的用户数 | 同上 |
-| `cartWithoutPurchaseRate` | `active_7d` + `spend_30d` | **代理口径**：`active_7d>0 且 spend_30d==0 人数 / matched 人数`。非真正的"加购未购"，不得表述为加购相关指标 | matched 为空返回 0 |
-| `highValueRate` | `user_tag(tag_name='HIGH_VALUE')` | `HIGH_VALUE 用户数 / matched 人数`（取每用户最新标签） | 无标签返回 0 |
-| `priceSensitiveRate` | `user_tag(tag_name='PRICE_SENSITIVE')` | 同上 | 无标签返回 0 |
-| `churnRiskRate` | `user_tag(tag_name='CHURN_RISK')` | 同上 | 无标签返回 0 |
-| `baseline.*` | 候选池 | 同上口径但分母为候选池人数 | — |
-
-v1 不提供的字段：`topCategories`、`memberLevelDistribution`（schema 暂无直接来源，置 null）。
+无人命中时只返回 `audienceCount=0`。聚合不再输出标签比例与用零消费推断的购物车未购买率。活跃日期、稳定订单标识与金额统计的边界见 [主业务改造报告](marketing-core-convergence.md)。
 
 ## 4. 活动复盘指标
 

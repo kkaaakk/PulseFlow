@@ -7,6 +7,7 @@ import com.pulseflow.common.dto.DeliveryTaskDto;
 import com.pulseflow.common.enums.CampaignStatus;
 import com.pulseflow.common.enums.TriggerType;
 import com.pulseflow.common.exception.PulseFlowException;
+import com.pulseflow.common.util.BehaviorWindow;
 import com.pulseflow.common.util.DedupKeyUtil;
 import com.pulseflow.common.util.DelayedTaskConstants;
 import com.pulseflow.common.util.JsonUtil;
@@ -14,16 +15,21 @@ import com.pulseflow.entity.Campaign;
 import com.pulseflow.entity.CampaignRule;
 import com.pulseflow.mapper.CampaignMapper;
 import com.pulseflow.mapper.CampaignRuleMapper;
+import com.pulseflow.mapper.UserEventMapper;
 import com.pulseflow.profile.service.ProfileService;
 import com.pulseflow.profile.service.UserPreferenceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -38,6 +44,7 @@ public class DecisionEngine {
     private final DeliveryService deliveryService;
     private final DelayedTaskManager delayedTaskManager;
     private final UserPreferenceService userPreferenceService;
+    private final UserEventMapper userEventMapper;
 
     /** Delayed task type used for the Redis ZSET namespace. */
     private static final String DELAYED_TASK_TYPE = DelayedTaskConstants.CAMPAIGN_TASK_TYPE;
@@ -70,7 +77,7 @@ public class DecisionEngine {
                 if (!inActiveWindow(campaign)) continue;
 
                 List<CampaignRule> rules = loadRules(campaign.getId());
-                if (allRulesMatched(rules, userId, eventMap)) {
+                if (allRulesMatched(rules, userId, eventMap, null)) {
                     // Quick pre-filter: DND / unsubscribed / already converted.
                     if (!userPreferenceService.canDeliver(
                             userId, campaign.getId(), campaign.getChannel())) {
@@ -108,7 +115,9 @@ public class DecisionEngine {
             }
         }
 
-        // ---- DELAYED campaigns (e.g. cart abandon) ----
+        if (!"ADD_CART".equals(eventType)) return;
+
+        // ---- DELAYED campaigns (cart abandon) ----
         // Schedule a delayed task; actual delivery happens after delay_seconds
         // when DelayedTaskExecutor checks the condition (item still in cart).
         List<Campaign> delayedCampaigns = campaignMapper.selectList(
@@ -122,8 +131,9 @@ public class DecisionEngine {
                 if (!inActiveWindow(campaign)) continue;
 
                 Map<String, Object> props = getProperties(eventMap);
-                String cartItemId = props != null ? String.valueOf(props.getOrDefault("cartItemId", "")) : "";
-                if (cartItemId.isEmpty()) {
+                Object item = props.get("cartItemId");
+                String cartItemId = item == null ? "" : String.valueOf(item);
+                if (cartItemId.isBlank()) {
                     log.warn("DELAYED campaign {} matched event {} but no cartItemId in properties, skip",
                             campaign.getId(), eventId);
                     continue;
@@ -135,11 +145,13 @@ public class DecisionEngine {
                     continue;
                 }
 
-                // taskId encodes everything needed later; equals the delayed dedup key
-                // so ZADD naturally de-duplicates reschedules of the same cart item.
                 String taskId = DedupKeyUtil.forDelayed(
                         campaign.getId(), userId, cartItemId, eventId);
-                long executeAtMillis = System.currentTimeMillis() + delaySeconds * 1000L;
+                String time = (String) eventMap.get("effectiveEventTime");
+                LocalDateTime addedAt = time == null ? LocalDateTime.now()
+                        : LocalDateTime.parse(time.replace(' ', 'T'));
+                long executeAtMillis = addedAt.plusSeconds(delaySeconds)
+                        .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
 
                 delayedTaskManager.addDelayedTask(DELAYED_TASK_TYPE, taskId, executeAtMillis);
                 log.info("DELAYED task scheduled: campaign={}, userId={}, cartItemId={}, executeAt={}",
@@ -169,52 +181,63 @@ public class DecisionEngine {
                 || e instanceof IllegalArgumentException;
     }
 
-    /**
-     * Evaluate for delayed/scheduled campaigns (batch mode).
-     * Creates delivery tasks for matched users without event context.
-     * Used by CampaignSelectionJob for SCHEDULED campaigns (Phase B execution).
-     *
-     * <p>异常传播契约同 {@link #evaluate}：业务跳过内部消化，基础设施异常向外抛，
-     * 由 CampaignSelectionJob 的 catch 将 execution 标回 PENDING 触发重试。</p>
-     */
-    @Transactional
+    /** Preserve the single-user batch entry point. */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void evaluateBatch(Campaign campaign, Long userId, Long campaignExecutionId) {
-        try {
-            List<CampaignRule> rules = loadRules(campaign.getId());
-            if (!allRulesMatched(rules, userId, Collections.emptyMap())) {
-                return;
-            }
+        evaluateBatch(campaign, List.of(userId), campaignExecutionId);
+    }
 
-            // Quick pre-filter: DND / unsubscribed / already converted.
-            if (!userPreferenceService.canDeliver(
-                    userId, campaign.getId(), campaign.getChannel())) {
-                return;
-            }
+    /** Evaluate one enabled-account page and commit its tasks before publishing. */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public void evaluateBatch(Campaign campaign, List<Long> userIds, Long campaignExecutionId) {
+        if (!inActiveWindow(campaign)) return;
+        LocalDateTime now = LocalDateTime.now();
+        List<Long> eligible = matchWindowAudience(userIds, loadRules(campaign.getId()), now).stream()
+                .filter(userId -> userPreferenceService.canDeliver(userId, campaign.getId(), campaign.getChannel()))
+                .toList();
 
+        // READ COMMITTED sees payments committed since the snapshot and the earlier rule reads.
+        if (eligible.isEmpty()) return;
+        LocalDateTime checkTime = LocalDateTime.now();
+        if (!checkTime.toLocalDate().equals(now.toLocalDate())) {
+            throw new IllegalStateException("Calendar date changed while selecting the audience; retry this execution");
+        }
+        for (Long userId : withoutRecentPayments(eligible, new BehaviorWindow(checkTime.toLocalDate()))) {
             String dedupKey = campaignExecutionId != null
                     ? DedupKeyUtil.forScheduled(campaignExecutionId, userId)
                     : DedupKeyUtil.forEvent(campaign.getId(), userId, "scheduled_" + userId);
-
-            DeliveryTaskDto dto = DeliveryTaskDto.builder()
+            deliveryService.createDeliveryTask(DeliveryTaskDto.builder()
                     .campaignId(campaign.getId())
                     .userId(userId)
                     .dedupKey(dedupKey)
                     .channel(campaign.getChannel())
                     .messageContent(campaign.getMessageTemplate())
                     .createdAt(LocalDateTime.now())
-                    .build();
-
-            deliveryService.createDeliveryTask(dto);
-        } catch (Exception e) {
-            if (isBusinessException(e)) {
-                log.info("Batch evaluation skipped for campaign {} user {}: {}",
-                        campaign.getId(), userId, e.getMessage());
-                return;
-            }
-            log.error("Batch evaluation infrastructure failure for campaign {} user {}: {}",
-                    campaign.getId(), userId, e.getMessage(), e);
-            throw e;
+                    .build());
         }
+    }
+
+    /** Audience preview and execution share the window predicate and payment fact lookup. */
+    public List<Long> matchScheduledAudience(List<Long> userIds, List<CampaignRule> rules, LocalDateTime now) {
+        return withoutRecentPayments(matchWindowAudience(userIds, rules, now), new BehaviorWindow(now.toLocalDate()));
+    }
+
+    private List<Long> matchWindowAudience(List<Long> userIds, List<CampaignRule> rules, LocalDateTime now) {
+        Map<Long, Map<String, BigDecimal>> snapshots = profileService.readCurrentWindowMetrics(userIds, now);
+        return userIds.stream().filter(userId -> {
+            Map<String, BigDecimal> metrics = snapshots.getOrDefault(userId, Map.of());
+            return metrics.getOrDefault(BehaviorWindow.ACTIVE_DAYS, BigDecimal.ZERO)
+                            .compareTo(BigDecimal.valueOf(2)) >= 0
+                    && metrics.getOrDefault(BehaviorWindow.ORDER_COUNT, BigDecimal.ZERO).signum() == 0
+                    && allRulesMatched(rules, userId, Map.of(), metrics);
+        }).toList();
+    }
+
+    private List<Long> withoutRecentPayments(List<Long> userIds, BehaviorWindow window) {
+        if (userIds.isEmpty()) return userIds;
+        var paid = new HashSet<>(userEventMapper.selectPaidUsers(
+                userIds, window.purchaseStart(), window.endExclusive()));
+        return userIds.stream().filter(id -> !paid.contains(id)).toList();
     }
 
     // ---------- rule evaluation ----------
@@ -233,9 +256,10 @@ public class DecisionEngine {
     /**
      * 逐条执行规则并在首个失败处短路；空规则列表按全部匹配处理。
      */
-    private boolean allRulesMatched(List<CampaignRule> rules, Long userId, Map<String, Object> eventMap) {
+    private boolean allRulesMatched(List<CampaignRule> rules, Long userId, Map<String, Object> eventMap,
+                                    Map<String, BigDecimal> windowMetrics) {
         for (CampaignRule rule : rules) {
-            if (!evaluateRule(rule, userId, eventMap)) {
+            if (!evaluateRule(rule, userId, eventMap, windowMetrics)) {
                 return false;
             }
         }
@@ -252,69 +276,54 @@ public class DecisionEngine {
         return true;
     }
 
-    /**
-     * 解析并执行画像、事件属性或频次规则；未知类型当前放行，解析或求值异常记录后按不匹配处理。
-     */
-    private boolean evaluateRule(CampaignRule rule, Long userId, Map<String, Object> eventMap) {
+    /** Treat malformed stored rules as non-matches and let storage failures reach recovery. */
+    private boolean evaluateRule(CampaignRule rule, Long userId, Map<String, Object> eventMap,
+                                 Map<String, BigDecimal> windowMetrics) {
+        Map<String, Object> config;
         try {
-            Map<String, Object> ruleConfig = JsonUtil.fromJson(rule.getRuleConfig(), Map.class);
-            String ruleType = rule.getRuleType();
-
-            if ("PROFILE".equals(ruleType)) {
-                String tagName = (String) ruleConfig.get("tagName");
-                String operator = (String) ruleConfig.get("operator");
-                String value = String.valueOf(ruleConfig.get("value"));
-
-                if (tagName != null) {
-                    boolean hasTag = profileService.hasTag(userId, tagName);
-                    if ("EQ".equals(operator)) {
-                        return hasTag == "1".equals(value);
-                    }
-                    return hasTag;
-                }
-
-                String metricType = (String) ruleConfig.get("metricType");
-                if (metricType != null) {
-                    Long metricValue = profileService.getMetricValue(userId, metricType);
-                    Long threshold = Long.valueOf(String.valueOf(ruleConfig.get("threshold")));
-                    return compare(metricValue, operator, threshold);
-                }
-            } else if ("EVENT".equals(ruleType)) {
-                String propKey = (String) ruleConfig.get("propertyKey");
-                String propValue = String.valueOf(ruleConfig.get("propertyValue"));
-                if (propKey != null) {
-                    Map<String, Object> props = getProperties(eventMap);
-                    Object actual = props.get(propKey);
-                    return propValue.equals(String.valueOf(actual));
-                }
-            } else if ("FREQUENCY".equals(ruleType)) {
-                String metricType = (String) ruleConfig.get("metricType");
-                String operator = (String) ruleConfig.get("operator");
-                Long threshold = Long.valueOf(String.valueOf(ruleConfig.get("threshold")));
-                Long metricValue = profileService.getMetricValue(userId, metricType);
-                return compare(metricValue, operator, threshold);
-            }
-
-            return true; // unknown rule type → pass
-        } catch (Exception e) {
-            log.error("Rule evaluation error: {}", e.getMessage());
+            config = JsonUtil.fromJson(rule.getRuleConfig(), Map.class);
+        } catch (RuntimeException e) {
+            log.warn("Cannot parse rule {}", rule.getId(), e);
             return false;
         }
+        if (config == null) return false;
+        String ruleType = rule.getRuleType();
+        String operator = String.valueOf(config.get("operator"));
+        if ("PROFILE".equals(ruleType) && config.get("tagName") instanceof String tagName) {
+            boolean hasTag = profileService.hasTag(userId, tagName);
+            return "EQ".equals(operator) ? hasTag == "1".equals(String.valueOf(config.get("value"))) : hasTag;
+        }
+        if (("PROFILE".equals(ruleType) || "FREQUENCY".equals(ruleType))
+                && config.get("metricType") instanceof String metricType) {
+            BigDecimal threshold;
+            try {
+                threshold = new BigDecimal(String.valueOf(config.get("threshold")));
+            } catch (NumberFormatException e) {
+                log.warn("Invalid metric threshold for rule {}", rule.getId());
+                return false;
+            }
+            String type = ProfileService.ruleMetricType(metricType);
+            BigDecimal value = windowMetrics != null && ProfileService.isCurrentMetric(type)
+                    ? windowMetrics.getOrDefault(type, BigDecimal.ZERO)
+                    : profileService.getRuleMetric(userId, type);
+            return compare(value, operator, threshold);
+        }
+        if ("EVENT".equals(ruleType) && config.get("propertyKey") instanceof String propKey) {
+            return String.valueOf(config.get("propertyValue"))
+                    .equals(String.valueOf(getProperties(eventMap).get(propKey)));
+        }
+        return true; // Preserve the behavior of existing rule types and incomplete legacy rules.
     }
 
-    /**
-     * 将缺失数值按零处理并执行受支持的整数比较，未知操作符返回 false。
-     */
-    private boolean compare(Long left, String operator, Long right) {
-        if (left == null) left = 0L;
-        if (right == null) right = 0L;
+    private boolean compare(BigDecimal left, String operator, BigDecimal right) {
+        int result = (left == null ? BigDecimal.ZERO : left).compareTo(right);
         return switch (operator) {
-            case "GT" -> left > right;
-            case "LT" -> left < right;
-            case "GTE" -> left >= right;
-            case "LTE" -> left <= right;
-            case "EQ" -> left.equals(right);
-            case "NE" -> !left.equals(right);
+            case "GT" -> result > 0;
+            case "LT" -> result < 0;
+            case "GTE" -> result >= 0;
+            case "LTE" -> result <= 0;
+            case "EQ" -> result == 0;
+            case "NE" -> result != 0;
             default -> false;
         };
     }

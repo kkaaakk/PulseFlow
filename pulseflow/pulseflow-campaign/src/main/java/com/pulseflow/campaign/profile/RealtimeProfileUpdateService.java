@@ -13,19 +13,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 实时画像 Redis 更新的单一事实来源。
- *
- * <p>历史上 {@code EventConsumer}（Phase 2）和 {@code CompensationJob}（重放）
- * 各自维护一份 Lua 脚本，且补偿版本只更新 {@code last_active_at}，导致 Redis
- * 真正故障后补偿无法完整重建实时状态——直接破坏了简历亮点"Redis 故障补偿恢复"。</p>
- *
- * <p>本类抽出完整的 Lua 实现（按事件类型更新 last_login_at / views / search_count /
- * 购物车），正常消费与补偿重放调用同一份脚本，避免再次漂移。</p>
- *
- * <p>幂等保证：{@code event:processed:{eventId}} 标记位（7 天 TTL ≥ Kafka 保留期）
- * 在脚本内 EXISTS 判断，重复执行安全。</p>
- */
+/** Atomically updates core realtime state and marks events processed for seven days. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -35,6 +23,7 @@ public class RealtimeProfileUpdateService {
 
     /** 事件处理标记 TTL（7 天），≥ Kafka 保留期，防止重放窗口内重复执行。 */
     private static final long PROCESSED_FLAG_TTL_SECONDS = 604800;
+    private static final DateTimeFormatter REDIS_TIME = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSS");
 
     /**
      * 完整的实时画像 Lua 脚本。正常消费 Phase 2 与补偿重放共用此脚本。
@@ -61,23 +50,25 @@ public class RealtimeProfileUpdateService {
                 return 0
             end
 
-            -- 按事件类型更新对应 Key
-            if eventType == 'LOGIN' then
-                redis.call('HSET', rtKey, 'last_login_at', effectiveTime)
-            elseif eventType == 'CONTENT_VIEW' then
+            if eventType == 'CONTENT_VIEW' then
                 redis.call('HINCRBY', dailyKey, 'views', 1)
-            elseif eventType == 'SEARCH' then
-                redis.call('HINCRBY', dailyKey, 'search_count', 1)
-            elseif eventType == 'ADD_CART' then
-                redis.call('HSET', cartKey, cartItemId, cartItemJson)
-            elseif eventType == 'REMOVE_CART' then
-                redis.call('HDEL', cartKey, cartItemId)
-            elseif eventType == 'ORDER_PAID' then
-                redis.call('HDEL', cartKey, cartItemId)
+                redis.call('EXPIRE', dailyKey, 172800)
             end
 
-            -- 统一更新最后活跃时间
-            redis.call('HSET', rtKey, 'last_active_at', effectiveTime)
+            if cartItemId ~= '' then
+                if eventType == 'ADD_CART' then
+                    redis.call('HSET', cartKey, cartItemId, cartItemJson)
+                elseif eventType == 'REMOVE_CART' or eventType == 'ORDER_PAID' then
+                    redis.call('HDEL', cartKey, cartItemId)
+                end
+            end
+
+            if eventType == 'CONTENT_VIEW' or eventType == 'ADD_CART' then
+                local lastActive = redis.call('HGET', rtKey, 'last_active_at')
+                if not lastActive or effectiveTime > lastActive then
+                    redis.call('HSET', rtKey, 'last_active_at', effectiveTime)
+                end
+            end
 
             -- 设置处理标记（7 天 TTL ≥ Kafka 保留期）
             redis.call('SET', processedKey, '1', 'EX', ttl)
@@ -96,12 +87,13 @@ public class RealtimeProfileUpdateService {
         try {
             String eventType = (String) ctx.get("eventType");
             Long userId = toLong(ctx.get("userId"));
-            String effectiveTime = normalizeTime((String) ctx.get("effectiveEventTime"));
-            String dateStr = parseEventTime(effectiveTime)
-                    .format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+            String time = (String) ctx.get("effectiveEventTime");
+            LocalDateTime effectiveTime = time == null ? LocalDateTime.now() : parseEventTime(time);
+            String dateStr = effectiveTime.format(DateTimeFormatter.BASIC_ISO_DATE);
 
             Map<String, Object> props = getProperties(ctx);
-            String cartItemId = props != null ? String.valueOf(props.getOrDefault("cartItemId", "")) : "";
+            Object item = props == null ? null : props.get("cartItemId");
+            String cartItemId = item == null ? "" : String.valueOf(item);
             String cartItemJson = props != null ? JsonUtil.toJson(props) : "{}";
 
             String processedKey = "event:processed:" + eventId;
@@ -114,7 +106,7 @@ public class RealtimeProfileUpdateService {
                     REALTIME_PROFILE_LUA,
                     RScript.ReturnType.INTEGER,
                     List.of(processedKey, rtKey, dailyKey, cartKey),
-                    eventType, effectiveTime, cartItemId, cartItemJson, PROCESSED_FLAG_TTL_SECONDS);
+                    eventType, effectiveTime.format(REDIS_TIME), cartItemId, cartItemJson, PROCESSED_FLAG_TTL_SECONDS);
 
             // result == 0 表示已处理过（幂等跳过），同样视为成功。
             return result != null && (result == 0 || result == 1);
@@ -134,16 +126,6 @@ public class RealtimeProfileUpdateService {
             return (Map<String, Object>) props;
         }
         return null;
-    }
-
-    /**
-     * 将 ISO 时间中的 T 改为空格；未提供时间时使用当前本地时间。
-     */
-    private String normalizeTime(String time) {
-        if (time == null) {
-            return LocalDateTime.now().toString().replace("T", " ");
-        }
-        return time.contains("T") ? time.replace("T", " ") : time;
     }
 
     /**

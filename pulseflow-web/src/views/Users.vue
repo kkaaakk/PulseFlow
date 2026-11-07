@@ -42,7 +42,7 @@ onMounted(load)
 
 <template>
   <div class="page-heading">
-    <div><h1>Users</h1><p>从长期标签、窗口指标和最近行为理解每一个用户。</p></div>
+    <div><h1>Users</h1><p>查看账号状态、最近活跃与支付订单。</p></div>
   </div>
   <section class="panel table-panel">
     <div class="table-toolbar"><div class="filter-row"><el-input v-model="keyword" clearable placeholder="搜索 User ID / 昵称" style="width: 230px" @keyup.enter="filter" @clear="filter" /><button class="secondary-button" @click="filter">筛选</button></div><span class="panel-subtitle">共 {{ formatNumber(result.total) }} 个用户</span></div>
@@ -51,9 +51,10 @@ onMounted(load)
         <el-table-column label="User ID" width="140"><template #default="scope"><span class="rule-code">#{{ scope.row.userId }}</span></template></el-table-column>
         <el-table-column prop="nickname" label="用户" min-width="210" />
         <el-table-column label="最近活跃" width="170"><template #default="scope">{{ formatDateTime(scope.row.lastActiveAt) }}</template></el-table-column>
-        <el-table-column label="活跃天数 7d" width="140"><template #default="scope">{{ formatNumber(scope.row.activeDays7d, 0) }} 天</template></el-table-column>
+        <el-table-column label="近 7 天活跃" width="140"><template #default="scope">{{ formatNumber(scope.row.activeDays7d, 0) }} 天</template></el-table-column>
+        <el-table-column label="近 30 天支付" width="140"><template #default="scope">{{ formatNumber(scope.row.orderCount30d, 0) }} 单</template></el-table-column>
         <el-table-column label="消费 30d" width="140"><template #default="scope">{{ formatCurrency(scope.row.spend30d) }}</template></el-table-column>
-        <el-table-column label="标签" min-width="240"><template #default="scope"><div class="tag-list"><span v-for="tag in scope.row.tags" :key="tag" class="tag">{{ tag }}</span><span v-if="!scope.row.tags.length" class="panel-subtitle">暂无标签</span></div></template></el-table-column>
+        <el-table-column label="账号状态" width="110"><template #default="scope">{{ scope.row.status === 1 ? '启用' : '禁用' }}</template></el-table-column>
         <el-table-column label="" width="54"><template #default="scope"><button class="text-button" :aria-label="`打开用户 ${scope.row.userId}`" @click.stop="openUser(scope.row.userId)">→</button></template></el-table-column>
       </el-table>
       <div v-else class="empty-state">暂无用户数据</div>

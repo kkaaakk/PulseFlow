@@ -53,7 +53,7 @@ class DeliveryTaskMigrationIT {
         jdbc.execute("INSERT INTO click_event(id,user_id,task_id,source_event_id,click_time) VALUES(41,10,1,'trusted-click',NOW()),(42,10,1,NULL,NOW())");
         jdbc.execute("INSERT INTO attribution_record(id,click_event_id,target_event_id,user_id,campaign_id,task_id,credited_at) "
                 +"VALUES(51,41,'old-order',10,9,1,NOW())");
-        assertThat(flyway(null).migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(flyway("9").migrate().migrationsExecuted).isEqualTo(1);
         assertThat(n("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='delivery_record'")).isZero();
         assertThat(n("SELECT COUNT(*) FROM delivery_task WHERE first_send_attempt_at IS NOT NULL")).isEqualTo(4);
         assertThat(n("SELECT COUNT(*) FROM delivery_task WHERE status='SENT' AND sent_at IS NOT NULL")).isEqualTo(3);
@@ -66,8 +66,8 @@ class DeliveryTaskMigrationIT {
         assertThat(n("SELECT click_event_id FROM attribution_record WHERE id=51")).isEqualTo(41);
         assertThat(n("SELECT COUNT(*) FROM click_event WHERE source_event_id IS NULL")).isEqualTo(1);
         assertThat(n("SELECT COUNT(*) FROM delivery_task WHERE first_send_attempt_at>='2026-10-02' AND first_send_attempt_at<'2026-10-03'")).isEqualTo(2);
-        assertThat(flyway(null).migrate().migrationsExecuted).isZero();
-        flyway(null).validate();
+        assertThat(flyway("9").migrate().migrationsExecuted).isZero();
+        flyway("9").validate();
     }
 
     @ParameterizedTest
@@ -89,25 +89,48 @@ class DeliveryTaskMigrationIT {
             case "unverifiable-sent" -> { jdbc.execute("DELETE FROM delivery_record"); jdbc.execute("UPDATE delivery_task SET status='SENT'"); }
             case "ambiguous-email" -> { jdbc.execute("UPDATE delivery_task SET channel='EMAIL'"); jdbc.execute("UPDATE delivery_record SET channel='EMAIL'"); }
         }
-        assertThatThrownBy(()->flyway(null).migrate()).hasStackTraceContaining("V9 blocked:");
+        assertThatThrownBy(()->flyway("9").migrate()).hasStackTraceContaining("V9 blocked:");
         assertThat(n("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='delivery_record'")).isEqualTo(1);
         assertThat(n("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='delivery_task' AND column_name='sent_at'")).isZero();
-        assertThatThrownBy(()->flyway(null).validate()).isInstanceOf(org.flywaydb.core.api.FlywayException.class);
+        assertThatThrownBy(()->flyway("9").validate()).isInstanceOf(org.flywaydb.core.api.FlywayException.class);
     }
     @Test void backfillFailureKeepsOldTableAndCanResumeAfterAuditedRepair() {
         task(1,"PENDING","IN_APP"); record(1,"SENT","2026-10-02 10:00:00");
         jdbc.execute("CREATE TRIGGER migration_write_failure BEFORE UPDATE ON delivery_task "
                 +"FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='backfill_failure'");
         try {
-            assertThatThrownBy(()->flyway(null).migrate()).hasStackTraceContaining("backfill_failure");
+            assertThatThrownBy(()->flyway("9").migrate()).hasStackTraceContaining("backfill_failure");
         } finally { jdbc.execute("DROP TRIGGER migration_write_failure"); }
         assertThat(n("SELECT COUNT(*) FROM delivery_record")).isEqualTo(1);
         assertThat(n("SELECT COUNT(*) FROM delivery_task WHERE status='PENDING' AND sent_at IS NULL AND first_send_attempt_at IS NULL")).isEqualTo(1);
-        assertThatThrownBy(()->flyway(null).validate()).isInstanceOf(org.flywaydb.core.api.FlywayException.class);
+        assertThatThrownBy(()->flyway("9").validate()).isInstanceOf(org.flywaydb.core.api.FlywayException.class);
         // Test-only: the cause was inspected and removed; never automatically repair production.
-        flyway(null).repair();
-        assertThat(flyway(null).migrate().migrationsExecuted).isEqualTo(1);
+        flyway("9").repair();
+        assertThat(flyway("9").migrate().migrationsExecuted).isEqualTo(1);
         assertThat(n("SELECT COUNT(*) FROM delivery_task WHERE status='SENT' AND sent_at IS NOT NULL")).isEqualTo(1);
+        flyway("9").validate();
+    }
+
+
+    @Test
+    void v10IndexesHistoricalPaymentAndCartFactsWithoutRewritingLegacyMetrics() {
+        flyway("9").migrate();
+        jdbc.execute("""
+                INSERT INTO user_event(event_id,user_id,event_type,event_time,received_at,effective_event_time,properties)
+                VALUES ('order-a',10,'ORDER_PAID',NOW(),NOW(),NOW(),'{"orderId":" ORD-A ","cartItemId":"sku-a"}'),
+                       ('order-b',10,'ORDER_PAID',NOW(),NOW(),NOW(),'{"orderId":"ORD-A","cartItemId":"sku-a"}'),
+                       ('order-legacy',10,'ORDER_PAID',NOW(),NOW(),NOW(),'{}'),
+                       ('view-old',10,'CONTENT_VIEW',NOW(),NOW(),NOW(),'{"orderId":"ORD-A"}')
+                """);
+        jdbc.execute("INSERT INTO user_behavior_summary(user_id,metric_type,metric_value,calculated_at) "
+                + "VALUES (10,'active_7d',99,NOW())");
+        assertThat(flyway(null).migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(n("SELECT COUNT(*) FROM user_event")).isEqualTo(4);
+        assertThat(n("SELECT COUNT(*) FROM user_event WHERE paid_order_id='ORD-A' AND cart_item_id='sku-a'")).isEqualTo(2);
+        assertThat(n("SELECT COUNT(*) FROM user_event WHERE paid_order_id IS NULL")).isEqualTo(2);
+        assertThat(n("SELECT COUNT(*) FROM user_behavior_summary WHERE metric_type='active_7d' AND metric_value=99")).isEqualTo(1);
+        assertThat(n("SELECT COUNT(*) FROM user_behavior_summary WHERE metric_type='active_days_7d'")).isZero();
+        assertThat(flyway(null).migrate().migrationsExecuted).isZero();
         flyway(null).validate();
     }
 

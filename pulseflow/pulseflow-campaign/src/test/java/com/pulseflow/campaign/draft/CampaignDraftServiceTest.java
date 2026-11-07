@@ -173,10 +173,10 @@ class CampaignDraftServiceTest {
                                         .value(5)
                                         .build(),
                                 AudienceCondition.builder()
-                                        .field("HIGH_VALUE")
+                                        .field("orderCount30d")
                                         .operator("EQ")
-                                        .valueType("BOOLEAN")
-                                        .value(true)
+                                        .valueType("INTEGER")
+                                        .value(0)
                                         .build())))
                         .build())
                 .channel("IN_APP")

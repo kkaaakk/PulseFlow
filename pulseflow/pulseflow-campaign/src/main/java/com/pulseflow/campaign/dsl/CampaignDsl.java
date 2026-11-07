@@ -14,7 +14,7 @@ import java.util.List;
  * <p>v1 constraints (enforced by {@link com.pulseflow.campaign.validation.CampaignDslValidator}):</p>
  * <ul>
  *   <li>{@code schemaVersion} = 1</li>
- *   <li>{@code audience.logic} ∈ {AND, OR}</li>
+ *   <li>{@code audience.logic} = AND</li>
  *   <li>1 ≤ {@code audience.conditions.size()} ≤ 10</li>
  *   <li>no nested groups (one level only)</li>
  *   <li>{@code schedule.type} = ONCE</li>

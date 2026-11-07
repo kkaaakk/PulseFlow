@@ -41,7 +41,7 @@ Java 登录用户 → 生成 Draft → 人工确认草稿 → Campaign / Campaig
 | `pulseflow-event` | 行为接入、Kafka 消费、幂等持久化 |
 | `pulseflow-profile` | 实时、窗口和长期用户画像 |
 | `pulseflow-campaign` | Campaign 规划、校验、决策、频控、触达、归因、分析 |
-| `pulseflow-job` | 窗口指标、标签、Campaign 扫描、绩效汇总和恢复任务 |
+| `pulseflow-job` | 日桶与窗口指标、Campaign 圈选、绩效汇总和恢复任务 |
 | `pulseflow-simulator` | 演示数据模拟 |
 | `pulseflow-boot` | Spring Boot 启动、Web 查询、鉴权与 Flyway |
 
@@ -76,3 +76,5 @@ Phase 7 adds the authenticated **Investigations** workspace, safe business SSE, 
 draft review with human confirmation, bounded runtime controls and an opt-in development Compose
 stack. See [the operations guide](docs/agent/production-investigation.md) for startup, limits,
 single-process deployment requirements and offline CI coverage.
+
+主业务资源、迁移和恢复边界见 [主业务改造报告](docs/marketing-core-convergence.md)。

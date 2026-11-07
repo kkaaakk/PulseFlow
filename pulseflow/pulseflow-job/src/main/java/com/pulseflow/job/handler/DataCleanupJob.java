@@ -46,12 +46,7 @@ public class DataCleanupJob {
             // delivery_task now owns the durable send result. Keep task/channel idempotency
             // facts together; deleting just a receipt would make old deliveries resendable.
 
-            // user_tag 保留历史（uk = user_id + tag_name + calculated_at），
-            // 清理 90 天前的旧标签记录，只保留近期历史供 hasTag 查最新值。
-            int tagDeleted = jdbcTemplate.update(
-                    "DELETE FROM user_tag WHERE calculated_at < ?",
-                    java.sql.Timestamp.valueOf(expiry90Days));
-            log.info("Cleaned {} expired user tag records", tagDeleted);
+            // Retired tag strategies have no writer. Keep existing tag facts for legacy rules.
 
         } catch (Exception e) {
             log.error("DataCleanupJob failed", e);

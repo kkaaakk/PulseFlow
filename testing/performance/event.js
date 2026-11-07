@@ -1,19 +1,13 @@
 // Event payload helper based on com.pulseflow.common.dto.EventRequest.
 export const EVENT_TYPES = [
-  'LOGIN',
   'CONTENT_VIEW',
-  'SEARCH',
-  'LIKE',
-  'FAVORITE',
   'ADD_CART',
   'REMOVE_CART',
-  'ORDER_CREATE',
   'ORDER_PAID',
-  'SHARE',
   'CLICK',
 ];
 
-const EVENT_WEIGHTS = [2, 36, 12, 12, 8, 10, 4, 5, 5, 4, 2];
+const EVENT_WEIGHTS = [62, 17, 7, 10, 4];
 const runId = (__ENV.RUN_ID || 'adhoc').replace(/[^a-zA-Z0-9_-]/g, '-');
 
 /**
@@ -46,20 +40,16 @@ function eventTimeString() {
  */
 function randomProperties(eventType, sequence) {
   const properties = { category: `k6-${sequence % 8}` };
-  if (eventType === 'CONTENT_VIEW' || eventType === 'SEARCH') {
+  if (eventType === 'CONTENT_VIEW') {
     properties.duration = 1000 + (sequence % 60000);
   }
-  if (eventType === 'ADD_CART' || eventType === 'REMOVE_CART') {
+  if (['ADD_CART', 'REMOVE_CART', 'ORDER_PAID'].includes(eventType)) {
     properties.cartItemId = `K6-SKU-${sequence % 100}`;
     properties.price = Number((9.99 + (sequence % 500)).toFixed(2));
   }
-  if (eventType === 'ORDER_CREATE' || eventType === 'ORDER_PAID') {
-    properties.orderId = `k6-order-${__VU}-${__ITER}-${sequence}`;
+  if (eventType === 'ORDER_PAID') {
+    properties.orderId = `k6-order-${runId}-${__VU}-${__ITER}-${sequence}`;
     properties.price = Number((29.9 + (sequence % 1000)).toFixed(2));
-  }
-  if (eventType === 'CLICK') {
-    properties.taskId = 700000 + (sequence % 1000);
-    properties.campaignId = 710000 + (sequence % 20);
   }
   return properties;
 }
@@ -90,7 +80,7 @@ export function makeEvent(sequence) {
     eventId,
     userId: 8000000 + (((__VU - 1) * 10000 + __ITER) % 1000000),
     eventType,
-    targetId: eventType === 'LOGIN' || eventType === 'SEARCH' ? null : 900000 + (sequence % 10000),
+    targetId: 900000 + (sequence % 10000),
     eventTime: eventTimeString(),
     properties: randomProperties(eventType, sequence),
   };
