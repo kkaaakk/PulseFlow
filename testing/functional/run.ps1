@@ -25,29 +25,29 @@ function Get-ScenarioPlan {
     $scaleName = $SelectedScale.ToLowerInvariant()
     switch ($SelectedScenario) {
         'fixture' { return @([pscustomobject]@{ name = 'fixture'; dataset = 'smoke-events-v1' }) }
-        'normal' { return @([pscustomobject]@{ name = 'normal'; dataset = "normal-events-$scaleName-v1" }) }
+        'normal' { return @([pscustomobject]@{ name = 'normal'; dataset = "normal-events-$scaleName-v2" }) }
         'edge' {
             return @(
-                [pscustomobject]@{ name = 'duplicate'; dataset = 'duplicate-events-v1' },
-                [pscustomobject]@{ name = 'out-of-order'; dataset = 'out-of-order-events-v1' },
-                [pscustomobject]@{ name = 'late'; dataset = 'late-events-v1' },
-                [pscustomobject]@{ name = 'invalid'; dataset = 'invalid-payload-v1' }
+                [pscustomobject]@{ name = 'duplicate'; dataset = 'duplicate-events-v2' },
+                [pscustomobject]@{ name = 'out-of-order'; dataset = 'out-of-order-events-v2' },
+                [pscustomobject]@{ name = 'late'; dataset = 'late-events-v2' },
+                [pscustomobject]@{ name = 'invalid'; dataset = 'invalid-payload-v2' }
             )
         }
-        'hot-user' { return @([pscustomobject]@{ name = 'hot-user'; dataset = "hot-user-events-$scaleName-v1" }) }
-        'concurrency' { return @([pscustomobject]@{ name = 'concurrency'; dataset = 'concurrency-events-v1' }) }
-        'campaign' { return @([pscustomobject]@{ name = 'campaign'; dataset = 'campaign-frequency-attribution-v1' }) }
+        'hot-user' { return @([pscustomobject]@{ name = 'hot-user'; dataset = "hot-user-events-$scaleName-v2" }) }
+        'concurrency' { return @([pscustomobject]@{ name = 'concurrency'; dataset = 'concurrency-events-v2' }) }
+        'campaign' { return @([pscustomobject]@{ name = 'campaign'; dataset = 'campaign-frequency-attribution-v2' }) }
         default {
             return @(
                 [pscustomobject]@{ name = 'fixture'; dataset = 'smoke-events-v1' },
-                [pscustomobject]@{ name = 'normal'; dataset = "normal-events-$scaleName-v1" },
-                [pscustomobject]@{ name = 'duplicate'; dataset = 'duplicate-events-v1' },
-                [pscustomobject]@{ name = 'out-of-order'; dataset = 'out-of-order-events-v1' },
-                [pscustomobject]@{ name = 'late'; dataset = 'late-events-v1' },
-                [pscustomobject]@{ name = 'invalid'; dataset = 'invalid-payload-v1' },
-                [pscustomobject]@{ name = 'hot-user'; dataset = "hot-user-events-$scaleName-v1" },
-                [pscustomobject]@{ name = 'concurrency'; dataset = 'concurrency-events-v1' },
-                [pscustomobject]@{ name = 'campaign'; dataset = 'campaign-frequency-attribution-v1' }
+                [pscustomobject]@{ name = 'normal'; dataset = "normal-events-$scaleName-v2" },
+                [pscustomobject]@{ name = 'duplicate'; dataset = 'duplicate-events-v2' },
+                [pscustomobject]@{ name = 'out-of-order'; dataset = 'out-of-order-events-v2' },
+                [pscustomobject]@{ name = 'late'; dataset = 'late-events-v2' },
+                [pscustomobject]@{ name = 'invalid'; dataset = 'invalid-payload-v2' },
+                [pscustomobject]@{ name = 'hot-user'; dataset = "hot-user-events-$scaleName-v2" },
+                [pscustomobject]@{ name = 'concurrency'; dataset = 'concurrency-events-v2' },
+                [pscustomobject]@{ name = 'campaign'; dataset = 'campaign-frequency-attribution-v2' }
             )
         }
     }
@@ -121,12 +121,10 @@ $script:ReportCheckLabels = @{
     'mysql-explicit-skip' = 'MySQL 校验主动跳过'
     'scheduled-outputs' = '定时任务输出范围'
     'profile-window-metrics' = '用户窗口指标'
-    'profile-user-tags' = '用户标签计算'
     'redis-not-applicable' = 'Redis 校验适用性'
     'redis-connection' = 'Redis 测试库连接'
     'redis-processed-flags' = 'Redis 幂等处理标记'
     'redis-processed-ttl' = 'Redis 幂等标记 TTL'
-    'redis-realtime-profile' = 'Redis 实时画像键'
     'redis-business-values' = 'Redis 实时画像值'
     'redis-realtime-values' = 'Redis 实时画像值'
     'redis-daily-values' = 'Redis 日实时指标'

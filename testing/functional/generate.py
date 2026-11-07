@@ -28,36 +28,15 @@ SCALES: dict[str, dict[str, int]] = {
     "LARGE": {"users": 50_000, "events": 1_000_000},
 }
 
-# This list is copied from pulseflow-common/EventType.java. Keep generated
-# request data aligned with the application event model; runtime behavior is
-# verified by Maven/HTTP tests rather than source-text scanning.
-EVENT_TYPES = [
-    "LOGIN",
-    "CONTENT_VIEW",
-    "SEARCH",
-    "LIKE",
-    "FAVORITE",
-    "ADD_CART",
-    "REMOVE_CART",
-    "ORDER_CREATE",
-    "ORDER_PAID",
-    "SHARE",
-    "CLICK",
-]
-
+# The generated scenarios exercise the core events; the fixed v1 fixture covers legacy ingestion.
 EVENT_TYPE_WEIGHTS = [
-    ("LOGIN", 2),
-    ("CONTENT_VIEW", 36),
-    ("SEARCH", 12),
-    ("LIKE", 12),
-    ("FAVORITE", 8),
-    ("ADD_CART", 10),
-    ("REMOVE_CART", 4),
-    ("ORDER_CREATE", 5),
-    ("ORDER_PAID", 5),
-    ("SHARE", 4),
-    ("CLICK", 2),
+    ("CONTENT_VIEW", 62),
+    ("ADD_CART", 17),
+    ("REMOVE_CART", 7),
+    ("ORDER_PAID", 10),
+    ("CLICK", 4),
 ]
+EVENT_TYPES = [event_type for event_type, _ in EVENT_TYPE_WEIGHTS]
 
 # Separate user-id namespaces make SQL validation safe when several datasets
 # are replayed into the same test database. Replaying a dataset remains
@@ -101,22 +80,22 @@ def slug(value: str) -> str:
 # 根据场景及规模选择固定数据集 ID；仅正常和热点场景在名称中包含规模。
 def dataset_id_for(scenario: str, scale: str) -> str:
     if scenario == "normal":
-        return f"normal-events-{scale.lower()}-v1"
+        return f"normal-events-{scale.lower()}-v2"
     if scenario == "hot-user":
-        return f"hot-user-events-{scale.lower()}-v1"
+        return f"hot-user-events-{scale.lower()}-v2"
     return {
-        "duplicate": "duplicate-events-v1",
-        "out-of-order": "out-of-order-events-v1",
-        "late": "late-events-v1",
-        "invalid": "invalid-payload-v1",
-        "campaign": "campaign-frequency-attribution-v1",
-        "concurrency": "concurrency-events-v1",
+        "duplicate": "duplicate-events-v2",
+        "out-of-order": "out-of-order-events-v2",
+        "late": "late-events-v2",
+        "invalid": "invalid-payload-v2",
+        "campaign": "campaign-frequency-attribution-v2",
+        "concurrency": "concurrency-events-v2",
     }[scenario]
 
 
 # 将规范化场景、随机种子和补零序号组合为可复现的事件 ID。
 def event_id(scenario: str, seed: int, index: int) -> str:
-    return f"pf-{slug(scenario)}-{seed}-{index:08d}"
+    return f"pf-{slug(scenario)}-v2-{seed}-{index:08d}"
 
 
 # 使用传入 rng 按预设权重选择事件类型，保持固定种子下的可复现性。
@@ -136,26 +115,20 @@ def amount_for(rng: random.Random, minimum: int = 99, maximum: int = 2_000) -> f
     return float(f"{cents / 100:.2f}")
 
 
-# 按事件类型生成确定种子驱动的属性，覆盖时长、商品、订单、点击关联和搜索词等场景。
+# 按事件类型生成确定种子驱动的属性，覆盖浏览时长、商品与支付等场景。
 def properties_for(event_type: str, rng: random.Random, index: int) -> dict[str, Any]:
     props: dict[str, Any] = {"category": f"category-{index % 8}"}
-    if event_type in {"CONTENT_VIEW", "SEARCH", "LIKE", "FAVORITE", "SHARE"}:
+    if event_type == "CONTENT_VIEW":
         props["duration"] = rng.randint(500, 120_000)
-    if event_type in {"ADD_CART", "REMOVE_CART", "ORDER_CREATE", "ORDER_PAID"}:
+    if event_type in {"ADD_CART", "REMOVE_CART", "ORDER_PAID"}:
         props["cartItemId"] = f"SKU-{index % 500:04d}"
         props["price"] = amount_for(rng)
-    if event_type in {"ORDER_CREATE", "ORDER_PAID"}:
-        props["orderId"] = f"order-{index:08d}"
+    if event_type == "ORDER_PAID":
         props["currency"] = "CNY"
-    if event_type == "CLICK":
-        props["taskId"] = 10_000 + (index % 2_000)
-        props["campaignId"] = 20_000 + (index % 50)
-    if event_type == "SEARCH":
-        props["query"] = f"query-{index % 2_000}"
     return props
 
 
-# 组合可复现 ID、用户、类型、目标、时间与业务属性，登录和搜索事件的 targetId 保持 None。
+# 组合可复现 ID、用户、类型、目标、时间与业务属性。
 def generated_event(
     scenario: str,
     seed: int,
@@ -167,16 +140,17 @@ def generated_event(
     *,
     milliseconds: bool = False,
 ) -> dict[str, Any]:
-    target_id: int | None = None
-    if event_type not in {"LOGIN", "SEARCH"}:
-        target_id = 5_000 + (index % 20_000)
+    canonical_id = event_id(scenario, seed, index)
+    properties = properties_for(event_type, rng, index)
+    if event_type == "ORDER_PAID":
+        properties["orderId"] = canonical_id
     return {
-        "eventId": event_id(scenario, seed, index),
+        "eventId": canonical_id,
         "userId": user_id,
         "eventType": event_type,
-        "targetId": target_id,
+        "targetId": 5_000 + (index % 20_000),
         "eventTime": iso_time(event_time, milliseconds=milliseconds),
-        "properties": properties_for(event_type, rng, index),
+        "properties": properties,
     }
 
 
@@ -504,7 +478,7 @@ def hot_user_events(scale: str, seed: int) -> tuple[list[dict[str, Any]], dict[s
                 seed,
                 index,
                 hot_user,
-                "CONTENT_VIEW" if index % 5 else "SEARCH",
+                "CONTENT_VIEW" if index % 5 else "ADD_CART",
                 BASE_TIME - timedelta(minutes=index % (30 * 24 * 60)),
                 rng,
             )
@@ -697,10 +671,10 @@ def manifest_for(
     user_ids = [int(row["userId"]) for row in rows if isinstance(row.get("userId"), int)]
     canonical = canonical_rows(row for row in rows if row.get("eventId"))
     canonical_metrics = metric_totals(canonical)
-    event_prefix = f"pf-{slug(scenario)}-{seed}-"
+    event_prefix = f"pf-{slug(scenario)}-v2-{seed}-"
     manifest: dict[str, Any] = {
         "datasetId": dataset_id,
-        "version": 1,
+        "version": 2,
         "seed": seed,
         "scenario": scenario,
         "scale": scale,
@@ -760,7 +734,6 @@ def manifest_for(
             "scheduledOutputs": {
                 "dailyMetrics": "requires-dailyMetricJob",
                 "windowMetrics": "requires-windowMetricJob",
-                "userTags": "requires-tagRecalcJob",
             },
         },
     }

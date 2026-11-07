@@ -189,6 +189,7 @@ public final class WebDtos {
             int status,
             LocalDateTime lastActiveAt,
             BigDecimal activeDays7d,
+            BigDecimal orderCount30d,
             BigDecimal spend30d,
             List<String> tags
     ) {

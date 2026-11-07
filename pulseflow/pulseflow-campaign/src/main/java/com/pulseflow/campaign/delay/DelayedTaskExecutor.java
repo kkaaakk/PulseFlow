@@ -8,11 +8,13 @@ import com.pulseflow.common.util.DedupKeyUtil;
 import com.pulseflow.common.util.DelayedTaskConstants;
 import com.pulseflow.entity.Campaign;
 import com.pulseflow.mapper.CampaignMapper;
+import com.pulseflow.mapper.UserEventMapper;
 import com.pulseflow.profile.service.UserPreferenceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RMap;
 import org.redisson.api.RedissonClient;
+import org.redisson.client.codec.StringCodec;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -44,6 +46,7 @@ public class DelayedTaskExecutor {
     private final CampaignMapper campaignMapper;
     private final DeliveryService deliveryService;
     private final UserPreferenceService userPreferenceService;
+    private final UserEventMapper userEventMapper;
 
     private static final String DELAYED_TASK_TYPE = DelayedTaskConstants.CAMPAIGN_TASK_TYPE;
     private static final int BATCH_SIZE = 50;
@@ -53,10 +56,10 @@ public class DelayedTaskExecutor {
      */
     @Scheduled(fixedDelay = 1000)
     public void executeDue() {
+        long claimedAt = System.currentTimeMillis();
         List<String> claimed;
         try {
-            claimed = delayedTaskManager.claimTasks(
-                    DELAYED_TASK_TYPE, System.currentTimeMillis(), BATCH_SIZE);
+            claimed = delayedTaskManager.claimTasks(DELAYED_TASK_TYPE, claimedAt, BATCH_SIZE);
         } catch (Exception e) {
             log.error("Delayed task claim failed: {}", e.getMessage(), e);
             return;
@@ -67,7 +70,7 @@ public class DelayedTaskExecutor {
 
         for (String taskId : claimed) {
             try {
-                processOne(taskId);
+                processOne(taskId, claimedAt);
             } catch (Exception e) {
                 // Keep the task in processing ZSET; DelayTaskRecoveryJob will
                 // return it to pending after the timeout window.
@@ -81,11 +84,11 @@ public class DelayedTaskExecutor {
      * taskId format = {campaignId}:{userId}:{cartItemId}:{addCartEventId}
      * (identical to {@link DedupKeyUtil#forDelayed}).
      */
-    private void processOne(String taskId) {
-        String[] parts = taskId.split(":");
+    private void processOne(String taskId, long claimedAt) {
+        String[] parts = taskId.split(":", 4);
         if (parts.length < 4) {
             log.warn("Malformed delayed taskId, cancelling: {}", taskId);
-            delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId);
+            delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId, claimedAt);
             return;
         }
 
@@ -95,25 +98,28 @@ public class DelayedTaskExecutor {
         String addCartEventId = parts[3];
 
         Campaign campaign = campaignMapper.selectById(campaignId);
+        LocalDateTime now = LocalDateTime.now();
         if (campaign == null || !CampaignStatus.ACTIVE.name().equals(campaign.getStatus())
-                || !TriggerType.DELAYED.name().equals(campaign.getTriggerType())) {
+                || !TriggerType.DELAYED.name().equals(campaign.getTriggerType())
+                || campaign.getStartTime() != null && now.isBefore(campaign.getStartTime())
+                || campaign.getEndTime() != null && now.isAfter(campaign.getEndTime())) {
             // Campaign no longer eligible — business cancel, safe to remove.
-            delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId);
+            delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId, claimedAt);
             log.info("Delayed task cancelled (campaign inactive): taskId={}", taskId);
             return;
         }
 
-        // Condition check: cart item must still be present.
-        boolean stillInCart = isCartItemPresent(userId, cartItemId);
-        if (!stillInCart) {
-            delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId);
+        // A durable later mutation also cancels this reminder when Redis is behind or replayed out of order.
+        if (!isCartItemPresent(userId, cartItemId)
+                || !userEventMapper.isCurrentCartAddition(addCartEventId, userId, cartItemId)) {
+            delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId, claimedAt);
             log.info("Delayed task cancelled (item no longer in cart): taskId={}", taskId);
             return;
         }
 
         // Quick pre-filter: DND / unsubscribed / already converted.
         if (!userPreferenceService.canDeliver(userId, campaignId, campaign.getChannel())) {
-            delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId);
+            delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId, claimedAt);
             log.info("Delayed task cancelled (pre-filter): taskId={}", taskId);
             return;
         }
@@ -133,12 +139,12 @@ public class DelayedTaskExecutor {
         try {
             deliveryService.createDeliveryTask(dto);
             // 只有真正成功或命中 dedup_key（之前已创建）才删除 processing 任务。
-            delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId);
+            delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId, claimedAt);
             log.info("Delayed delivery created: campaign={}, userId={}, cartItemId={}",
                     campaignId, userId, cartItemId);
         } catch (DuplicateKeyException e) {
             // 命中 uk_dedup：之前已成功创建过触达任务，安全删除。
-            delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId);
+            delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId, claimedAt);
             log.info("Delayed task already delivered (dedup hit): taskId={}", taskId);
         }
         // 其它异常（DB 临时故障、Kafka 不可用等）不删 processing，
@@ -154,7 +160,7 @@ public class DelayedTaskExecutor {
         // user:cart:{userId} is a Redis HASH; field == cartItemId.
         // REMOVE_CART / ORDER_PAID both HDEL the field, so a paid/removed
         // item naturally fails this existence check.
-        RMap<String, String> cart = redissonClient.getMap("user:cart:" + userId);
+        RMap<String, String> cart = redissonClient.getMap("user:cart:" + userId, StringCodec.INSTANCE);
         return cart.containsKey(cartItemId);
     }
 }

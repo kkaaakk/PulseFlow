@@ -45,7 +45,6 @@ public class CampaignDslValidator {
 
     private static final int MAX_CONDITIONS = 10;
     private static final int MAX_NESTING_DEPTH = 2;
-    private static final Set<String> VALID_LOGIC = Set.of("AND", "OR");
     private static final Set<String> VALID_SCHEDULE_TYPES = Set.of("ONCE");
     private static final Set<String> VALID_OBJECTIVES =
             Set.of("CONVERSION", "RETENTION", "ACTIVATION", "BRANDING");
@@ -132,8 +131,8 @@ public class CampaignDslValidator {
      * 检查人群组合逻辑、条件列表与各项条件，把错误和警告累积到调用方提供的列表。
      */
     private void validateAudience(AudienceGroup audience, List<String> errors, List<String> warnings) {
-        if (audience.getLogic() == null || !VALID_LOGIC.contains(audience.getLogic())) {
-            errors.add("audience.logic must be AND or OR");
+        if (!"AND".equals(audience.getLogic())) {
+            errors.add("audience.logic must be AND");
         }
         List<AudienceCondition> conditions = audience.getConditions();
         if (conditions == null || conditions.isEmpty()) {
@@ -222,11 +221,13 @@ public class CampaignDslValidator {
         }
         switch (fd.getValueType()) {
             case INTEGER -> {
-                if (!(value instanceof Number) && !isParsableInteger(value)) {
+                long v;
+                try {
+                    v = new BigDecimal(String.valueOf(value)).longValueExact();
+                } catch (NumberFormatException | ArithmeticException e) {
                     errors.add(prefix + ".value must be integer");
                     return;
                 }
-                long v = toLong(value);
                 if (fd.getMinimum() != null && v < fd.getMinimum().longValue()) {
                     errors.add(prefix + ".value " + v + " below min " + fd.getMinimum());
                 }
@@ -363,18 +364,6 @@ public class CampaignDslValidator {
     }
 
     /**
-     * 检查输入的字符串表示是否可解析为 long，不允许小数文本。
-     */
-    private boolean isParsableInteger(Object v) {
-        try {
-            Long.parseLong(String.valueOf(v));
-            return true;
-        } catch (NumberFormatException e) {
-            return false;
-        }
-    }
-
-    /**
      * 检查输入的字符串表示是否可解析为 BigDecimal。
      */
     private boolean isParsableDecimal(Object v) {
@@ -384,14 +373,6 @@ public class CampaignDslValidator {
         } catch (NumberFormatException e) {
             return false;
         }
-    }
-
-    /**
-     * 将已通过类型检查的条件值转换为 long；数值输入使用其 longValue。
-     */
-    private long toLong(Object v) {
-        if (v instanceof Number n) return n.longValue();
-        return Long.parseLong(String.valueOf(v));
     }
 
     /**

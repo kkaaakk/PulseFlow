@@ -31,33 +31,40 @@ export const demoResolve = <T>(value: T | (() => T)): Promise<T> =>
 const campaignRows: CampaignListItem[] = [
   { id: 2001, name: '高活跃未购买用户召回', status: 'ACTIVE', triggerType: 'SCHEDULED', channel: 'IN_APP', audience: 128430, sent: 42800, clicked: 5393, converted: 1268, createdAt: at(85), createdBy: 1024 },
   { id: 2002, name: '购物车 24 小时挽回', status: 'ACTIVE', triggerType: 'DELAYED', channel: 'PUSH', audience: 89420, sent: 31890, clicked: 2841, converted: 902, createdAt: at(260), createdBy: 1024 },
-  { id: 2003, name: '新用户欢迎系列', status: 'PAUSED', triggerType: 'EVENT', channel: 'IN_APP', audience: 52400, sent: 22400, clicked: 2200, converted: 680, createdAt: at(520), createdBy: 1 },
-  { id: 2004, name: '价格敏感用户年中礼', status: 'DRAFT', triggerType: 'SCHEDULED', channel: 'EMAIL', audience: 0, sent: 0, clicked: 0, converted: 0, createdAt: at(880), createdBy: 1024 },
+  { id: 2003, name: '商品浏览实时促销', status: 'ACTIVE', triggerType: 'EVENT', channel: 'IN_APP', audience: 52400, sent: 22400, clicked: 2200, converted: 680, createdAt: at(520), createdBy: 1 },
 ]
 
 /**
  * 从 Campaign 列表样例组合固定规则、人群与效果详情，仅供演示展示。
  */
+const campaignDescriptions: Record<string, string> = {
+  SCHEDULED: '召回近期活跃且未购买的用户。',
+  DELAYED: '提醒仍有商品留在购物车的用户。',
+  EVENT: '根据商品浏览规则发送优惠信息。',
+}
 const detailFor = (campaign: CampaignListItem): CampaignDetail => ({
   campaign: {
     id: campaign.id,
     name: campaign.name,
-    description: '面向近期活跃且尚未购买的用户，基于候选用户池进行圈选。',
+    description: campaignDescriptions[campaign.triggerType] ?? '',
     status: campaign.status,
     triggerType: campaign.triggerType,
     channel: campaign.channel,
     userDailyLimit: 1,
     campaignWeeklyLimit: 3,
     startTime: at(20),
-    nextTriggerAt: at(-120),
+    nextTriggerAt: campaign.triggerType === 'SCHEDULED' ? at(-120) : undefined,
+    delaySeconds: campaign.triggerType === 'DELAYED' ? 86_400 : undefined,
     createdAt: campaign.createdAt,
     updatedAt: at(12),
     createdBy: campaign.createdBy,
   },
-  rules: [
-    { id: 1, name: 'activeDays7d', type: 'PROFILE', config: { field: 'activeDays7d', operator: 'GTE', value: 3 }, priority: 0, enabled: true },
-    { id: 2, name: 'orderCount30d', type: 'PROFILE', config: { field: 'orderCount30d', operator: 'EQ', value: 0 }, priority: 0, enabled: true },
-  ],
+  rules: campaign.triggerType === 'SCHEDULED' ? [
+    { id: 1, name: 'activeDays7d', type: 'PROFILE', config: { metricType: 'active_days_7d', operator: 'GTE', threshold: 2 }, priority: 0, enabled: true },
+    { id: 2, name: 'orderCount30d', type: 'PROFILE', config: { metricType: 'order_count_30d', operator: 'EQ', threshold: 0 }, priority: 0, enabled: true },
+  ] : campaign.triggerType === 'EVENT' ? [
+    { id: 3, name: '浏览商品分类', type: 'EVENT', config: { propertyKey: 'category', propertyValue: 'AI' }, priority: 0, enabled: true },
+  ] : [],
   audience: { estimatedCount: campaign.audience, dataVersion: 'profile-20260830-1030', calculationMode: 'SNAPSHOT', warnings: [] },
   deliverySummary: { sent: campaign.sent, delivered: Math.round(campaign.sent * 0.992), clicked: campaign.clicked, converted: campaign.converted, deliveryRate: 0.992, clickRate: campaign.sent ? campaign.clicked / campaign.sent : 0, conversionRate: campaign.sent ? campaign.converted / campaign.sent : 0 },
   attributionSummary: { attributedConversions: campaign.converted, model: 'CLICK_LAST_TOUCH', windowHours: 24 },
@@ -65,18 +72,18 @@ const detailFor = (campaign: CampaignListItem): CampaignDetail => ({
 })
 
 const userRows: UserListItem[] = [
-  { userId: 1024, nickname: '演示用户 A', status: 1, lastActiveAt: at(18), activeDays7d: 6, spend30d: 880.5, tags: ['HIGH_VALUE', 'PRICE_SENSITIVE'] },
-  { userId: 1025, nickname: '演示用户 B', status: 1, lastActiveAt: at(46), activeDays7d: 7, spend30d: 1520, tags: ['HIGH_VALUE'] },
-  { userId: 1026, nickname: '演示用户 C', status: 1, lastActiveAt: at(72), activeDays7d: 5, spend30d: 699, tags: ['CHURN_RISK'] },
-  { userId: 1027, nickname: '对照用户 D', status: 1, lastActiveAt: at(190), activeDays7d: 2, spend30d: 1200, tags: [] },
-  { userId: 1028, nickname: '对照用户 E', status: 1, lastActiveAt: at(340), activeDays7d: 6, spend30d: 200, tags: ['PRICE_SENSITIVE'] },
+  { userId: 1024, nickname: '演示用户 A', status: 1, lastActiveAt: at(18), activeDays7d: 6, orderCount30d: 1, spend30d: 328, tags: [] },
+  { userId: 1025, nickname: '演示用户 B', status: 1, lastActiveAt: at(46), activeDays7d: 7, orderCount30d: 0, spend30d: 0, tags: [] },
+  { userId: 1026, nickname: '演示用户 C', status: 1, lastActiveAt: at(72), activeDays7d: 5, orderCount30d: 0, spend30d: 0, tags: [] },
+  { userId: 1027, nickname: '对照用户 D', status: 1, lastActiveAt: at(190), activeDays7d: 1, orderCount30d: 0, spend30d: 0, tags: [] },
+  { userId: 1028, nickname: '对照用户 E', status: 0, lastActiveAt: at(340), activeDays7d: 6, orderCount30d: 0, spend30d: 0, tags: [] },
 ]
 
 const eventRows: EventView[] = [
   { id: 1, eventId: 'evt_1024_001', userId: 1024, eventType: 'CONTENT_VIEW', targetId: 8866, eventTime: at(18), receivedAt: at(17), effectiveEventTime: at(18), clockSkew: false, properties: { category: 'AI', duration: 5000 } },
-  { id: 2, eventId: 'evt_1024_002', userId: 1024, eventType: 'SEARCH', eventTime: at(31), receivedAt: at(31), effectiveEventTime: at(31), clockSkew: false, properties: { keyword: '无线耳机' } },
+  { id: 2, eventId: 'evt_1024_002', userId: 1024, eventType: 'REMOVE_CART', targetId: 8866, eventTime: at(31), receivedAt: at(31), effectiveEventTime: at(31), clockSkew: false, properties: { cartItemId: 'cart-8866' } },
   { id: 3, eventId: 'evt_1025_001', userId: 1025, eventType: 'ADD_CART', targetId: 1002, eventTime: at(46), receivedAt: at(46), effectiveEventTime: at(46), clockSkew: false, properties: { cartItemId: 'cart-1002' } },
-  { id: 4, eventId: 'evt_1026_001', userId: 1026, eventType: 'LOGIN', eventTime: at(72), receivedAt: at(72), effectiveEventTime: at(72), clockSkew: false, properties: {} },
+  { id: 4, eventId: 'evt_1026_001', userId: 1026, eventType: 'CLICK', eventTime: at(72), receivedAt: at(72), effectiveEventTime: at(72), clockSkew: false, properties: {} },
   { id: 5, eventId: 'evt_1024_003', userId: 1024, eventType: 'ORDER_PAID', targetId: 9999, eventTime: at(120), receivedAt: at(119), effectiveEventTime: at(120), clockSkew: false, properties: { price: 328, orderId: 'ord_demo_01' } },
 ]
 
@@ -150,7 +157,7 @@ export const demoData = {
    */
   userDetail: (userId: number): UserDetail => {
     const user = userRows.find((row) => row.userId === userId) ?? userRows[0]
-    return { profile: { userId: user.userId, nickname: user.nickname, status: user.status, createdAt: at(60 * 24 * 90), updatedAt: at(18) }, realtimeMetrics: { todayViews: '42', todaySearches: '8', cartCount: '2', lastActiveAt: user.lastActiveAt ?? '' }, realtimeSource: 'REDIS', realtimeAvailable: true, windowMetrics: { activeDays7d: user.activeDays7d, spend30d: user.spend30d, search1h: 8, orderCount30d: user.spend30d > 0 ? 2 : 0, daysSinceLastPurchase: 5 }, tags: user.tags, recentEvents: page(eventRows.filter((event) => event.userId === user.userId), 1, 20) }
+    return { profile: { userId: user.userId, nickname: user.nickname, status: user.status, createdAt: at(60 * 24 * 90), updatedAt: at(18) }, realtimeMetrics: { todayViews: '42', cartCount: '2', lastActiveAt: user.lastActiveAt ?? '' }, realtimeSource: 'REDIS', realtimeAvailable: true, windowMetrics: { activeDays7d: user.activeDays7d, spend30d: user.spend30d, orderCount30d: user.orderCount30d }, tags: user.tags, recentEvents: page(eventRows.filter((event) => event.userId === user.userId), 1, 20) }
   },
   /**
    * 按可选事件类型和用户 ID 筛选演示事件，并返回分页结果。

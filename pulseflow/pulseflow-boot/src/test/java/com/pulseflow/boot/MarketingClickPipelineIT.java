@@ -9,10 +9,22 @@ import com.pulseflow.campaign.attribution.AttributionTaskConsumer;
 import com.pulseflow.campaign.attribution.ClickEventService;
 import com.pulseflow.event.service.EventPersistenceService;
 import com.pulseflow.event.service.TrustedEventSource;
+import com.pulseflow.campaign.delay.DelayedTaskManager;
+import com.pulseflow.campaign.dsl.AudienceCondition;
+import com.pulseflow.campaign.dsl.AudienceGroup;
+import com.pulseflow.campaign.dsl.CampaignDsl;
+import com.pulseflow.campaign.preview.SqlAudiencePreviewService;
+import com.pulseflow.common.util.BehaviorWindow;
+import com.pulseflow.common.util.DedupKeyUtil;
+import com.pulseflow.job.handler.CampaignSelectionJob;
 import com.pulseflow.job.handler.CompensationJob;
+import com.pulseflow.job.handler.DailyMetricJob;
+import com.pulseflow.job.handler.WindowMetricJob;
+import com.pulseflow.profile.service.ProfileService;
 import com.xxl.job.core.executor.impl.XxlJobSpringExecutor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.redisson.client.codec.StringCodec;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -29,7 +41,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.kafka.KafkaContainer;
 
+import java.math.BigDecimal;
 import java.time.*;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -75,6 +89,13 @@ class MarketingClickPipelineIT {
     @Autowired AttributionService attribution;
     @Autowired AttributionTaskConsumer attributionConsumer;
     @Autowired CompensationJob compensation;
+    @Autowired DailyMetricJob daily;
+    @Autowired WindowMetricJob windows;
+    @Autowired com.pulseflow.mapper.UserBehaviorSummaryMapper behaviorSnapshots;
+    @Autowired CampaignSelectionJob selection;
+    @Autowired ProfileService profiles;
+    @Autowired SqlAudiencePreviewService audiencePreview;
+    @Autowired DelayedTaskManager delayedTasks;
     @Autowired ClickEventService clicks;
     @Autowired EventPersistenceService persistence;
     @Autowired KafkaListenerEndpointRegistry listeners;
@@ -138,7 +159,8 @@ class MarketingClickPipelineIT {
     }
     void barrier(Fixture f) {
         String id = id(f, "barrier-" + UUID.randomUUID());
-        post(body(id, f.user, "LOGIN", LocalDateTime.now(), Map.of()), null);
+        // A same-partition fence that does not add to the CLICK metric under assertion.
+        post(body(id, f.user, "REMOVE_CART", LocalDateTime.now(), Map.of()), null);
         stored(id, "NONE");
     }
 
@@ -683,6 +705,236 @@ class MarketingClickPipelineIT {
         assertThat(deliveryTasks.selectById(bad.task).getLastError()).isEqualTo("CHANNEL_RECEIPT_MISMATCH");
         dispatchRetries.execute();
         await().atMost(Duration.ofSeconds(30)).untilAsserted(()->assertThat(taskStatus(good)).isEqualTo("SENT"));
+    }
+
+
+    @Test
+    void calendarSnapshotsUseDistinctDaysAndStablePaidOrdersAcrossBoundaries() {
+        long user = IDS.incrementAndGet() + 9_000_000;
+        LocalDateTime now = LocalDateTime.now().withNano(0);
+        BehaviorWindow window = new BehaviorWindow(now.toLocalDate());
+        LocalDateTime today = now.toLocalDate().atStartOfDay();
+        var oldCache = redis.<String, Object>getMap("user:window:" + user);
+        oldCache.put("active_7d", 99);
+        jdbc.update("INSERT INTO user_behavior_summary (user_id,metric_type,metric_value,calculated_at) "
+                + "VALUES (?,'active_7d',99,?)", user, now);
+
+        fact(user, "old-view", "CONTENT_VIEW", window.activityStart().minusNanos(1_000_000), Map.of());
+        fact(user, "first-day", "ADD_CART", window.activityStart(), Map.of("cartItemId", "sku"));
+        fact(user, "same-day", "CONTENT_VIEW", window.activityStart().plusHours(2), Map.of());
+        fact(user, "legacy", "SEARCH", today.minusDays(4), Map.of());
+        fact(user, "click", "CLICK", today.minusDays(2), Map.of());
+        fact(user, "unrolled", "CONTENT_VIEW", today.minusDays(3).plusHours(11), Map.of());
+        fact(user, "today", "CONTENT_VIEW", now, Map.of());
+        fact(user, "tomorrow", "ADD_CART", window.endExclusive(), Map.of());
+        fact(user, "old-order", "ORDER_PAID", window.purchaseStart().minusNanos(1_000_000), Map.of("orderId", "old"));
+        fact(user, "old-order-replay", "ORDER_PAID", today, Map.of("orderId", "old"));
+        fact(user, "first-paid", "ORDER_PAID", window.purchaseStart(),
+                Map.of("orderId", "one", "price", 6_000_000_000L));
+        fact(user, "first-paid-replay", "ORDER_PAID", today,
+                Map.of("orderId", "one", "price", 6_000_000_000L));
+        fact(user, "no-order-id", "ORDER_PAID", today, Map.of());
+        fact(user, "no-order-id", "ORDER_PAID", today, Map.of());
+        fact(user, "future-order", "ORDER_PAID", window.endExclusive(), Map.of("orderId", "future"));
+
+        assertThat(behaviorSnapshots.readyForRecall(window.activityStart(), today, today.minusNanos(1),
+                window.endExclusive())).isFalse();
+        LocalDateTime firstCalculation = now.equals(today) ? now : now.minusSeconds(1);
+        windows.calculate(firstCalculation);
+        assertThat(behaviorSnapshots.readyForRecall(window.activityStart(), today, now, window.endExclusive())).isTrue();
+        assertThat(profiles.getWindowMetrics(user)).containsEntry("active_days_7d", new BigDecimal("3.00"))
+                .containsEntry("order_count_30d", new BigDecimal("2.00"))
+                .containsEntry("spend_30d", new BigDecimal("12000000000.00"))
+                .doesNotContainKey("active_7d");
+        daily.execute();
+        for (int day : List.of(1, 2, 4, 5)) {
+            fact(user, "extra-active-" + day, "ADD_CART", today.minusDays(day), Map.of());
+        }
+        windows.calculate(now);
+        assertThat(profiles.getWindowMetrics(user)).containsEntry("active_days_7d", new BigDecimal("7.00"));
+        assertThat(profiles.readCurrentWindowMetrics(List.of(user), window.endExclusive())).isEmpty();
+        assertThat(count("SELECT COUNT(*) FROM user_behavior_summary WHERE user_id=? AND metric_type='active_7d'", user))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void scheduledPreviewAndExecutionRecheckPaidFactsAndRecoverTheSamePagedExecution() {
+        long campaign = IDS.addAndGet(100);
+        long selected = 10_000_000 + campaign;
+        long buyer = selected + 1;
+        long disabled = selected + 2;
+        long insufficient = selected + 3;
+        LocalDateTime now = LocalDateTime.now().withNano(0);
+        LocalDateTime due = now.minusSeconds(10);
+
+        List<Object[]> accounts = new ArrayList<>();
+        for (int i = 1; i <= 510; i++) accounts.add(new Object[]{selected - i, 1});
+        accounts.addAll(List.of(new Object[]{selected, 1}, new Object[]{buyer, 1},
+                new Object[]{disabled, 0}, new Object[]{insufficient, 1}));
+        jdbc.batchUpdate("INSERT INTO user_profile(user_id,status) VALUES (?,?)", accounts);
+        for (long user : List.of(selected, buyer, disabled, insufficient)) {
+            fact(user, "today", "ADD_CART", now, Map.of());
+            if (user != insufficient) fact(user, "yesterday", "CONTENT_VIEW", now.minusDays(1), Map.of());
+        }
+        windows.calculate(now);
+        assertThat(profiles.getWindowMetrics(buyer)).containsEntry("order_count_30d", BigDecimal.ZERO);
+        post(body(buyer + "-paid", buyer, "ORDER_PAID", LocalDateTime.now(), Map.of("orderId", "free", "price", 0)), null);
+        stored(buyer + "-paid", "NONE");
+
+        CampaignDsl dsl = CampaignDsl.builder().audience(AudienceGroup.builder().logic("AND")
+                .conditions(List.of(AudienceCondition.builder().field("activeDays7d").operator("GTE")
+                                .valueType("INTEGER").value(2).build(),
+                        AudienceCondition.builder().field("orderCount30d").operator("EQ")
+                                .valueType("INTEGER").value(0).build()))
+                .build()).build();
+        assertThat(audiencePreview.enabledCandidateIds()).doesNotContain(disabled);
+        assertThat(audiencePreview.match(dsl, List.of(selected, buyer, insufficient), now.plusSeconds(1)))
+                .containsExactly(selected);
+
+        jdbc.update("INSERT INTO campaign(id,name,trigger_type,channel,message_template,status,next_trigger_at) "
+                + "VALUES (?,?,'SCHEDULED','IN_APP','召回优惠','ACTIVE',?)", campaign, "PF_TEST_RECALL_" + campaign, due);
+        jdbc.update("INSERT INTO campaign_rule(campaign_id,rule_name,rule_type,rule_config) "
+                + "VALUES (?,'legacy active alias','PROFILE','{\"metricType\":\"active_7d\",\"operator\":\"GTE\",\"threshold\":2}')", campaign);
+
+        jdbc.execute("CREATE TRIGGER it_reject_execution BEFORE INSERT ON campaign_execution "
+                + "FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='simulated instance insert failure'");
+        try {
+            selection.execute();
+            assertThat(jdbc.queryForObject("SELECT next_trigger_at FROM campaign WHERE id=?", LocalDateTime.class, campaign))
+                    .isEqualTo(due);
+            assertThat(count("SELECT COUNT(*) FROM campaign_execution WHERE campaign_id=?", campaign)).isZero();
+        } finally {
+            jdbc.execute("DROP TRIGGER it_reject_execution");
+        }
+
+        selection.execute();
+        long execution = count("SELECT id FROM campaign_execution WHERE campaign_id=?", campaign);
+        assertThat(jdbc.queryForList("SELECT user_id FROM delivery_task WHERE campaign_id=?", Long.class, campaign))
+                .containsExactly(selected);
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
+                assertThat(count("SELECT COUNT(*) FROM delivery_task WHERE campaign_id=? AND status='SENT'", campaign)).isEqualTo(1));
+        jdbc.update("UPDATE campaign_execution SET status='RUNNING', started_at=? WHERE id=?", now.minusMinutes(11), execution);
+        selection.execute();
+        selection.execute();
+        assertThat(count("SELECT COUNT(*) FROM delivery_task WHERE campaign_id=?", campaign)).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM campaign_execution WHERE id=? AND status='DONE' AND retry_count=1", execution))
+                .isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM campaign WHERE id=? AND next_trigger_at IS NULL", campaign)).isEqualTo(1);
+        jdbc.update("UPDATE campaign SET status='PAUSED' WHERE id=?", campaign);
+    }
+
+    @Test
+    void delayedCartReminderSendsOnceAndCancelsForRemoveOrCommittedPayment() {
+        long campaign = IDS.addAndGet(100);
+        jdbc.update("INSERT INTO campaign(id,name,trigger_type,event_types,delay_seconds,channel,message_template,status) "
+                + "VALUES (?,?,'DELAYED','ADD_CART',60,'PUSH','加购优惠','ACTIVE')", campaign, "PF_TEST_CART_" + campaign);
+        long sends = campaign + 11_000_000;
+        long removed = sends + 1;
+        long paid = sends + 2;
+        long paymentPendingRedis = sends + 3;
+        String item = "sku-reminder";
+        String type = "DELAYED_CAMPAIGN";
+        var pending = redis.<String>getScoredSortedSet("delay:pending:" + type);
+        var processing = redis.<String>getScoredSortedSet("delay:processing:" + type);
+        for (long user : List.of(sends, removed, paid, paymentPendingRedis)) {
+            String eventId = user + "-add";
+            Map<String, Object> add = body(eventId, user, "ADD_CART", LocalDateTime.now(), Map.of("cartItemId", item));
+            post(add, null);
+            post(add, null);
+            String task = DedupKeyUtil.forDelayed(campaign, user, item, eventId);
+            await().atMost(Duration.ofSeconds(30)).until(() -> pending.contains(task));
+        }
+        post(body(removed + "-remove", removed, "REMOVE_CART", LocalDateTime.now(), Map.of("cartItemId", item)), null);
+        var removedCart = redis.<String, String>getMap("user:cart:" + removed, StringCodec.INSTANCE);
+        await().atMost(Duration.ofSeconds(30)).until(() -> !removedCart.containsKey(item));
+
+        post(body(paid + "-paid", paid, "ORDER_PAID", LocalDateTime.now(), Map.of("cartItemId", item, "orderId", "paid")), null);
+        var paidCart = redis.<String, String>getMap("user:cart:" + paid, StringCodec.INSTANCE);
+        await().atMost(Duration.ofSeconds(30)).until(() -> !paidCart.containsKey(item));
+
+        // Persisted payment with Redis Phase 2 still outstanding.
+        fact(paymentPendingRedis, "paid", "ORDER_PAID", LocalDateTime.now(), Map.of("cartItemId", item, "orderId", "paid"));
+        assertThat(redis.<String, String>getMap("user:cart:" + paymentPendingRedis, StringCodec.INSTANCE)
+                .containsKey(item)).isTrue();
+        for (long user : List.of(sends, removed, paid, paymentPendingRedis)) {
+            String task = DedupKeyUtil.forDelayed(campaign, user, item, user + "-add");
+            pending.add(System.currentTimeMillis() - 1, task);
+            await().atMost(Duration.ofSeconds(30)).until(() -> !pending.contains(task) && !processing.contains(task));
+        }
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
+                assertThat(jdbc.queryForList("SELECT user_id FROM delivery_task WHERE campaign_id=? AND status='SENT'",
+                        Long.class, campaign)).containsExactly(sends));
+        assertThat(count("SELECT COUNT(*) FROM delivery_task WHERE campaign_id=?", campaign)).isEqualTo(1);
+        jdbc.update("UPDATE campaign SET status='PAUSED' WHERE id=?", campaign);
+    }
+
+    @Test
+    void delayedQueuePreservesLegacyMembersAndFencesExpiredClaims() {
+        String type = "DELAYED_LEASE_IT";
+        String task = "1:2:sku:original-add";
+        long old = System.currentTimeMillis() - Duration.ofMinutes(6).toMillis();
+        var pending = redis.<String>getScoredSortedSet("delay:pending:" + type);
+        var processing = redis.<String>getScoredSortedSet("delay:processing:" + type);
+        pending.add(old, task);
+        delayedTasks.addDelayedTask(type, task, old + 500);
+        assertThat(delayedTasks.claimTasks(type, old, 50)).containsExactly(task);
+        delayedTasks.addDelayedTask(type, task, old);
+        assertThat(delayedTasks.claimTasks(type, old, 50)).isEmpty();
+        assertThat(delayedTasks.recoverStuckTasks(type, Duration.ofMinutes(5).toMillis())).containsExactly(task);
+        long next = System.currentTimeMillis() + 100;
+        assertThat(delayedTasks.claimTasks(type, next, 50)).containsExactly(task);
+        delayedTasks.completeTask(type, task, old);
+        assertThat(processing.contains(task)).isTrue();
+        delayedTasks.completeTask(type, task, next);
+        assertThat(processing.contains(task)).isFalse();
+    }
+
+    @Test
+    void eventCompensationReplaysAfterRedisFailureAndKeepsRuleAndDeliveryIdempotency() {
+        long campaign = IDS.addAndGet(100);
+        long user = campaign + 12_000_000;
+        LocalDateTime time = LocalDateTime.now();
+        jdbc.update("INSERT INTO campaign(id,name,trigger_type,event_types,channel,message_template,status) "
+                + "VALUES (?,?,'EVENT','CONTENT_VIEW','IN_APP','浏览优惠','ACTIVE')", campaign, "PF_TEST_VIEW_" + campaign);
+        jdbc.update("INSERT INTO campaign_rule(campaign_id,rule_name,rule_type,rule_config) "
+                + "VALUES (?,'category','EVENT','{\"propertyKey\":\"category\",\"propertyValue\":\"it-category\"}')", campaign);
+        post(body(user + "-no-match", user, "CONTENT_VIEW", time, Map.of("category", "other")), null);
+        stored(user + "-no-match", "NONE");
+        String day = time.toLocalDate().format(DateTimeFormatter.BASIC_ISO_DATE);
+        String dailyKey = "user:daily:" + user + ":" + day;
+        await().atMost(Duration.ofSeconds(30)).until(() ->
+                "1".equals(redis.<String, String>getMap(dailyKey, StringCodec.INSTANCE).get("views")));
+        redis.getKeys().delete(dailyKey);
+        var wrongType = redis.<String>getBucket(dailyKey, StringCodec.INSTANCE);
+        wrongType.set("simulated WRONGTYPE");
+        Map<String, Object> matching = body(user + "-match", user, "CONTENT_VIEW", time, Map.of("category", "it-category"));
+        try {
+            post(matching, null);
+            await().atMost(Duration.ofSeconds(30)).until(() -> count(
+                    "SELECT COUNT(*) FROM data_compensation_task WHERE event_id=? AND status='PENDING'", user + "-match") == 1);
+            assertThat(status(user + "-match")).isEqualTo("NONE");
+            assertThat(count("SELECT COUNT(*) FROM delivery_task WHERE campaign_id=?", campaign)).isZero();
+        } finally {
+            wrongType.delete();
+        }
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
+            compensation.execute();
+            assertThat(count("SELECT COUNT(*) FROM delivery_task WHERE campaign_id=? AND status='SENT'", campaign)).isEqualTo(1);
+        });
+        post(matching, null);
+        String barrier = user + "-barrier";
+        post(body(barrier, user, "CLICK", time, Map.of()), null);
+        stored(barrier, "NONE");
+        assertThat(redis.<String, String>getMap(dailyKey, StringCodec.INSTANCE).get("views")).isEqualTo("1");
+        assertThat(count("SELECT COUNT(*) FROM delivery_task WHERE campaign_id=?", campaign)).isEqualTo(1);
+        jdbc.update("UPDATE campaign SET status='PAUSED' WHERE id=?", campaign);
+    }
+
+    private void fact(long user, String suffix, String type, LocalDateTime time, Map<String, Object> properties) {
+        Map<String, Object> event = body(user + "-" + suffix, user, type, time, properties);
+        event.put("receivedAt", time.toString());
+        event.put("effectiveEventTime", time.toString());
+        persistence.persist(event);
     }
 
 }

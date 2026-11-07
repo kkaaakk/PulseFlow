@@ -131,6 +131,7 @@ export interface UserListItem {
   status: number
   lastActiveAt?: string
   activeDays7d: number
+  orderCount30d: number
   spend30d: number
   tags: string[]
 }

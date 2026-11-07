@@ -13,7 +13,6 @@ import com.pulseflow.entity.Campaign;
 import com.pulseflow.entity.CampaignRule;
 import com.pulseflow.entity.ClickEvent;
 import com.pulseflow.entity.DeliveryTask;
-import com.pulseflow.entity.UserBehaviorSummary;
 import com.pulseflow.entity.UserEvent;
 import com.pulseflow.entity.UserProfile;
 import com.pulseflow.entity.UserTag;
@@ -22,7 +21,6 @@ import com.pulseflow.mapper.CampaignMapper;
 import com.pulseflow.mapper.CampaignRuleMapper;
 import com.pulseflow.mapper.ClickEventMapper;
 import com.pulseflow.mapper.DeliveryTaskMapper;
-import com.pulseflow.mapper.UserBehaviorSummaryMapper;
 import com.pulseflow.mapper.UserEventMapper;
 import com.pulseflow.mapper.UserProfileMapper;
 import com.pulseflow.mapper.UserTagMapper;
@@ -70,7 +68,6 @@ public class WebQueryService {
     private final AttributionRecordMapper attributionRecordMapper;
     private final UserProfileMapper userProfileMapper;
     private final UserEventMapper userEventMapper;
-    private final UserBehaviorSummaryMapper behaviorSummaryMapper;
     private final UserTagMapper userTagMapper;
     private final ProfileService profileService;
     private final JdbcTemplate jdbcTemplate;
@@ -83,7 +80,9 @@ public class WebQueryService {
     public WebDtos.DashboardSummary dashboardSummary() {
         LocalDateTime start = LocalDate.now().atStartOfDay();
         long todayEvents = count("SELECT COUNT(*) FROM user_event WHERE effective_event_time >= ?", start);
-        long activeUsers = count("SELECT COUNT(DISTINCT user_id) FROM user_event WHERE effective_event_time >= ?", start);
+        long activeUsers = count("SELECT COUNT(DISTINCT user_id) FROM user_event "
+                + "WHERE effective_event_time >= ? AND effective_event_time < ? "
+                + "AND event_type IN ('CONTENT_VIEW','ADD_CART')", start, start.plusDays(1));
         long runningCampaigns = campaignMapper.selectCount(
                 new LambdaQueryWrapper<Campaign>().eq(Campaign::getStatus, "ACTIVE"));
         long todayDeliveries = count(
@@ -454,14 +453,13 @@ public class WebQueryService {
      */
     private WebDtos.UserListItem toUserListItem(UserProfile profile) {
         Map<String, Object> metrics = windowMetrics(profile.getUserId());
-        UserEvent lastEvent = userEventMapper.selectOne(
-                new LambdaQueryWrapper<UserEvent>().eq(UserEvent::getUserId, profile.getUserId())
-                        .orderByDesc(UserEvent::getEffectiveEventTime).last("LIMIT 1"));
+        UserEvent lastEvent = lastActivity(profile.getUserId());
         return new WebDtos.UserListItem(
                 profile.getUserId(), profile.getNickname(), profile.getAvatar(),
                 profile.getStatus() == null ? 1 : profile.getStatus(),
                 lastEvent == null ? null : lastEvent.getEffectiveEventTime(),
-                decimal(metrics.get("activeDays7d")), decimal(metrics.get("spend30d")), activeTags(profile.getUserId()));
+                decimal(metrics.get("activeDays7d")), decimal(metrics.get("orderCount30d")),
+                decimal(metrics.get("spend30d")), activeTags(profile.getUserId()));
     }
 
     /**
@@ -515,26 +513,17 @@ public class WebQueryService {
                 record.getAttributionWindowHours(), record.getCreditedAt());
     }
 
-    /**
-     * 优先从画像服务读取窗口指标，访问失败时读取 MySQL 最新汇总；统一指标名称后返回键值映射。
-     */
     private Map<String, Object> windowMetrics(Long userId) {
-        Map<String, Object> raw;
-        try {
-            raw = profileService.getWindowMetrics(userId);
-        } catch (Exception e) {
-            log.info("Window metrics Redis unavailable for user {}, using MySQL fallback", userId);
-            List<UserBehaviorSummary> summaries = behaviorSummaryMapper.selectList(
-                    new LambdaQueryWrapper<UserBehaviorSummary>().eq(UserBehaviorSummary::getUserId, userId)
-                            .orderByDesc(UserBehaviorSummary::getCalculatedAt));
-            raw = new LinkedHashMap<>();
-            for (UserBehaviorSummary summary : summaries) {
-                raw.putIfAbsent(summary.getMetricType(), summary.getMetricValue());
-            }
-        }
         Map<String, Object> normalized = new LinkedHashMap<>();
-        raw.forEach((key, value) -> normalized.put(canonicalMetric(key), value));
+        profileService.getWindowMetrics(userId).forEach((key, value) -> normalized.put(canonicalMetric(key), value));
         return normalized;
+    }
+
+    private UserEvent lastActivity(Long userId) {
+        return userEventMapper.selectOne(new LambdaQueryWrapper<UserEvent>()
+                .eq(UserEvent::getUserId, userId)
+                .in(UserEvent::getEventType, "CONTENT_VIEW", "ADD_CART")
+                .orderByDesc(UserEvent::getEffectiveEventTime).last("LIMIT 1"));
     }
 
     /**
@@ -551,26 +540,30 @@ public class WebQueryService {
             LocalDateTime todayStart = LocalDate.now().atStartOfDay();
             List<UserEvent> events = userEventMapper.selectList(
                     new LambdaQueryWrapper<UserEvent>().eq(UserEvent::getUserId, userId)
-                            .ge(UserEvent::getEffectiveEventTime, todayStart));
+                            .ge(UserEvent::getEffectiveEventTime, todayStart)
+                            .lt(UserEvent::getEffectiveEventTime, todayStart.plusDays(1))
+                            .eq(UserEvent::getEventType, "CONTENT_VIEW"));
             Map<String, String> fallback = new LinkedHashMap<>();
-            fallback.put("todayViews", String.valueOf(events.stream().filter(e -> "CONTENT_VIEW".equals(e.getEventType())).count()));
-            fallback.put("todaySearches", String.valueOf(events.stream().filter(e -> "SEARCH".equals(e.getEventType())).count()));
+            fallback.put("todayViews", String.valueOf(events.size()));
             fallback.put("cartCount", "0");
-            fallback.put("lastActiveAt", events.stream().map(UserEvent::getEffectiveEventTime)
-                    .filter(Objects::nonNull).max(LocalDateTime::compareTo).map(LocalDateTime::toString).orElse(""));
+            UserEvent last = lastActivity(userId);
+            fallback.put("lastActiveAt", last == null ? "" : last.getEffectiveEventTime().toString());
             return new RealtimeResult(fallback, "MYSQL_FALLBACK", false);
         }
     }
 
     /**
-     * 读取值为 1 的用户标签，按计算时间倒序去重，返回非空标签名。
+     * Read the latest tag values for compatibility with existing API callers.
      */
     private List<String> activeTags(Long userId) {
         List<UserTag> rows = userTagMapper.selectList(
                 new LambdaQueryWrapper<UserTag>().eq(UserTag::getUserId, userId)
-                        .eq(UserTag::getTagValue, "1")
                         .orderByDesc(UserTag::getCalculatedAt));
-        return rows.stream().map(UserTag::getTagName).filter(Objects::nonNull).distinct().toList();
+        Map<String, String> latest = new LinkedHashMap<>();
+        for (UserTag row : rows) {
+            if (!latest.containsKey(row.getTagName())) latest.put(row.getTagName(), row.getTagValue());
+        }
+        return latest.entrySet().stream().filter(tag -> "1".equals(tag.getValue())).map(Map.Entry::getKey).toList();
     }
 
     /**
@@ -739,11 +732,9 @@ public class WebQueryService {
      */
     private String canonicalMetric(String key) {
         return switch (key) {
-            case "active_7d", "activeDays7d" -> "activeDays7d";
-            case "spend_30d", "spend30d" -> "spend30d";
-            case "search_1h", "searchCount1h" -> "search1h";
-            case "view_7d", "viewCount7d" -> "viewCount7d";
-            case "order_30d", "orderCount30d" -> "orderCount30d";
+            case "active_days_7d" -> "activeDays7d";
+            case "order_count_30d" -> "orderCount30d";
+            case "spend_30d" -> "spend30d";
             default -> key;
         };
     }

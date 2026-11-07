@@ -2,6 +2,7 @@ package com.pulseflow.campaign.validation;
 
 import com.pulseflow.campaign.dsl.Operator;
 import com.pulseflow.campaign.dsl.ValueType;
+import com.pulseflow.common.util.BehaviorWindow;
 import jakarta.annotation.PostConstruct;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -39,7 +40,7 @@ public class CampaignFieldRegistry {
                 .minimum(BigDecimal.ZERO)
                 .maximum(new BigDecimal("1000"))
                 .sourceType("REALTIME_PROFILE")
-                .enabled(true)
+                .enabled(false)
                 .build());
 
         register(FieldDescriptor.builder()
@@ -51,7 +52,7 @@ public class CampaignFieldRegistry {
                 .minimum(BigDecimal.ZERO)
                 .maximum(new BigDecimal("100"))
                 .sourceType("REALTIME_PROFILE")
-                .enabled(true)
+                .enabled(false)
                 .build());
 
         register(FieldDescriptor.builder()
@@ -64,19 +65,19 @@ public class CampaignFieldRegistry {
                 .maximum(new BigDecimal("100"))
                 .sourceType("WINDOW_PROFILE")
                 .metricType("search_1h")
-                .enabled(true)
+                .enabled(false)
                 .build());
 
         register(FieldDescriptor.builder()
                 .fieldCode("activeDays7d")
                 .displayName("近7天活跃天数")
-                .description("最近7天内有内容浏览的天数")
+                .description("最近7个自然日（含今天）内有浏览或加购的去重天数")
                 .valueType(ValueType.INTEGER)
                 .allowedOperators(List.of(Operator.EQ, Operator.GT, Operator.GTE, Operator.LT, Operator.LTE))
                 .minimum(BigDecimal.ZERO)
                 .maximum(new BigDecimal("7"))
                 .sourceType("WINDOW_PROFILE")
-                .metricType("active_7d")
+                .metricType(BehaviorWindow.ACTIVE_DAYS)
                 .enabled(true)
                 .build());
 
@@ -89,7 +90,7 @@ public class CampaignFieldRegistry {
                 .minimum(BigDecimal.ZERO)
                 .maximum(new BigDecimal("1000"))
                 .sourceType("WINDOW_PROFILE")
-                .enabled(true)
+                .enabled(false)
                 .build());
 
         register(FieldDescriptor.builder()
@@ -101,19 +102,20 @@ public class CampaignFieldRegistry {
                 .minimum(BigDecimal.ZERO)
                 .maximum(new BigDecimal("1000000"))
                 .sourceType("WINDOW_PROFILE")
-                .metricType("spend_30d")
-                .enabled(true)
+                .metricType(BehaviorWindow.SPEND)
+                .enabled(false)
                 .build());
 
         register(FieldDescriptor.builder()
                 .fieldCode("orderCount30d")
                 .displayName("近30天订单数")
-                .description("最近30天支付订单数")
+                .description("最近30个自然日（含今天）内的成功支付订单数，召回条件为等于0")
                 .valueType(ValueType.INTEGER)
-                .allowedOperators(List.of(Operator.EQ, Operator.GT, Operator.GTE, Operator.LT, Operator.LTE))
+                .allowedOperators(List.of(Operator.EQ))
                 .minimum(BigDecimal.ZERO)
-                .maximum(new BigDecimal("1000"))
+                .maximum(BigDecimal.ZERO)
                 .sourceType("WINDOW_PROFILE")
+                .metricType(BehaviorWindow.ORDER_COUNT)
                 .enabled(true)
                 .build());
 
@@ -126,7 +128,7 @@ public class CampaignFieldRegistry {
                 .minimum(BigDecimal.ZERO)
                 .maximum(new BigDecimal("365"))
                 .sourceType("WINDOW_PROFILE")
-                .enabled(true)
+                .enabled(false)
                 .build());
 
         register(FieldDescriptor.builder()
@@ -138,7 +140,7 @@ public class CampaignFieldRegistry {
                 .minimum(BigDecimal.ZERO)
                 .maximum(new BigDecimal("3650"))
                 .sourceType("USER_PROFILE")
-                .enabled(true)
+                .enabled(false)
                 .build());
 
         // Tag-based fields (BOOLEAN). DecisionEngine.hasTag is used at evaluation time.
@@ -150,7 +152,7 @@ public class CampaignFieldRegistry {
                 .allowedOperators(List.of(Operator.EQ))
                 .sourceType("TAG")
                 .tagName("HIGH_VALUE")
-                .enabled(true)
+                .enabled(false)
                 .build());
 
         register(FieldDescriptor.builder()
@@ -161,7 +163,7 @@ public class CampaignFieldRegistry {
                 .allowedOperators(List.of(Operator.EQ))
                 .sourceType("TAG")
                 .tagName("PRICE_SENSITIVE")
-                .enabled(true)
+                .enabled(false)
                 .build());
 
         register(FieldDescriptor.builder()
@@ -172,7 +174,7 @@ public class CampaignFieldRegistry {
                 .allowedOperators(List.of(Operator.EQ))
                 .sourceType("TAG")
                 .tagName("CHURN_RISK")
-                .enabled(true)
+                .enabled(false)
                 .build());
 
         log.info("CampaignFieldRegistry initialised with {} fields ({} enabled)",
