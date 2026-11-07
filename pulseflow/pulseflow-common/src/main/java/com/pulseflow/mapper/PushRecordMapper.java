@@ -8,4 +8,6 @@ import org.springframework.stereotype.Repository;
 @Mapper
 @Repository
 public interface PushRecordMapper extends BaseMapper<PushRecord> {
+    @org.apache.ibatis.annotations.Select("SELECT * FROM push_record WHERE business_key=#{taskId}")
+    PushRecord selectByTaskId(@org.apache.ibatis.annotations.Param("taskId") Long taskId);
 }

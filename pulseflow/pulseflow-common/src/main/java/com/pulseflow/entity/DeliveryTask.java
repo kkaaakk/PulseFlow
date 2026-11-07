@@ -49,6 +49,12 @@ public class DeliveryTask {
 
     private LocalDateTime publishedAt;
 
+    /** Actual successful channel send time; never replaced during recovery. */
+    private LocalDateTime sentAt;
+
+    /** One task with at least one channel attempt, including failed attempts. */
+    private LocalDateTime firstSendAttemptAt;
+
     private String lastError;
 
     @TableField(fill = FieldFill.INSERT)

@@ -19,23 +19,22 @@ class PerformanceSummaryCalculatorTest {
     void computesCountsAndRatesFromDeliveryClickAndAttributionFacts() {
         CampaignMapper campaigns = mock(CampaignMapper.class);
         DeliveryTaskMapper tasks = mock(DeliveryTaskMapper.class);
-        DeliveryRecordMapper deliveries = mock(DeliveryRecordMapper.class);
         ClickEventMapper clicks = mock(ClickEventMapper.class);
         AttributionRecordMapper attributions = mock(AttributionRecordMapper.class);
         CampaignPerformanceSummaryMapper summaries = mock(CampaignPerformanceSummaryMapper.class);
         when(campaigns.selectForSummaryUpdate(7L)).thenReturn(Campaign.builder().id(7L).build());
+        var attempt = java.time.LocalDateTime.of(2026,11,2,12,0);
         when(tasks.selectList(any())).thenReturn(List.of(
-                DeliveryTask.builder().id(1L).userId(10L).build(),
-                DeliveryTask.builder().id(2L).userId(11L).build()));
-        when(deliveries.selectList(any())).thenReturn(List.of(
-                DeliveryRecord.builder().status("SENT").build(),
-                DeliveryRecord.builder().status("FAILED").build()));
+                DeliveryTask.builder().id(1L).userId(10L).status("SENT").sentAt(attempt).firstSendAttemptAt(attempt).build(),
+                DeliveryTask.builder().id(2L).userId(11L).status("FAILED").firstSendAttemptAt(attempt).build(),
+                DeliveryTask.builder().id(3L).userId(11L).status("PENDING").build(),
+                DeliveryTask.builder().id(4L).userId(11L).status("CANCELLED").build()));
         when(clicks.countValidUsers(7L)).thenReturn(1L);
         when(attributions.countValidConverters(7L)).thenReturn(1L);
         when(summaries.selectList(any())).thenReturn(List.of());
 
         CampaignPerformanceSummary actual = new PerformanceSummaryCalculator(
-                campaigns, tasks, deliveries, clicks, attributions, summaries).compute(7L);
+                campaigns, tasks, clicks, attributions, summaries).compute(7L);
 
         assertThat(actual.getTargetAudienceCount()).isEqualTo(2L);
         assertThat(actual.getSentCount()).isEqualTo(2L);

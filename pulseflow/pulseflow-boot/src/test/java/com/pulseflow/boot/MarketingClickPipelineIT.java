@@ -85,7 +85,7 @@ class MarketingClickPipelineIT {
     record Fixture(long campaign, long task, long user, LocalDateTime now) {}
 
     Fixture fixture(boolean sent) {
-        long id = IDS.incrementAndGet();
+        long id = IDS.addAndGet(100);
         LocalDateTime now = LocalDateTime.now().withNano(0);
         jdbc.update("INSERT INTO campaign (id,name,trigger_type,channel,status) VALUES (?,?,'EVENT','IN_APP','PAUSED')",
                 id, "PF_TEST_CLICK_" + id);
@@ -102,9 +102,8 @@ class MarketingClickPipelineIT {
     }
 
     void receipt(Fixture f, long taskId) {
-        jdbc.update("INSERT INTO delivery_record (task_id,user_id,campaign_id,channel,status,sent_at) "
-                + "VALUES (?,?,?,'IN_APP','SENT',?)", taskId, f.user, f.campaign, f.now.minusMinutes(10));
-        jdbc.update("UPDATE delivery_task SET status='SENT' WHERE id=?", taskId);
+        jdbc.update("UPDATE delivery_task SET status='SENT',sent_at=?,first_send_attempt_at=? WHERE id=?",
+                f.now.minusMinutes(10), f.now.minusMinutes(10), taskId);
     }
 
     String id(Fixture f, String suffix) { return "click-it-" + f.task + "-" + suffix; }
@@ -158,7 +157,7 @@ class MarketingClickPipelineIT {
 
     @Test void httpKafkaClickOrderAttributionSummaryAndAgentCloseTheLoopWithoutSeededClicks() {
         Fixture f = fixture(true);
-        long secondTask = IDS.incrementAndGet(); task(f, secondTask, true);
+        long secondTask = IDS.addAndGet(100); task(f, secondTask, true);
         assertThat(summaries.compute(f.campaign).getClickedCount()).isZero();
         LocalDateTime purchase = f.now.minusMinutes(4).minusSeconds(50);
         click(f, "first", purchase.minusSeconds(4));
@@ -210,7 +209,7 @@ class MarketingClickPipelineIT {
         // Use a receipt after the effective time; HTTP clock-skew correction must
         // not make an intentionally old client timestamp into a false early click.
         Fixture early = fixture(true);
-        jdbc.update("UPDATE delivery_record SET sent_at=? WHERE task_id=?",early.now.plusSeconds(20),early.task);
+        jdbc.update("UPDATE delivery_task SET sent_at=? WHERE id=?",early.now.plusSeconds(20),early.task);
         click(early,"before-send",early.now);
         Fixture other = fixture(true);
         post(body(id(f,"other-user"),f.user,"CLICK",f.now,Map.of("taskId",other.task)),SOURCE_TOKEN);
@@ -305,8 +304,8 @@ class MarketingClickPipelineIT {
         click(f,"real",purchase.minusSeconds(3)); stored(id(f,"real"),"VALID");
         // Deliberately corrupt historical fixture only: no source provenance, and
         // receipt time is later than the click. Its ID must remain untouched.
-        long invalidTask=IDS.incrementAndGet(); task(f,invalidTask,true);
-        jdbc.update("UPDATE delivery_record SET sent_at=? WHERE task_id=?",f.now.plusMinutes(1),invalidTask);
+        long invalidTask=IDS.addAndGet(100); task(f,invalidTask,true);
+        jdbc.update("UPDATE delivery_task SET sent_at=? WHERE id=?",f.now.plusMinutes(1),invalidTask);
         jdbc.update("INSERT INTO click_event (user_id,task_id,click_time) VALUES (?,?,?)",f.user,invalidTask,purchase.minusSeconds(1));
         post(body(id(f,"lookup"),f.user,"ORDER_PAID",purchase,Map.of()),SOURCE_TOKEN);
         var mapper=clickMapper;
@@ -352,7 +351,7 @@ class MarketingClickPipelineIT {
     @Test void historicalReplayClickOutside24HoursCannotConvert() {
         Fixture f=fixture(true);
         LocalDateTime old=f.now.minusHours(25);
-        jdbc.update("UPDATE delivery_record SET sent_at=? WHERE task_id=?",old.minusMinutes(1),f.task);
+        jdbc.update("UPDATE delivery_task SET sent_at=? WHERE id=?",old.minusMinutes(1),f.task);
         Map<String,Object> raw=body(id(f,"old-click"),f.user,"CLICK",old,Map.of("taskId",f.task));
         raw.put("receivedAt",old.toString()); raw.put("effectiveEventTime",old.toString()); raw.put("marketingTrusted",true);
         persistence.persist(raw); assertThat(status(id(f,"old-click"))).isEqualTo("VALID");
@@ -410,4 +409,280 @@ class MarketingClickPipelineIT {
         jdbc.update("UPDATE data_compensation_task SET status='PENDING',retry_count=0,next_retry_at=NOW() WHERE event_id=?",event);
         compensation.execute(); stored(event,"VALID");
     }
+    @Autowired com.pulseflow.campaign.delivery.DeliveryConsumer deliveryConsumer;
+    @Autowired com.pulseflow.campaign.delivery.DeliveryService deliveryService;
+    @Autowired com.pulseflow.job.handler.RetryCompensationJob deliveryRetries;
+    @Autowired com.pulseflow.job.handler.DispatchRetryJob dispatchRetries;
+    @Autowired org.springframework.kafka.core.KafkaTemplate<String,String> kafka;
+    @Autowired com.pulseflow.mapper.DeliveryTaskMapper deliveryTasks;
+
+    Fixture pending(String channel) {
+        Fixture f=fixture(false);
+        jdbc.update("UPDATE delivery_task SET channel=?,status='PENDING',created_at=NOW()-INTERVAL 1 MINUTE WHERE id=?",channel,f.task);
+        return f;
+    }
+    void consume(Fixture f) {
+        deliveryConsumer.consume(new org.apache.kafka.clients.consumer.ConsumerRecord<>(
+                "pulseflow.delivery",0,0,""+f.user,"{\"id\":"+f.task+"}"));
+    }
+    String taskStatus(Fixture f) { return jdbc.queryForObject("SELECT status FROM delivery_task WHERE id=?",String.class,f.task); }
+    LocalDateTime sent(Fixture f) { return deliveryTasks.selectById(f.task).getSentAt(); }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"IN_APP","PUSH","EMAIL"})
+    void actualChannelSendPersistsTaskResultAndDuplicateConsumptionIsHarmless(String channel) throws Exception {
+        Fixture f=pending(channel); consume(f);
+        assertThat(taskStatus(f)).isEqualTo("SENT"); LocalDateTime original=sent(f);
+        assertThat(original).isNotNull();
+        for(int i=0;i<4;i++) consume(f);
+        var duplicate=kafka.send("pulseflow.delivery",""+f.user,"{\"id\":"+f.task+"}").get(10,TimeUnit.SECONDS);
+        var metadata=duplicate.getRecordMetadata();
+        var partition=new org.apache.kafka.common.TopicPartition(metadata.topic(),metadata.partition());
+        try(var admin=org.apache.kafka.clients.admin.Admin.create(Map.of(
+                org.apache.kafka.clients.admin.AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG,KAFKA.getBootstrapServers()))) {
+            await().atMost(Duration.ofSeconds(30)).untilAsserted(()->{
+                var committed=admin.listConsumerGroupOffsets("pulseflow-delivery-group")
+                        .partitionsToOffsetAndMetadata().get(5,TimeUnit.SECONDS).get(partition);
+                assertThat(committed).isNotNull();
+                assertThat(committed.offset()).isGreaterThan(metadata.offset());
+            });
+        }
+        assertThat(sent(f)).isEqualTo(original);
+        assertThat(deliveryTasks.selectById(f.task).getFirstSendAttemptAt()).isNotNull();
+        if (!"EMAIL".equals(channel)) assertThat(count("SELECT COUNT(*) FROM "+
+                ("PUSH".equals(channel)?"push_record":"in_app_message")+" WHERE business_key=?",f.task)).isEqualTo(1);
+    }
+
+    @Test void concurrentClaimsUseDatabaseContentAndSendOnlyOnce() throws Exception {
+        Fixture f=pending("IN_APP");
+        ExecutorService pool=Executors.newFixedThreadPool(8);
+        try {
+            List<Future<?>> calls=new ArrayList<>();
+            for(int i=0;i<16;i++) calls.add(pool.submit(()->deliveryConsumer.consume(
+                    new org.apache.kafka.clients.consumer.ConsumerRecord<>("pulseflow.delivery",0,0,"x",
+                            "{\"id\":"+f.task+",\"userId\":999,\"channel\":\"EMAIL\"}"))));
+            for(var call:calls) call.get(15,TimeUnit.SECONDS);
+        } finally { pool.shutdownNow(); }
+        assertThat(taskStatus(f)).isEqualTo("SENT");
+        assertThat(count("SELECT COUNT(*) FROM in_app_message WHERE business_key=? AND user_id=?",f.task,f.user)).isEqualTo(1);
+        assertThat(redis.getBucket("freq:user:"+f.user+":"+java.time.LocalDate.now()
+                .format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE),org.redisson.client.codec.StringCodec.INSTANCE).get()).isEqualTo("1");
+    }
+
+    @Test void frequencyRejectionAndCancellationNeverBecomeSendAttempts() {
+        Fixture denied=pending("IN_APP");
+        jdbc.update("UPDATE campaign SET user_daily_limit=0 WHERE id=?",denied.campaign); consume(denied);
+        assertThat(taskStatus(denied)).isEqualTo("CANCELLED");
+        assertThat(deliveryTasks.selectById(denied.task).getFirstSendAttemptAt()).isNull();
+        Fixture cancelled=pending("PUSH");
+        jdbc.update("UPDATE delivery_task SET status='CANCELLED' WHERE id=?",cancelled.task); consume(cancelled);
+        assertThat(count("SELECT COUNT(*) FROM push_record WHERE business_key=?",cancelled.task)).isZero();
+        assertThat(summaries.compute(denied.campaign).getSentCount()).isZero();
+    }
+
+    @Test void failedChannelAttemptRetriesThroughSchedulerAndRealKafkaWithoutDoubleQuota() {
+        Fixture f=pending("IN_APP");
+        jdbc.execute("CREATE TRIGGER send_failure BEFORE INSERT ON in_app_message FOR EACH ROW BEGIN IF NEW.business_key="
+                +f.task+" THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='channel_unavailable'; END IF; END");
+        try { consume(f); } finally { jdbc.execute("DROP TRIGGER send_failure"); }
+        assertThat(taskStatus(f)).isEqualTo("WAIT_RETRY");
+        assertThat(sent(f)).isNull();
+        assertThat(summaries.compute(f.campaign).getSentCount()).isEqualTo(1);
+        assertThat(summaries.compute(f.campaign).getDeliveredCount()).isZero();
+        assertThat(metric(f,Metric.SENT).asLong()).isEqualTo(1);
+        jdbc.update("UPDATE delivery_task SET next_retry_at=NOW() WHERE id=?",f.task);
+        deliveryRetries.execute(); dispatchRetries.execute();
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(()->assertThat(taskStatus(f)).isEqualTo("SENT"));
+        assertThat(count("SELECT retry_count FROM delivery_task WHERE id=?",f.task)).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM in_app_message WHERE business_key=?",f.task)).isEqualTo(1);
+        assertThat(metric(f,Metric.DELIVERED).asLong()).isEqualTo(1);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"IN_APP","PUSH"})
+    void taskWriteFailureRecoversOriginalChannelTimeBeforeQuotaAndCompensatesRealClick(String channel) {
+        Fixture f=pending(channel);
+        jdbc.execute("CREATE TRIGGER task_write_failure BEFORE UPDATE ON delivery_task FOR EACH ROW BEGIN IF NEW.id="
+                +f.task+" AND NEW.status='SENT' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='task_write_failure'; END IF; END");
+        try { consume(f); } finally { jdbc.execute("DROP TRIGGER task_write_failure"); }
+        assertThat(taskStatus(f)).isEqualTo("WAIT_RETRY");
+        LocalDateTime original=jdbc.queryForObject("SELECT "+("PUSH".equals(channel)?"pushed_at FROM push_record":"created_at FROM in_app_message")
+                +" WHERE business_key=?",LocalDateTime.class,f.task);
+        click(f,"recovery-click",LocalDateTime.now()); stored(id(f,"recovery-click"),"PENDING");
+        // Recovery must win even at exhausted budget and with quota denied.
+        jdbc.update("UPDATE delivery_task SET retry_count=5 WHERE id=?",f.task);
+        jdbc.update("UPDATE campaign SET user_daily_limit=0 WHERE id=?",f.campaign);
+        deliveryRetries.execute();
+        assertThat(taskStatus(f)).isEqualTo("SENT");
+        assertThat(sent(f)).isEqualTo(original);
+        compensation.execute(); stored(id(f,"recovery-click"),"VALID");
+        consume(f); assertThat(sent(f)).isEqualTo(original);
+        assertThat(count("SELECT COUNT(*) FROM "+("PUSH".equals(channel)?"push_record":"in_app_message")
+                +" WHERE business_key=?",f.task)).isEqualTo(1);
+    }
+
+    @Test void crashAfterChannelCommitLeavesProcessingAndTimeoutRecoveryDoesNotSendAgain() {
+        Fixture f=pending("IN_APP");
+        jdbc.execute("CREATE TRIGGER task_crash BEFORE UPDATE ON delivery_task FOR EACH ROW BEGIN IF NEW.id="
+                +f.task+" AND NEW.status IN ('SENT','WAIT_RETRY') THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='crashed'; END IF; END");
+        try { assertThatThrownBy(()->consume(f)).isInstanceOf(org.springframework.dao.DataAccessException.class); }
+        finally { jdbc.execute("DROP TRIGGER task_crash"); }
+        assertThat(taskStatus(f)).isEqualTo("PROCESSING");
+        LocalDateTime original=jdbc.queryForObject("SELECT created_at FROM in_app_message WHERE business_key=?",LocalDateTime.class,f.task);
+        jdbc.update("UPDATE delivery_task SET processing_at=NOW()-INTERVAL 6 MINUTE WHERE id=?",f.task);
+        deliveryRetries.execute();
+        assertThat(sent(f)).isEqualTo(original);
+        assertThat(count("SELECT COUNT(*) FROM in_app_message WHERE business_key=?",f.task)).isEqualTo(1);
+    }
+
+    @Test void abandonedClaimWithoutSendGetsDueRetryInsteadOfBeingStuckWithNullRetryTime() {
+        Fixture f=pending("PUSH");
+        assertThat(deliveryTasks.tryClaim(f.task)).isEqualTo(1);
+        jdbc.update("UPDATE delivery_task SET processing_at=NOW()-INTERVAL 6 MINUTE WHERE id=?",f.task);
+        deliveryRetries.execute(); assertThat(taskStatus(f)).isEqualTo("WAIT_RETRY");
+        assertThat(deliveryTasks.selectById(f.task).getNextRetryAt()).isNotNull();
+        deliveryRetries.execute(); dispatchRetries.execute();
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(()->assertThat(taskStatus(f)).isEqualTo("SENT"));
+    }
+
+    @Test void emailUnknownOutcomeStopsAutomaticResendAndNeverInventsSuccessTime() {
+        Fixture f=pending("EMAIL");
+        jdbc.execute("CREATE TRIGGER email_write_failure BEFORE UPDATE ON delivery_task FOR EACH ROW BEGIN IF NEW.id="
+                +f.task+" AND NEW.status='SENT' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='lost_email_ack'; END IF; END");
+        try { consume(f); } finally { jdbc.execute("DROP TRIGGER email_write_failure"); }
+        assertThat(taskStatus(f)).isEqualTo("FAILED");
+        assertThat(sent(f)).isNull();
+        LocalDateTime attempt=deliveryTasks.selectById(f.task).getFirstSendAttemptAt();
+        jdbc.update("UPDATE delivery_task SET status='WAIT_RETRY',next_retry_at=NOW() WHERE id=?",f.task);
+        deliveryRetries.execute(); consume(f);
+        assertThat(taskStatus(f)).isEqualTo("FAILED");
+        assertThat(deliveryTasks.selectById(f.task).getLastError()).isEqualTo("EMAIL_SEND_OUTCOME_UNKNOWN");
+        assertThat(deliveryTasks.selectById(f.task).getFirstSendAttemptAt()).isEqualTo(attempt);
+        assertThat(metric(f,Metric.SENT).asLong()).isEqualTo(1);
+        assertThat(metric(f,Metric.DELIVERED).asLong()).isZero();
+    }
+
+    @Test void creationDedupAndCommittedOutboxPublishRealTasks() {
+        Fixture f=fixture(false);
+        var dto=com.pulseflow.common.dto.DeliveryTaskDto.builder().campaignId(f.campaign).userId(f.user)
+                .channel("PUSH").dedupKey("actual-service-"+f.task).messageContent("hello").build();
+        deliveryService.createDeliveryTask(dto); deliveryService.createDeliveryTask(dto);
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(()->assertThat(count(
+                "SELECT COUNT(*) FROM delivery_task WHERE dedup_key=? AND status='SENT' AND dispatch_status='PUBLISHED'",
+                dto.getDedupKey())).isEqualTo(1));
+        assertThat(count("SELECT COUNT(*) FROM delivery_task WHERE dedup_key=?",dto.getDedupKey())).isEqualTo(1);
+    }
+
+    /** No successful task or marketing click is seeded: includes the real five-minute grace. */
+    @Test void decisionSendClickPurchaseSummaryAndAgentCompleteTheEntireRealPipeline() {
+        Fixture f=fixture(false);
+        jdbc.update("DELETE FROM delivery_task WHERE id=?",f.task);
+        jdbc.update("UPDATE campaign SET status='ACTIVE',event_types='CONTENT_VIEW',user_daily_limit=10,"
+                +"campaign_weekly_limit=10 WHERE id=?",f.campaign);
+        try {
+            String trigger=id(f,"decision");
+            post(body(trigger,f.user,"CONTENT_VIEW",LocalDateTime.now(),Map.of()),SOURCE_TOKEN);
+            await().atMost(Duration.ofSeconds(40)).untilAsserted(()->assertThat(count(
+                    "SELECT COUNT(*) FROM delivery_task WHERE trigger_event_id=? AND status='SENT' "
+                            +"AND dispatch_status='PUBLISHED' AND sent_at IS NOT NULL",trigger)).isEqualTo(1));
+            long task=jdbc.queryForObject("SELECT id FROM delivery_task WHERE trigger_event_id=?",Long.class,trigger);
+            Fixture actual=new Fixture(f.campaign,task,f.user,LocalDateTime.now());
+            click(actual,"full-click",LocalDateTime.now()); stored(id(actual,"full-click"),"VALID");
+            post(body(id(actual,"full-order"),f.user,"ORDER_PAID",LocalDateTime.now(),Map.of("price",19.9)),SOURCE_TOKEN);
+            stored(id(actual,"full-order"),"NONE");
+            await().atMost(Duration.ofMinutes(6)).pollInterval(Duration.ofSeconds(2)).untilAsserted(()->{
+                attributionConsumer.processAttributionTasks();
+                assertThat(count("SELECT COUNT(*) FROM attribution_record WHERE target_event_id=? AND task_id=?",
+                        id(actual,"full-order"),task)).isEqualTo(1);
+            });
+            var summary=summaries.compute(f.campaign);
+            assertThat(summary.getSentCount()).isEqualTo(1);
+            assertThat(summary.getDeliveredCount()).isEqualTo(1);
+            assertThat(summary.getClickedCount()).isEqualTo(1);
+            assertThat(summary.getConvertedCount()).isEqualTo(1);
+            for(var m:List.of(Metric.SENT,Metric.DELIVERED,Metric.CLICKS,Metric.CONVERSIONS,
+                    Metric.ATTRIBUTED_CONVERSIONS,Metric.CTR,Metric.CONVERSION_RATE))
+                assertThat(metric(actual,m).decimalValue()).isEqualByComparingTo("1");
+            assertThat(web.delivery(task).record().id()).isNull();
+            assertThat(web.delivery(task).record().sentAt()).isEqualTo(deliveryTasks.selectById(task).getSentAt());
+            assertThat(web.campaignPerformance(f.campaign).convertedCount()).isEqualTo(1);
+        } finally { jdbc.update("UPDATE campaign SET status='PAUSED' WHERE id=?",f.campaign); }
+    }
+
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
+
+    @Test void rolledBackCreationCannotPublishAnUncommittedTask() {
+        Fixture f=fixture(false);
+        String key="rolled-back-delivery-"+f.task;
+        var dto=com.pulseflow.common.dto.DeliveryTaskDto.builder().campaignId(f.campaign).userId(f.user)
+                .channel("IN_APP").dedupKey(key).messageContent("rolled back").build();
+        var tx=new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        assertThatThrownBy(()->tx.executeWithoutResult(status->{
+            deliveryService.createDeliveryTask(dto);
+            throw new IllegalStateException("rollback");
+        })).hasMessage("rollback");
+        assertThat(count("SELECT COUNT(*) FROM delivery_task WHERE dedup_key=?",key)).isZero();
+        assertThat(count("SELECT COUNT(*) FROM in_app_message WHERE campaign_id=?",f.campaign)).isZero();
+    }
+
+    @Test void unknownChannelFailsWithoutAnAttemptOrReceipt() {
+        Fixture f=pending("UNKNOWN"); consume(f);
+        assertThat(taskStatus(f)).isEqualTo("FAILED");
+        assertThat(deliveryTasks.selectById(f.task).getFirstSendAttemptAt()).isNull();
+        assertThat(sent(f)).isNull();
+    }
+
+    @Test void expiredClaimCannotOverwriteLaterSuccess() {
+        Fixture f=pending("IN_APP");
+        assertThat(deliveryTasks.tryClaim(f.task)).isEqualTo(1);
+        LocalDateTime oldClaim=deliveryTasks.selectById(f.task).getProcessingAt();
+        jdbc.update("UPDATE delivery_task SET status='PENDING' WHERE id=?",f.task);
+        consume(f);
+        LocalDateTime original=sent(f);
+        assertThat(deliveryTasks.finishAttempt(f.task,oldClaim,"WAIT_RETRY",LocalDateTime.now(),"stale",1)).isZero();
+        assertThat(sent(f)).isEqualTo(original);
+        assertThat(taskStatus(f)).isEqualTo("SENT");
+    }
+
+    @Test void brokerAckWriteFailureIsRedispatchedEvenAfterTheTaskWasSent() {
+        Fixture f=fixture(false); String key="ack-recovery-"+f.task;
+        jdbc.execute("CREATE TRIGGER dispatch_ack_failure BEFORE UPDATE ON delivery_task FOR EACH ROW BEGIN IF NEW.dedup_key='"
+                +key+"' AND NEW.dispatch_status='PUBLISHED' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='lost_broker_ack_write'; END IF; END");
+        try {
+            deliveryService.createDeliveryTask(com.pulseflow.common.dto.DeliveryTaskDto.builder().campaignId(f.campaign)
+                    .userId(f.user).channel("IN_APP").dedupKey(key).build());
+            await().atMost(Duration.ofSeconds(30)).untilAsserted(()->assertThat(count(
+                    "SELECT COUNT(*) FROM delivery_task WHERE dedup_key=? AND status='SENT' AND dispatch_status='PENDING'",key)).isEqualTo(1));
+        } finally { jdbc.execute("DROP TRIGGER dispatch_ack_failure"); }
+        long task=jdbc.queryForObject("SELECT id FROM delivery_task WHERE dedup_key=?",Long.class,key);
+        LocalDateTime original=deliveryTasks.selectById(task).getSentAt();
+        jdbc.update("UPDATE delivery_task SET created_at=NOW()-INTERVAL 1 MINUTE WHERE id=?",task);
+        dispatchRetries.execute();
+        assertThat(deliveryTasks.selectById(task).getDispatchStatus()).isEqualTo("PUBLISHED");
+        assertThat(deliveryTasks.selectById(task).getSentAt()).isEqualTo(original);
+        assertThat(count("SELECT COUNT(*) FROM in_app_message WHERE business_key=?",task)).isEqualTo(1);
+    }
+
+    @Test void legacyProcessingWithoutClaimTimeIsRecoveredThroughTheExistingJobs() {
+        Fixture f=pending("IN_APP");
+        jdbc.update("UPDATE delivery_task SET status='PROCESSING',processing_at=NULL WHERE id=?",f.task);
+        deliveryRetries.execute(); assertThat(taskStatus(f)).isEqualTo("WAIT_RETRY");
+        deliveryRetries.execute(); dispatchRetries.execute();
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(()->assertThat(taskStatus(f)).isEqualTo("SENT"));
+    }
+
+    @Test void channelOwnershipConflictFailsClosedAndDoesNotBlockOtherRecoveries() {
+        Fixture bad=pending("IN_APP");
+        jdbc.update("INSERT INTO in_app_message(business_key,user_id,campaign_id) VALUES(?,?,?)",bad.task,bad.user+1,bad.campaign);
+        jdbc.update("UPDATE delivery_task SET status='WAIT_RETRY',next_retry_at=NOW() WHERE id=?",bad.task);
+        Fixture good=pending("PUSH");
+        jdbc.update("UPDATE delivery_task SET status='WAIT_RETRY',next_retry_at=NOW() WHERE id=?",good.task);
+        deliveryRetries.execute();
+        assertThat(taskStatus(bad)).isEqualTo("FAILED");
+        assertThat(sent(bad)).isNull();
+        assertThat(deliveryTasks.selectById(bad.task).getLastError()).isEqualTo("CHANNEL_RECEIPT_MISMATCH");
+        dispatchRetries.execute();
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(()->assertThat(taskStatus(good)).isEqualTo("SENT"));
+    }
+
 }

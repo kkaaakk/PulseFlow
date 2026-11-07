@@ -30,6 +30,7 @@ class AgentMetricQueryIT {
             .withPassword("test");
 
     static AgentMetricService service;
+    static JdbcTemplate jdbc;
 
     /**
      * 为真实数据库指标集成测试装配固定触达、点击与归因事实。
@@ -40,19 +41,16 @@ class AgentMetricQueryIT {
                 .locations("classpath:db/migration").load().migrate();
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
-        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        jdbc = new JdbcTemplate(dataSource);
         service = new AgentMetricService(new NamedParameterJdbcTemplate(dataSource));
         jdbc.execute("INSERT INTO delivery_task (id,campaign_id,user_id,dedup_key,channel) VALUES "
                 + "(101,9,1001,'agent-test-101','PUSH'),"
                 + "(102,9,1002,'agent-test-102','PUSH'),"
                 + "(103,9,1003,'agent-test-103','PUSH'),"
                 + "(104,9,1004,'agent-test-104','PUSH')");
-        jdbc.execute("INSERT INTO delivery_record (task_id,user_id,campaign_id,channel,status,sent_at) VALUES "
-                + "(101,1001,9,'PUSH','SENT','2026-09-02 10:00:00'),"
-                + "(102,1002,9,'PUSH','SENT','2026-09-02 10:00:00'),"
-                + "(103,1003,9,'PUSH','SENT','2026-09-02 10:00:00'),"
-                + "(104,1004,9,'PUSH','FAILED','2026-09-02 10:00:00')");
-        jdbc.execute("UPDATE delivery_task SET status='SENT' WHERE id IN (101,102,103)");
+        jdbc.execute("UPDATE delivery_task SET first_send_attempt_at='2026-09-02 10:00:00',status='FAILED' WHERE id=104");
+        jdbc.execute("UPDATE delivery_task SET status='SENT',sent_at='2026-09-02 10:00:00',"
+                + "first_send_attempt_at='2026-09-02 10:00:00' WHERE id IN (101,102,103)");
         // This is a fixed aggregate-SQL contract fixture, not pipeline acceptance.
         // MarketingClickPipelineIT exercises ingestion without inserting click facts.
         for (int i=201;i<=203;i++) {
@@ -92,4 +90,18 @@ class AgentMetricQueryIT {
         assertThat(attribution.rows().get(0).uniqueConverters()).isEqualTo(2);
         assertThat(attribution.toString()).doesNotContain("1001", "1002", "target_event_id");
     }
+    @Test void attemptCohortExcludesUnsentTasksAndRetainsFailureAndCrossDayRecovery() {
+        jdbc.execute("INSERT INTO delivery_task(id,campaign_id,user_id,dedup_key,channel,status,first_send_attempt_at,sent_at) VALUES "
+                +"(301,10,1101,'cohort-301','IN_APP','SENT','2026-09-02 23:59:00','2026-09-03 00:01:00'),"
+                +"(302,10,1102,'cohort-302','IN_APP','FAILED','2026-09-02 23:59:00',NULL),"
+                +"(303,10,1103,'cohort-303','IN_APP','PENDING',NULL,NULL),"
+                +"(304,10,1104,'cohort-304','IN_APP','CANCELLED',NULL,NULL)");
+        Filter campaign=new Filter(FilterField.CAMPAIGN_ID,Operator.EQ,List.of("10"));
+        TimeRange day=new TimeRange(OffsetDateTime.parse("2026-09-02T00:00:00+08:00"),OffsetDateTime.parse("2026-09-03T00:00:00+08:00"));
+        assertThat(service.query(new QueryRequest(Metric.SENT,day,List.of(campaign),List.of(),10)).rows().get(0).value()).isEqualByComparingTo("2");
+        assertThat(service.query(new QueryRequest(Metric.DELIVERED,day,List.of(campaign),List.of(),10)).rows().get(0).value()).isEqualByComparingTo("1");
+        TimeRange next=new TimeRange(day.toExclusive(),OffsetDateTime.parse("2026-09-04T00:00:00+08:00"));
+        assertThat(service.query(new QueryRequest(Metric.SENT,next,List.of(campaign),List.of(),10)).rows().get(0).value()).isEqualByComparingTo("0");
+    }
+
 }

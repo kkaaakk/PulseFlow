@@ -130,7 +130,7 @@ public class FrequencyControlService {
                     userDailyLimit, campaignWeeklyLimit, CAMPAIGN_FREQ_TTL_SECONDS);
 
             if (result == null || result.size() < 2) {
-                return FreqResult.userLimit(); // fail-safe
+                throw new IllegalStateException("FREQUENCY_UNAVAILABLE");
             }
 
             int code = Integer.parseInt(result.get(0).toString());
@@ -142,7 +142,7 @@ public class FrequencyControlService {
             return "USER_LIMIT".equals(reason) ? FreqResult.userLimit() : FreqResult.campaignLimit();
         } catch (Exception e) {
             log.error("Frequency control check failed for task {}: {}", task.getId(), e.getMessage(), e);
-            return FreqResult.userLimit(); // fail-safe: deny on error
+            throw new IllegalStateException("FREQUENCY_UNAVAILABLE", e);
         }
     }
 }

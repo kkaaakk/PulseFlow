@@ -1,3 +1,5 @@
+> PR #23 合并时的历史验收快照。V9 后已删除 DeliveryRecordMapper，当前模型及验收见 [Delivery 合并](delivery-task-consolidation-2026-11-02.md)。
+
 # CLICK 业务链路交付报告（2026-11-02）
 
 ## A. 根因与方案

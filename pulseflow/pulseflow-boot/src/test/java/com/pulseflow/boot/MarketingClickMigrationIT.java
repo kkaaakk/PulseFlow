@@ -27,7 +27,7 @@ class MarketingClickMigrationIT {
         jdbc.execute("INSERT INTO attribution_record (id,click_event_id,target_event_id,user_id,task_id,credited_at) "
                 + "VALUES (51,41,'legacy-order',10,5,NOW())");
         Flyway flyway=Flyway.configure().dataSource(MYSQL.getJdbcUrl(),MYSQL.getUsername(),MYSQL.getPassword())
-                .locations("classpath:db/migration").load();
+                .locations("classpath:db/migration").target("8").load();
         assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM click_event WHERE id IN (41,42) AND source_event_id IS NULL",Long.class)).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT click_event_id FROM attribution_record WHERE id=51",Long.class)).isEqualTo(41);

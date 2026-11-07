@@ -14,15 +14,14 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface ClickEventMapper extends BaseMapper<ClickEvent> {
     // One validity definition for Last-Touch, Campaign, Web and Agent queries.
-    // EXISTS avoids multiplying facts if the delivery schema ever permits retries.
+    // The task is the sole authoritative send fact; legacy clicks still require provenance.
     String VALID_FROM = " FROM click_event c JOIN delivery_task t ON t.id = c.task_id "
             + "JOIN user_event e ON e.event_id = c.source_event_id ";
     String VALID_WHERE = " e.marketing_trusted = 1 AND e.marketing_click_status = 'VALID' "
             + "AND e.event_type = 'CLICK' AND e.user_id = c.user_id AND e.effective_event_time = c.click_time "
             + "AND t.user_id = c.user_id AND t.status = 'SENT' "
-            + "AND EXISTS (SELECT 1 FROM delivery_record d WHERE d.task_id = t.id "
-            + "AND d.user_id = c.user_id AND d.campaign_id = t.campaign_id AND d.channel = t.channel "
-            + "AND d.status IN ('SENT','DELIVERED') AND d.sent_at IS NOT NULL AND d.sent_at <= c.click_time) ";
+            + "AND t.sent_at IS NOT NULL AND t.sent_at <= c.click_time ";
+
 
     @Insert("INSERT INTO click_event (source_event_id,user_id,task_id,click_time,click_source,properties) "
             + "VALUES (#{sourceEventId},#{userId},#{taskId},#{clickTime},#{clickSource},#{properties}) "

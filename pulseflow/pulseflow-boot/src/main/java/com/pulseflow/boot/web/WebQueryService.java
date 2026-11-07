@@ -12,7 +12,6 @@ import com.pulseflow.entity.AttributionRecord;
 import com.pulseflow.entity.Campaign;
 import com.pulseflow.entity.CampaignRule;
 import com.pulseflow.entity.ClickEvent;
-import com.pulseflow.entity.DeliveryRecord;
 import com.pulseflow.entity.DeliveryTask;
 import com.pulseflow.entity.UserBehaviorSummary;
 import com.pulseflow.entity.UserEvent;
@@ -22,7 +21,6 @@ import com.pulseflow.mapper.AttributionRecordMapper;
 import com.pulseflow.mapper.CampaignMapper;
 import com.pulseflow.mapper.CampaignRuleMapper;
 import com.pulseflow.mapper.ClickEventMapper;
-import com.pulseflow.mapper.DeliveryRecordMapper;
 import com.pulseflow.mapper.DeliveryTaskMapper;
 import com.pulseflow.mapper.UserBehaviorSummaryMapper;
 import com.pulseflow.mapper.UserEventMapper;
@@ -68,7 +66,6 @@ public class WebQueryService {
     private final CampaignMapper campaignMapper;
     private final CampaignRuleMapper campaignRuleMapper;
     private final DeliveryTaskMapper deliveryTaskMapper;
-    private final DeliveryRecordMapper deliveryRecordMapper;
     private final ClickEventMapper clickEventMapper;
     private final AttributionRecordMapper attributionRecordMapper;
     private final UserProfileMapper userProfileMapper;
@@ -90,9 +87,9 @@ public class WebQueryService {
         long runningCampaigns = campaignMapper.selectCount(
                 new LambdaQueryWrapper<Campaign>().eq(Campaign::getStatus, "ACTIVE"));
         long todayDeliveries = count(
-                "SELECT COUNT(*) FROM delivery_record WHERE status = 'SENT' AND sent_at >= ?", start);
+                "SELECT COUNT(*) FROM delivery_task WHERE status = 'SENT' AND sent_at >= ?", start);
         long delivered = count(
-                "SELECT COUNT(*) FROM delivery_record WHERE status = 'SENT' AND sent_at >= ?", start);
+                "SELECT COUNT(*) FROM delivery_task WHERE status = 'SENT' AND sent_at >= ?", start);
         long todayClicks = count("SELECT COUNT(*)" + ClickEventMapper.VALID_FROM
                 + "WHERE" + ClickEventMapper.VALID_WHERE + "AND c.click_time >= ?", start);
         long todayConversions = count("SELECT COUNT(*)" + AttributionRecordMapper.VALID_FROM
@@ -125,12 +122,13 @@ public class WebQueryService {
                 24);
         List<WebDtos.TrendPoint> deliveries = dailyTrend(
                 "SELECT DATE_FORMAT(sent_at, '%Y-%m-%d') AS bucket, COUNT(*) AS value "
-                        + "FROM delivery_record WHERE status = 'SENT' AND sent_at >= ? GROUP BY bucket ORDER BY bucket",
+                        + "FROM delivery_task WHERE status = 'SENT' AND sent_at >= ? GROUP BY bucket ORDER BY bucket",
                 dayStart.atStartOfDay(),
                 safeDays);
         List<WebDtos.TrendPoint> conversions = dailyTrend(
-                "SELECT DATE_FORMAT(credited_at, '%Y-%m-%d') AS bucket, COUNT(*) AS value "
-                        + "FROM attribution_record WHERE credited_at >= ? GROUP BY bucket ORDER BY bucket",
+                "SELECT DATE_FORMAT(a.credited_at, '%Y-%m-%d') AS bucket, COUNT(*) AS value "
+                        + AttributionRecordMapper.VALID_FROM + "WHERE" + ClickEventMapper.VALID_WHERE
+                        + "AND a.credited_at >= ? GROUP BY bucket ORDER BY bucket",
                 dayStart.atStartOfDay(),
                 safeDays);
         return new WebDtos.DashboardTrends(events, deliveries, conversions);
@@ -209,7 +207,7 @@ public class WebQueryService {
         try {
             values = jdbcTemplate.queryForList(
                     "SELECT DATE_FORMAT(sent_at, '%Y-%m-%d') AS bucket, COUNT(*) AS value "
-                            + "FROM delivery_record WHERE campaign_id = ? AND status = 'SENT' "
+                            + "FROM delivery_task WHERE campaign_id = ? AND status = 'SENT' "
                             + "AND sent_at >= ? GROUP BY bucket ORDER BY bucket",
                     campaignId, start.atStartOfDay()).stream().collect(Collectors.toMap(
                     row -> string(row.get("bucket")),
@@ -365,22 +363,20 @@ public class WebQueryService {
     }
 
     /**
-     * 加载触达任务及可选发送记录，并按时间倒序聚合点击和归因；任务不存在时抛出资源缺失异常。
+     * 加载触达任务及可选发送结果，并按时间倒序聚合点击和归因；任务不存在时抛出资源缺失异常。
      */
     public WebDtos.DeliveryDetail delivery(Long taskId) {
         DeliveryTask task = deliveryTaskMapper.selectById(taskId);
         if (task == null) {
             throw new CampaignResourceNotFoundException("Delivery task not found: " + taskId);
         }
-        DeliveryRecord record = deliveryRecordMapper.selectOne(
-                new LambdaQueryWrapper<DeliveryRecord>().eq(DeliveryRecord::getTaskId, taskId));
         List<ClickEvent> clicks = clickEventMapper.selectValidByTask(taskId);
         List<AttributionRecord> attributions = attributionRecordMapper.selectList(
                 new LambdaQueryWrapper<AttributionRecord>().eq(AttributionRecord::getTaskId, taskId)
                         .orderByDesc(AttributionRecord::getCreditedAt));
         return new WebDtos.DeliveryDetail(
                 toDeliveryListItem(task),
-                record == null ? null : toDeliveryRecordView(record),
+                task.getFirstSendAttemptAt() == null ? null : toDeliveryRecordView(task),
                 clicks.stream().map(this::toClickView).toList(),
                 attributions.stream().map(this::toAttributionView).toList());
     }
@@ -483,21 +479,20 @@ public class WebQueryService {
      */
     private WebDtos.DeliveryListItem toDeliveryListItem(DeliveryTask task) {
         Campaign campaign = campaignMapper.selectById(task.getCampaignId());
-        DeliveryRecord record = deliveryRecordMapper.selectOne(
-                new LambdaQueryWrapper<DeliveryRecord>().eq(DeliveryRecord::getTaskId, task.getId()));
         return new WebDtos.DeliveryListItem(
                 task.getId(), task.getCampaignId(), campaign == null ? "Campaign " + task.getCampaignId() : campaign.getName(),
                 task.getUserId(), task.getChannel(), task.getStatus(), task.getDispatchStatus(), task.getRetryCount(),
-                task.getTriggerEventId(), task.getCreatedAt(), record == null ? null : record.getSentAt());
+                task.getTriggerEventId(), task.getCreatedAt(), task.getSentAt());
     }
 
     /**
-     * 将发送记录转换为包含渠道、状态和发送时间的控制台视图。
+     * 将任务发送结果转换为包含渠道、状态和发送时间的控制台视图。
      */
-    private WebDtos.DeliveryRecordView toDeliveryRecordView(DeliveryRecord record) {
+    private WebDtos.DeliveryRecordView toDeliveryRecordView(DeliveryTask task) {
+        // Keep the record response envelope; the removed record identity is explicitly null.
         return new WebDtos.DeliveryRecordView(
-                record.getId(), record.getTaskId(), record.getCampaignId(), record.getUserId(), record.getChannel(),
-                record.getStatus(), record.getSentAt(), record.getErrorMsg());
+                null, task.getId(), task.getCampaignId(), task.getUserId(), task.getChannel(),
+                task.getStatus(), task.getSentAt(), task.getLastError());
     }
 
     /**

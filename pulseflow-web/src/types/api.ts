@@ -182,7 +182,8 @@ export interface DeliveryListItem {
 }
 
 export interface DeliveryRecordView {
-  id: number
+  /** Removed database identity; result is projected from taskId. */
+  id: null
   taskId: number
   campaignId: number
   userId: number

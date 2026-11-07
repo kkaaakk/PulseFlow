@@ -1,5 +1,5 @@
 -- PulseFlow Phase 1 campaign/frequency/attribution fixture.
--- TEST ONLY: run against pulseflow_test after Flyway V1~V8.
+-- TEST ONLY: run against pulseflow_test after Flyway V1~V9.
 -- The wrapper refuses non-test targets; do not paste this into production.
 
 INSERT INTO campaign (
@@ -46,7 +46,8 @@ ON DUPLICATE KEY UPDATE
     event_types = VALUES(event_types), channel = VALUES(channel), message_template = VALUES(message_template),
     status = VALUES(status), created_by = VALUES(created_by);
 
--- Seed only the real sending prerequisites. Click facts must come from HTTP
+-- Legacy CLI aggregate fixture seeds a task result. Full unseeded send/click acceptance is in JUnit.
+-- Click facts must come from HTTP
 -- -> Kafka with PULSEFLOW_EVENTS_TRUSTED_SOURCE_TOKEN configured on both the
 -- test backend and replay process. Never pre-insert click_event for acceptance.
 INSERT INTO delivery_task (
@@ -59,9 +60,10 @@ VALUES (
 )
 ON DUPLICATE KEY UPDATE status = VALUES(status), dispatch_status = VALUES(dispatch_status);
 
-INSERT INTO delivery_record (task_id, user_id, campaign_id, channel, status, sent_at)
-SELECT 9203, 7000001, 9203, 'IN_APP', 'SENT', NOW() - INTERVAL 2 MINUTE
-WHERE NOT EXISTS (SELECT 1 FROM delivery_record WHERE task_id = 9203);
+-- Legacy CLI aggregate fixture only. Full unseeded delivery -> click acceptance is
+-- MarketingClickPipelineIT.decisionSendClickPurchaseSummaryAndAgentCompleteTheEntireRealPipeline.
+UPDATE delivery_task SET sent_at=COALESCE(sent_at,NOW()-INTERVAL 2 MINUTE),
+    first_send_attempt_at=COALESCE(first_send_attempt_at,NOW()-INTERVAL 2 MINUTE) WHERE id=9203;
 
 SELECT 'campaign fixture prepared' AS status,
        (SELECT id FROM campaign WHERE name = 'PF_TEST_FREQUENCY_V1') AS frequency_campaign_id,
