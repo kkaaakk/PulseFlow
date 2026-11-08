@@ -244,4 +244,15 @@ class DecisionEngineTest {
                 anyLong());
         verify(deliveryService, never()).createDeliveryTask(any());
     }
+
+    @Test
+    void malformedKnownRuleDoesNotBecomeAnUnconditionalMatch() {
+        Campaign campaign = eventCampaign(101L, "CONTENT_VIEW");
+        when(campaignMapper.selectList(any())).thenReturn(List.of(campaign));
+        when(campaignRuleMapper.selectList(any())).thenReturn(List.of(
+                rule(101L, "EVENT", "{\"propertyKey\":99,\"propertyValue\":\"shoes\"}")));
+        decisionEngine.evaluate(eventMap("evt-invalid-rule", 1001L, "CONTENT_VIEW", Map.of()));
+        verify(deliveryService, never()).createDeliveryTask(any(DeliveryTaskDto.class));
+    }
+
 }

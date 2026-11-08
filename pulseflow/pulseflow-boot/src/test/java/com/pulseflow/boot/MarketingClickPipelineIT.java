@@ -437,6 +437,8 @@ class MarketingClickPipelineIT {
     @Autowired com.pulseflow.job.handler.DispatchRetryJob dispatchRetries;
     @Autowired org.springframework.kafka.core.KafkaTemplate<String,String> kafka;
     @Autowired com.pulseflow.mapper.DeliveryTaskMapper deliveryTasks;
+    @Autowired com.pulseflow.campaign.delivery.DeliveryRecoveryService deliveryRecovery;
+    @Autowired com.pulseflow.mapper.DataCompensationTaskMapper compensationTasks;
 
     Fixture pending(String channel) {
         Fixture f=fixture(false);
@@ -807,7 +809,8 @@ class MarketingClickPipelineIT {
             jdbc.execute("DROP TRIGGER it_reject_execution");
         }
 
-        selection.execute();
+        CompletableFuture.allOf(CompletableFuture.runAsync(selection::execute),
+                CompletableFuture.runAsync(selection::execute)).orTimeout(25, TimeUnit.SECONDS).join();
         long execution = count("SELECT id FROM campaign_execution WHERE campaign_id=?", campaign);
         assertThat(jdbc.queryForList("SELECT user_id FROM delivery_task WHERE campaign_id=?", Long.class, campaign))
                 .containsExactly(selected);
@@ -877,9 +880,27 @@ class MarketingClickPipelineIT {
         var processing = redis.<String>getScoredSortedSet("delay:processing:" + type);
         pending.add(old, task);
         delayedTasks.addDelayedTask(type, task, old + 500);
+        var blockedClaim = redis.getBucket("delay:processing:" + type, StringCodec.INSTANCE);
+        blockedClaim.set("wrong type");
+        try {
+            assertThatThrownBy(() -> delayedTasks.claimTasks(type, old, 50))
+                    .isInstanceOf(org.redisson.client.RedisException.class);
+            assertThat(pending.contains(task)).isTrue();
+        } finally {
+            blockedClaim.delete();
+        }
         assertThat(delayedTasks.claimTasks(type, old, 50)).containsExactly(task);
         delayedTasks.addDelayedTask(type, task, old);
         assertThat(delayedTasks.claimTasks(type, old, 50)).isEmpty();
+        var blockedRecovery = redis.getBucket("delay:pending:" + type, StringCodec.INSTANCE);
+        blockedRecovery.set("wrong type");
+        try {
+            assertThatThrownBy(() -> delayedTasks.recoverStuckTasks(type, Duration.ofMinutes(5).toMillis()))
+                    .isInstanceOf(org.redisson.client.RedisException.class);
+            assertThat(processing.contains(task)).isTrue();
+        } finally {
+            blockedRecovery.delete();
+        }
         assertThat(delayedTasks.recoverStuckTasks(type, Duration.ofMinutes(5).toMillis())).containsExactly(task);
         long next = System.currentTimeMillis() + 100;
         assertThat(delayedTasks.claimTasks(type, next, 50)).containsExactly(task);
@@ -928,6 +949,238 @@ class MarketingClickPipelineIT {
         assertThat(redis.<String, String>getMap(dailyKey, StringCodec.INSTANCE).get("views")).isEqualTo("1");
         assertThat(count("SELECT COUNT(*) FROM delivery_task WHERE campaign_id=?", campaign)).isEqualTo(1);
         jdbc.update("UPDATE campaign SET status='PAUSED' WHERE id=?", campaign);
+    }
+
+
+    @Test
+    void staleCartAddsCannotResurrectRemovedItemsAndCanonicalKeysSupportDelimiters() {
+        long campaign = IDS.addAndGet(100);
+        long user = 13_000_000 + campaign;
+        String item = "catalog:sku:" + "x".repeat(125);
+        String removeId = "review-remove-" + user;
+        String oldAddId = "review:old-add:" + user;
+        String newAddId = "review:new-add:" + user;
+        LocalDateTime time = LocalDateTime.now().withNano(0);
+        var cart = redis.<String, String>getMap("user:cart:" + user, StringCodec.INSTANCE);
+        var pending = redis.<String>getScoredSortedSet("delay:pending:DELAYED_CAMPAIGN");
+        var processing = redis.<String>getScoredSortedSet("delay:processing:DELAYED_CAMPAIGN");
+        jdbc.update("INSERT INTO campaign(id,name,trigger_type,event_types,delay_seconds,channel,message_template,status) "
+                + "VALUES (?,?,'DELAYED','ADD_CART',60,'PUSH','加购优惠','ACTIVE')", campaign, "PF_REVIEW_CART_" + campaign);
+        try {
+            post(body(removeId, user, "REMOVE_CART", time, Map.of("cartItemId", item)), null);
+            post(body(oldAddId, user, "ADD_CART", time, Map.of("cartItemId", item)), null);
+            String oldKey = DedupKeyUtil.forDelayed(campaign, user, item, oldAddId);
+            await().atMost(Duration.ofSeconds(20)).until(() -> pending.contains(oldKey));
+            assertThat(cart.containsKey(item)).isFalse();
+
+            // An obsolete Redis value must still lose to the committed cancellation at insert time.
+            cart.put(item, "{}");
+            pending.add(System.currentTimeMillis() - 1, oldKey);
+            await().atMost(Duration.ofSeconds(15)).until(() -> !pending.contains(oldKey) && !processing.contains(oldKey));
+            assertThat(count("SELECT COUNT(*) FROM delivery_task WHERE campaign_id=?", campaign)).isZero();
+
+            post(body(newAddId, user, "ADD_CART", time.plusSeconds(1), Map.of("cartItemId", item)), null);
+            String newKey = DedupKeyUtil.forDelayed(campaign, user, item, newAddId);
+            await().atMost(Duration.ofSeconds(20)).until(() -> pending.contains(newKey));
+            pending.add(System.currentTimeMillis() - 1, newKey);
+            await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
+                    assertThat(count("SELECT COUNT(*) FROM delivery_task WHERE dedup_key=? AND status='SENT'", newKey)).isEqualTo(1));
+            assertThat(jdbc.queryForObject("SELECT trigger_event_id FROM delivery_task WHERE dedup_key=?", String.class, newKey))
+                    .isEqualTo(newAddId);
+        } finally {
+            jdbc.update("UPDATE campaign SET status='PAUSED' WHERE id=?", campaign);
+        }
+    }
+
+    @Test
+    void earlierPaidFactCanResetAnExistingSameDaySnapshotToZero() {
+        long user = 14_000_000 + IDS.incrementAndGet();
+        LocalDateTime now = LocalDateTime.now().withNano(0);
+        BehaviorWindow window = new BehaviorWindow(now.toLocalDate());
+        fact(user, "reported", "ORDER_PAID", now, Map.of("orderId", "one", "price", 0));
+        windows.calculate(now);
+        assertThat(profiles.getWindowMetrics(user)).containsEntry("order_count_30d", new BigDecimal("1.00"));
+        fact(user, "earlier", "ORDER_PAID", window.purchaseStart().minusSeconds(1), Map.of("orderId", "one", "price", 0));
+        windows.calculate(now);
+        assertThat(profiles.getWindowMetrics(user)).containsEntry("order_count_30d", new BigDecimal("0.00"));
+        assertThat(count("SELECT COUNT(*) FROM attribution_task WHERE user_id=?", user)).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM attribution_task WHERE target_event_id=?", user + "-reported")).isEqualTo(1);
+    }
+
+    @Test
+    void leaseExpiryAndReclaimFenceMaterializationAndDisabledAccountsAreRechecked() {
+        long campaign = IDS.addAndGet(100);
+        long user = 15_000_000 + campaign;
+        jdbc.update("INSERT INTO user_profile(user_id,status) VALUES (?,1)", user);
+        jdbc.update("INSERT INTO campaign(id,name,trigger_type,channel,status) VALUES (?,?,'SCHEDULED','IN_APP','ACTIVE')",
+                campaign, "PF_REVIEW_LEASE_" + campaign);
+        jdbc.update("INSERT INTO campaign_execution(campaign_id,scheduled_at,status,started_at,retry_count) "
+                + "VALUES (?,NOW(),'RUNNING',?,0)", campaign, LocalDateTime.now().minusMinutes(11));
+        long execution = count("SELECT id FROM campaign_execution WHERE campaign_id=?", campaign);
+        var scheduled = com.pulseflow.entity.Campaign.builder().id(campaign).build();
+        var attempt = com.pulseflow.entity.CampaignExecution.builder().id(execution).retryCount(0).build();
+        var window = new BehaviorWindow(LocalDate.now());
+        assertThat(deliveryService.createScheduledPage(scheduled, attempt, List.of(user), window)).isFalse();
+        jdbc.update("UPDATE campaign_execution SET retry_count=1,started_at=? WHERE id=?", LocalDateTime.now(), execution);
+        assertThat(deliveryService.createScheduledPage(scheduled, attempt, List.of(user), window)).isFalse();
+        attempt.setRetryCount(1);
+        jdbc.update("UPDATE user_profile SET status=0 WHERE user_id=?", user);
+        assertThat(deliveryService.createScheduledPage(scheduled, attempt, List.of(user), window)).isTrue();
+        assertThat(count("SELECT COUNT(*) FROM delivery_task WHERE campaign_id=?", campaign)).isZero();
+        jdbc.update("UPDATE user_profile SET status=1 WHERE user_id=?", user);
+        assertThat(deliveryService.createScheduledPage(scheduled, attempt, List.of(user), window)).isTrue();
+        assertThat(count("SELECT COUNT(*) FROM delivery_task WHERE campaign_id=?", campaign)).isEqualTo(1);
+        jdbc.update("UPDATE campaign_execution SET status='DONE' WHERE id=?", execution);
+        jdbc.update("UPDATE campaign SET status='PAUSED' WHERE id=?", campaign);
+    }
+
+    @Test
+    void staleDeliveryAcknowledgementsAndClaimsCannotOverwriteTheNewAttempt() {
+        Fixture f = fixture(false);
+        LocalDateTime oldClaim = LocalDateTime.now().withNano(0).minusMinutes(6);
+        jdbc.update("UPDATE delivery_task SET status='PROCESSING',processing_at=? WHERE id=?", oldClaim, f.task);
+        var staleTask = deliveryTasks.selectById(f.task);
+        jdbc.update("UPDATE delivery_task SET status='PENDING',dispatch_status='PENDING',processing_at=NULL,retry_count=1 WHERE id=?", f.task);
+        assertThat(deliveryTasks.markPublishedForAttempt(f.task, 0, "PENDING", LocalDateTime.now())).isZero();
+        assertThat(deliveryTasks.markPublishedForAttempt(f.task, 1, "WAIT_RETRY", LocalDateTime.now())).isZero();
+        assertThat(jdbc.queryForObject("SELECT dispatch_status FROM delivery_task WHERE id=?", String.class, f.task))
+                .isEqualTo("PENDING");
+        assertThat(deliveryTasks.tryClaimAt(f.task, oldClaim.plusMinutes(6))).isEqualTo(1);
+        assertThat(deliveryRecovery.storeChannelReceipt(staleTask, oldClaim)).isNull();
+        assertThat(count("SELECT COUNT(*) FROM in_app_message WHERE business_key=?", f.task)).isZero();
+        assertThat(deliveryTasks.markPublishedForAttempt(f.task, 1, "PENDING", LocalDateTime.now())).isEqualTo(1);
+        jdbc.update("UPDATE delivery_task SET status='CANCELLED' WHERE id=?", f.task);
+    }
+
+    @Test
+    void duplicateReplayKeepsClaimAndBackoffAndStaleWorkerCannotRewriteTerminalState() {
+        String eventId = "review-comp-lease-" + IDS.incrementAndGet();
+        compensationTasks.ensureEventReplayPending(eventId, "{}");
+        long id = count("SELECT id FROM data_compensation_task WHERE event_id=?", eventId);
+        assertThat(compensationTasks.markProcessing(id)).isEqualTo(1);
+        var stale = compensationTasks.selectById(id);
+        compensationTasks.ensureEventReplayPending(eventId, "{}");
+        assertThat(compensationTasks.selectById(id).getLockedAt()).isEqualTo(stale.getLockedAt());
+        jdbc.update("UPDATE data_compensation_task SET status='PENDING',retry_count=1,locked_at=NULL,"
+                + "next_retry_at=NOW()+INTERVAL 10 MINUTE WHERE id=?", id);
+        LocalDateTime due = compensationTasks.selectById(id).getNextRetryAt();
+        compensationTasks.ensureEventReplayPending(eventId, "{}");
+        assertThat(compensationTasks.selectById(id).getNextRetryAt()).isEqualTo(due);
+        assertThat(compensationTasks.markProcessing(id)).isEqualTo(1);
+        var current = compensationTasks.selectById(id);
+        assertThat(compensationTasks.finishAttempt(current, "DONE", 1, null, null)).isEqualTo(1);
+        assertThat(compensationTasks.finishAttempt(stale, "PENDING", 1, "old failure", 60L)).isZero();
+        compensationTasks.ensureEventReplayPending(eventId, "{}");
+        assertThat(compensationTasks.selectById(id).getStatus()).isEqualTo("DONE");
+        assertThat(compensationTasks.selectById(id).getRetryCount()).isEqualTo(1);
+    }
+
+    @Test
+    void kafkaRetriesWhenCompensationInsertFailsAndReplayReadsCanonicalFact() {
+        long user = 16_000_000 + IDS.incrementAndGet();
+        LocalDateTime time = LocalDateTime.now();
+        String eventId = "review-comp-write-" + user;
+        String dailyKey = "user:daily:" + user + ":" + time.toLocalDate().format(DateTimeFormatter.BASIC_ISO_DATE);
+        var views = redis.<String, String>getMap(dailyKey, StringCodec.INSTANCE);
+        var wrongType = redis.getBucket("user:rt:" + user, StringCodec.INSTANCE);
+        wrongType.set("wrong type");
+        jdbc.execute("CREATE TRIGGER review_reject_comp_insert BEFORE INSERT ON data_compensation_task "
+                + "FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='compensation temporarily unavailable'");
+        try {
+            post(body(eventId, user, "CONTENT_VIEW", time, Map.of()), null);
+            stored(eventId, "NONE");
+            assertThat(views.get("views")).isNull();
+            assertThat(count("SELECT COUNT(*) FROM data_compensation_task WHERE event_id=?", eventId)).isZero();
+        } finally {
+            jdbc.execute("DROP TRIGGER review_reject_comp_insert");
+        }
+        try {
+            // No second publish. The original offset must remain retryable after the failed outbox write.
+            await().atMost(Duration.ofSeconds(25)).until(() ->
+                    count("SELECT COUNT(*) FROM data_compensation_task WHERE event_id=?", eventId) == 1);
+            assertThat(views.get("views")).isNull();
+            jdbc.update("UPDATE data_compensation_task SET payload=JSON_OBJECT('eventType','CLICK') WHERE event_id=?", eventId);
+        } finally {
+            wrongType.delete();
+        }
+        await().atMost(Duration.ofSeconds(25)).untilAsserted(() -> {
+            compensation.execute();
+            assertThat(count("SELECT COUNT(*) FROM data_compensation_task WHERE event_id=? AND status='DONE'", eventId))
+                    .isEqualTo(1);
+        });
+        assertThat(views.get("views")).isEqualTo("1");
+        assertThat(count("SELECT SUM(event_count) FROM user_metric_hourly WHERE user_id=? AND event_type='CONTENT_VIEW'", user))
+                .isEqualTo(1);
+    }
+
+
+    @Test
+    void decisionFailureAfterRedisUpdateReplaysWithoutCountingAgain() {
+        long campaign = IDS.addAndGet(100);
+        long user = 17_000_000 + campaign;
+        String eventId = "review-decision-" + user;
+        LocalDateTime time = LocalDateTime.now();
+        String dailyKey = "user:daily:" + user + ":" + time.toLocalDate().format(DateTimeFormatter.BASIC_ISO_DATE);
+        var views = redis.<String, String>getMap(dailyKey, StringCodec.INSTANCE);
+        jdbc.update("INSERT INTO campaign(id,name,trigger_type,event_types,channel,message_template,status) "
+                + "VALUES (?,?,'EVENT','CONTENT_VIEW','IN_APP','测试优惠','ACTIVE')", campaign, "PF_REVIEW_DECISION_" + campaign);
+        jdbc.execute("CREATE TRIGGER review_reject_delivery BEFORE INSERT ON delivery_task FOR EACH ROW "
+                + "BEGIN IF NEW.campaign_id = " + campaign + " THEN "
+                + "SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='decision temporarily unavailable'; END IF; END");
+        try {
+            post(body(eventId, user, "CONTENT_VIEW", time, Map.of()), null);
+            await().atMost(Duration.ofSeconds(20)).until(() ->
+                    count("SELECT COUNT(*) FROM data_compensation_task WHERE event_id=? AND status='PENDING'", eventId) == 1);
+            assertThat(views.get("views")).isEqualTo("1");
+            assertThat(count("SELECT COUNT(*) FROM delivery_task WHERE campaign_id=?", campaign)).isZero();
+        } finally {
+            jdbc.execute("DROP TRIGGER review_reject_delivery");
+        }
+        try {
+            await().atMost(Duration.ofSeconds(25)).untilAsserted(() -> {
+                compensation.execute();
+                assertThat(count("SELECT COUNT(*) FROM delivery_task WHERE campaign_id=? AND status='SENT'", campaign))
+                        .isEqualTo(1);
+            });
+            assertThat(views.get("views")).isEqualTo("1");
+        } finally {
+            jdbc.update("UPDATE campaign SET status='PAUSED' WHERE id=?", campaign);
+        }
+    }
+
+    @Test
+    void committedOrderOutboxRecoversRedisFailureAndDeduplicatesStableOrders() {
+        long user = 18_000_000 + IDS.incrementAndGet();
+        LocalDateTime time = LocalDateTime.now();
+        String first = user + "-first";
+        var script = redis.getScript(StringCodec.INSTANCE);
+        var keys = List.<Object>of("delay:attribution", "review:held:delay:attribution");
+        script.eval(org.redisson.api.RScript.Mode.READ_WRITE, """
+                if redis.call('EXISTS', KEYS[1]) == 1 then redis.call('RENAME', KEYS[1], KEYS[2]) end
+                redis.call('SET', KEYS[1], 'wrong type')
+                return 1
+                """, org.redisson.api.RScript.ReturnType.INTEGER, keys);
+        try {
+            fact(user, "first", "ORDER_PAID", time, Map.of("orderId", " stable "));
+            fact(user, "duplicate", "ORDER_PAID", time.plusSeconds(1), Map.of("orderId", "stable"));
+            assertThat(count("SELECT COUNT(*) FROM user_event WHERE user_id=? AND event_type='ORDER_PAID'", user))
+                    .isEqualTo(2);
+            assertThat(count("SELECT COUNT(*) FROM attribution_task WHERE user_id=? AND status='PENDING'", user))
+                    .isEqualTo(1);
+            assertThat(jdbc.queryForObject("SELECT target_event_id FROM attribution_task WHERE user_id=?", String.class, user))
+                    .isEqualTo(first);
+        } finally {
+            script.eval(org.redisson.api.RScript.Mode.READ_WRITE, """
+                    redis.call('DEL', KEYS[1])
+                    if redis.call('EXISTS', KEYS[2]) == 1 then redis.call('RENAME', KEYS[2], KEYS[1]) end
+                    return 1
+                    """, org.redisson.api.RScript.ReturnType.INTEGER, keys);
+        }
+        var queue = redis.<String>getScoredSortedSet("delay:attribution", StringCodec.INSTANCE);
+        await().atMost(Duration.ofSeconds(15)).until(() -> {
+            attribution.reconcilePendingTasks();
+            return queue.contains(first);
+        });
     }
 
     private void fact(long user, String suffix, String type, LocalDateTime time, Map<String, Object> properties) {

@@ -52,8 +52,9 @@ public class DelayedTaskManager {
             end
             
             for i, taskId in ipairs(tasks) do
-                redis.call('ZREM', pendingKey, taskId)
+                -- Preserve the source if writing the destination fails.
                 redis.call('ZADD', processingKey, now, taskId)
+                redis.call('ZREM', pendingKey, taskId)
             end
             
             return tasks
@@ -103,8 +104,8 @@ public class DelayedTaskManager {
             end
             
             for i, taskId in ipairs(stuck) do
-                redis.call('ZREM', processingKey, taskId)
                 redis.call('ZADD', pendingKey, now, taskId)
+                redis.call('ZREM', processingKey, taskId)
             end
             
             return stuck

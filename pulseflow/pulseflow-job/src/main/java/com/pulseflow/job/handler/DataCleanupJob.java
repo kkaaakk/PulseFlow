@@ -34,7 +34,8 @@ public class DataCleanupJob {
             log.info("Cleaned {} expired compensation tasks", compDeleted);
 
             int attrDeleted = jdbcTemplate.update(
-                    "DELETE FROM attribution_task WHERE created_at < ?",
+                    "DELETE FROM attribution_task WHERE created_at < ? "
+                            + "AND paid_order_id IS NULL AND status IN ('MATCHED','EXPIRED')",
                     java.sql.Timestamp.valueOf(expiry90Days));
             log.info("Cleaned {} expired attribution tasks", attrDeleted);
 

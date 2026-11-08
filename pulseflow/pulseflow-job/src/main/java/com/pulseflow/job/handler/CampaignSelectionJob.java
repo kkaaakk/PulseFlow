@@ -84,7 +84,8 @@ public class CampaignSelectionJob {
 
         for (CampaignExecution execution : pendingExecutions) {
             try {
-                executeCampaign(execution);
+                if (!window.today().equals(LocalDateTime.now().toLocalDate())) break;
+                executeCampaign(execution, window);
             } catch (Exception e) {
                 log.error("Failed to execute campaign {}: {}",
                         execution.getCampaignId(), e.getMessage());
@@ -99,13 +100,12 @@ public class CampaignSelectionJob {
      * 恢复运行超过十分钟且未满三次重试的实例为 PENDING，已达上限的实例标记 FAILED。
      */
     private void recoverStuckExecutions() {
-        LocalDateTime tenMinutesAgo = LocalDateTime.now().minusMinutes(10);
-
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(10);
         // Recover stuck RUNNING → PENDING (under retry limit)
         campaignExecutionMapper.update(null,
                 new LambdaUpdateWrapper<CampaignExecution>()
                         .eq(CampaignExecution::getStatus, ExecutionStatus.RUNNING.name())
-                        .lt(CampaignExecution::getStartedAt, tenMinutesAgo)
+                        .and(q -> q.isNull(CampaignExecution::getStartedAt).or().lt(CampaignExecution::getStartedAt, cutoff))
                         .lt(CampaignExecution::getRetryCount, MAX_RETRIES)
                         .setSql("retry_count = retry_count + 1")
                         .set(CampaignExecution::getLastError, "execution lease expired")
@@ -115,7 +115,7 @@ public class CampaignSelectionJob {
         campaignExecutionMapper.update(null,
                 new LambdaUpdateWrapper<CampaignExecution>()
                         .eq(CampaignExecution::getStatus, ExecutionStatus.RUNNING.name())
-                        .lt(CampaignExecution::getStartedAt, tenMinutesAgo)
+                        .and(q -> q.isNull(CampaignExecution::getStartedAt).or().lt(CampaignExecution::getStartedAt, cutoff))
                         .ge(CampaignExecution::getRetryCount, MAX_RETRIES)
                         .set(CampaignExecution::getLastError, "execution lease expired")
                         .set(CampaignExecution::getFinishedAt, LocalDateTime.now())
@@ -186,7 +186,7 @@ public class CampaignSelectionJob {
     }
 
     /** A retry starts scanning from the first page. Delivery keys are stable per execution and user. */
-    private void executeCampaign(CampaignExecution execution) {
+    private void executeCampaign(CampaignExecution execution, BehaviorWindow window) {
         int claimed = campaignExecutionMapper.update(null,
                 new LambdaUpdateWrapper<CampaignExecution>()
                         .eq(CampaignExecution::getId, execution.getId())
@@ -200,33 +200,36 @@ public class CampaignSelectionJob {
         try {
             Campaign campaign = campaignMapper.selectById(execution.getCampaignId());
             int scanned = 0;
-            if (campaign != null && CampaignStatus.ACTIVE.name().equals(campaign.getStatus())) {
+            if (campaign != null && CampaignStatus.ACTIVE.name().equals(campaign.getStatus())
+                    && TriggerType.SCHEDULED.name().equals(campaign.getTriggerType())) {
+                Long highWatermark = userProfileMapper.selectHighWatermark();
                 long lastId = 0L;
-                while (true) {
+                while (highWatermark != null && lastId < highWatermark) {
                     List<UserProfile> page = userProfileMapper.selectList(
                             new LambdaQueryWrapper<UserProfile>()
                                     .select(UserProfile::getId, UserProfile::getUserId)
                                     .eq(UserProfile::getStatus, 1)
                                     .gt(UserProfile::getId, lastId)
+                                    .le(UserProfile::getId, highWatermark)
                                     .orderByAsc(UserProfile::getId)
                                     .last("LIMIT " + PAGE_SIZE));
                     if (page.isEmpty()) break;
 
-                    // Renew the lease and fence a worker whose attempt was already reclaimed.
-                    if (campaignExecutionMapper.update(null, ownedAttempt(execution)
-                            .set(CampaignExecution::getStartedAt, LocalDateTime.now())) != 1) return;
-                    decisionEngine.evaluateBatch(campaign, page.stream().map(UserProfile::getUserId).toList(),
-                            execution.getId());
+                    // Ownership is checked and renewed inside the same transaction as the page insert.
+                    if (!decisionEngine.evaluateBatch(campaign, page.stream().map(UserProfile::getUserId).toList(),
+                            execution, window)) return;
                     scanned += page.size();
                     lastId = page.get(page.size() - 1).getId();
                     if (page.size() < PAGE_SIZE) break;
                 }
             }
-            campaignExecutionMapper.update(null, ownedAttempt(execution)
+            int completed = campaignExecutionMapper.update(null, ownedAttempt(execution)
                     .set(CampaignExecution::getStatus, ExecutionStatus.DONE.name())
                     .set(CampaignExecution::getFinishedAt, LocalDateTime.now())
                     .set(CampaignExecution::getLastError, null));
-            log.info("Campaign execution {} finished: scanned={} users", execution.getId(), scanned);
+            if (completed == 1) {
+                log.info("Campaign execution {} finished: scanned={} users", execution.getId(), scanned);
+            }
         } catch (Exception e) {
             log.error("Campaign execution {} failed", execution.getId(), e);
             boolean exhausted = execution.getRetryCount() >= MAX_RETRIES;
@@ -244,6 +247,7 @@ public class CampaignSelectionJob {
         return new LambdaUpdateWrapper<CampaignExecution>()
                 .eq(CampaignExecution::getId, execution.getId())
                 .eq(CampaignExecution::getStatus, ExecutionStatus.RUNNING.name())
-                .eq(CampaignExecution::getRetryCount, execution.getRetryCount());
+                .eq(CampaignExecution::getRetryCount, execution.getRetryCount())
+                .ge(CampaignExecution::getStartedAt, LocalDateTime.now().minusMinutes(10));
     }
 }

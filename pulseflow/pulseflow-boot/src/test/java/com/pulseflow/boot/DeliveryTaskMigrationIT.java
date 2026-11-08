@@ -124,12 +124,19 @@ class DeliveryTaskMigrationIT {
                 """);
         jdbc.execute("INSERT INTO user_behavior_summary(user_id,metric_type,metric_value,calculated_at) "
                 + "VALUES (10,'active_7d',99,NOW())");
-        assertThat(flyway(null).migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(flyway("10").migrate().migrationsExecuted).isEqualTo(1);
         assertThat(n("SELECT COUNT(*) FROM user_event")).isEqualTo(4);
         assertThat(n("SELECT COUNT(*) FROM user_event WHERE paid_order_id='ORD-A' AND cart_item_id='sku-a'")).isEqualTo(2);
         assertThat(n("SELECT COUNT(*) FROM user_event WHERE paid_order_id IS NULL")).isEqualTo(2);
         assertThat(n("SELECT COUNT(*) FROM user_behavior_summary WHERE metric_type='active_7d' AND metric_value=99")).isEqualTo(1);
         assertThat(n("SELECT COUNT(*) FROM user_behavior_summary WHERE metric_type='active_days_7d'")).isZero();
+        jdbc.execute("""
+                INSERT INTO attribution_task(target_event_id,user_id,target_event_type,target_event_time,grace_until)
+                VALUES ('order-a',10,'ORDER_PAID',NOW(),NOW()), ('order-b',10,'ORDER_PAID',NOW(),NOW())
+                """);
+        assertThat(flyway(null).migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(n("SELECT COUNT(*) FROM attribution_task WHERE paid_order_id IS NULL")).isEqualTo(2);
+        assertThat(n("SELECT COUNT(*) FROM user_event WHERE cart_cancelled=1 AND cart_item_id='sku-a'")).isEqualTo(2);
         assertThat(flyway(null).migrate().migrationsExecuted).isZero();
         flyway(null).validate();
     }

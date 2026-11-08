@@ -14,20 +14,22 @@ import java.util.List;
 @Mapper
 @Repository
 public interface UserEventMapper extends BaseMapper<UserEvent> {
-    // A stable order belongs to the window containing its first successful fact.
-    // The anti-lookup uses (user_id, paid_order_id, effective_event_time).
-    String PAID_WINDOW = """
+    String PAID_FACTS = """
             FROM user_event e
             WHERE e.event_type = 'ORDER_PAID'
               AND e.effective_event_time >= #{from} AND #{until} > e.effective_event_time
-              AND (e.paid_order_id IS NULL OR NOT EXISTS (
-                  SELECT 1 FROM user_event earlier
-                  WHERE earlier.user_id = e.user_id AND earlier.paid_order_id = e.paid_order_id
-                    AND #{from} > earlier.effective_event_time
-              ))
             """;
 
-    @Select("<script>SELECT DISTINCT e.user_id " + PAID_WINDOW + """
+    // A stable order belongs to the window containing its first successful fact.
+    String FIRST_PAID_IN_WINDOW = """
+            (e.paid_order_id IS NULL OR NOT EXISTS (
+                SELECT 1 FROM user_event earlier
+                WHERE earlier.user_id = e.user_id AND earlier.paid_order_id = e.paid_order_id
+                  AND #{from} > earlier.effective_event_time
+            ))
+            """;
+
+    @Select("<script>SELECT DISTINCT e.user_id " + PAID_FACTS + " AND " + FIRST_PAID_IN_WINDOW + """
             AND e.user_id IN
             <foreach collection="userIds" item="id" open="(" separator="," close=")">#{id}</foreach>
             </script>
@@ -35,20 +37,28 @@ public interface UserEventMapper extends BaseMapper<UserEvent> {
     List<Long> selectPaidUsers(@Param("userIds") List<Long> userIds,
                                @Param("from") LocalDateTime from, @Param("until") LocalDateTime until);
 
+    String CART_MUTATION_ORDER = " ORDER BY effective_event_time DESC, cart_cancelled DESC, id DESC LIMIT 1 ";
+
     @Select("""
-            SELECT EXISTS (
-                SELECT 1 FROM user_event added
-                WHERE added.event_id = #{eventId} AND added.user_id = #{userId}
-                  AND added.event_type = 'ADD_CART' AND added.cart_item_id = #{cartItemId}
-                  AND NOT EXISTS (
-                      SELECT 1 FROM user_event newer
-                      WHERE newer.user_id = added.user_id AND newer.cart_item_id = added.cart_item_id
-                        AND newer.id > added.id
-                  )
-            )
+            SELECT id, event_type, effective_event_time, properties FROM user_event
+            WHERE user_id = #{userId} AND cart_item_id = #{cartItemId}
+            """ + CART_MUTATION_ORDER)
+    UserEvent selectLatestCartMutation(@Param("userId") Long userId, @Param("cartItemId") String cartItemId);
+
+    @Select("""
+            SELECT CONVERT(cart_item_id USING utf8mb4) FROM user_event
+            WHERE event_id = #{eventId} AND user_id = #{userId} AND event_type = 'ADD_CART'
             """)
-    boolean isCurrentCartAddition(@Param("eventId") String eventId, @Param("userId") Long userId,
-                                  @Param("cartItemId") String cartItemId);
+    String selectAddedCartItem(@Param("eventId") String eventId, @Param("userId") Long userId);
+
+    @Select("SELECT * FROM user_event WHERE event_id = #{eventId}")
+    UserEvent selectCanonicalEvent(@Param("eventId") String eventId);
+
+    @Select("""
+            SELECT CONVERT(paid_order_id USING utf8mb4) FROM user_event
+            WHERE event_id = #{eventId} AND user_id = #{userId}
+            """)
+    String selectPaidOrderId(@Param("eventId") String eventId, @Param("userId") Long userId);
 
     @Select("SELECT * FROM user_event WHERE event_id = #{eventId} FOR UPDATE")
     UserEvent selectByEventIdForUpdate(@Param("eventId") String eventId);

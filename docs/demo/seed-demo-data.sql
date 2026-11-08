@@ -1,4 +1,4 @@
--- Local/demo database only. Run after Flyway V10, using the application JVM's time zone.
+-- Local/demo database only. Run after Flyway V11, using the application JVM's time zone.
 -- Reuse a clean database for a fresh demo on another calendar day.
 SET @today = CURRENT_DATE();
 SET @yesterday = DATE_SUB(@today, INTERVAL 1 DAY);

@@ -42,10 +42,12 @@ public interface UserBehaviorSummaryMapper extends BaseMapper<UserBehaviorSummar
 
     @Insert(INSERT_SNAPSHOT + """
             SELECT e.user_id, 'order_count_30d',
-                   COUNT(DISTINCT IF(e.paid_order_id IS NULL,
-                       CONCAT('event:', e.event_id), CONCAT('order:', e.paid_order_id))),
+                   COUNT(DISTINCT CASE WHEN
+            """ + UserEventMapper.FIRST_PAID_IN_WINDOW + """
+                       THEN IF(e.paid_order_id IS NULL,
+                           CONCAT('event:', e.event_id), CONCAT('order:', e.paid_order_id)) END),
                    #{calculatedAt}, #{from}, #{until}
-            """ + UserEventMapper.PAID_WINDOW + """
+            """ + UserEventMapper.PAID_FACTS + """
             GROUP BY e.user_id
             """ + UPDATE_SNAPSHOT)
     int summarizePaidOrders(@Param("from") LocalDateTime from, @Param("until") LocalDateTime until,

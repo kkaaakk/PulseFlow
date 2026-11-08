@@ -1,9 +1,5 @@
 package com.pulseflow.job.handler;
 
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.pulseflow.campaign.decision.DecisionEngine;
 import com.pulseflow.campaign.attribution.ClickEventService;
 import com.pulseflow.campaign.attribution.ClickDeliveryNotVisibleException;
@@ -12,16 +8,17 @@ import com.pulseflow.common.enums.CompensationTaskType;
 import com.pulseflow.campaign.profile.RealtimeProfileUpdateService;
 import com.pulseflow.common.enums.CompensationStatus;
 import com.pulseflow.entity.DataCompensationTask;
+import com.pulseflow.event.service.EventPersistenceService;
 import com.pulseflow.job.service.CompensationClaimService;
 import com.pulseflow.mapper.DataCompensationTaskMapper;
+import com.pulseflow.mapper.UserEventMapper;
 import com.xxl.job.core.handler.annotation.XxlJob;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.LocalDateTime;
-import java.util.Map;
 
 /**
  * Replays EVENT_REPLAY compensation tasks: re-run the Redis Lua update and
@@ -56,8 +53,9 @@ public class CompensationJob {
     private final ClickEventService clickEventService;
     private final AttributionService attributionService;
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
-            .registerModule(new JavaTimeModule());
+    private final EventPersistenceService events;
+    private final UserEventMapper userEvents;
+    private final TransactionTemplate transactionTemplate;
 
     /**
      * 恢复超时处理中补偿任务，再短事务抢占一条到期任务，在事务外重放业务；按结果标记完成或安排重试。
@@ -92,13 +90,15 @@ public class CompensationJob {
                 if (clickEventService.retry(task.getEventId()) == ClickEventService.Result.PENDING) {
                     throw new ClickDeliveryNotVisibleException();
                 }
-                markDone(task.getId());
+                markDone(task);
                 return;
             }
             if (!CompensationTaskType.EVENT_REPLAY.name().equals(task.getTaskType())) {
                 throw new IllegalStateException("unsupported_compensation_type");
             }
-            Map<String, Object> eventMap = parseEvent(task.getPayload());
+            var canonical = events.loadCanonical(task.getEventId());
+            var event = canonical.getEvent();
+            var eventMap = canonical.getContext();
 
             // Redis 重放失败：直接走 handleFailure，不能 markDone。
             // 委托 RealtimeProfileUpdateService，与 EventConsumer Phase 2 共用同一份 Lua。
@@ -113,76 +113,44 @@ public class CompensationJob {
 
             // Recover older EVENT_REPLAY target events too. New targets already
             // seed their durable task inside the event persistence transaction.
-            if ("ORDER_PAID".equals(eventMap.get("eventType"))) {
-                attributionService.onTargetEvent(task.getEventId(),
-                        ((Number) eventMap.get("userId")).longValue(), "ORDER_PAID",
-                        LocalDateTime.parse((String) eventMap.get("effectiveEventTime")));
+            if ("ORDER_PAID".equals(event.getEventType())) {
+                attributionService.onTargetEvent(event.getEventId(), event.getUserId(),
+                        event.getEventType(), event.getEffectiveEventTime());
             }
 
-            markDone(task.getId());
-            log.info("Compensation task {} completed", task.getEventId());
+            markDone(task);
         } catch (Exception e) {
             log.error("Compensation failed: type={}, exception={}", task.getTaskType(), e.getClass().getSimpleName());
             handleFailure(task, e);
         }
     }
 
-    /**
-     * 将指定补偿任务标记 DONE，并清除处理锁定时间。
-     */
-    private void markDone(Long taskId) {
-        compensationTaskMapper.update(null,
-                new LambdaUpdateWrapper<DataCompensationTask>()
-                        .eq(DataCompensationTask::getId, taskId)
-                        .set(DataCompensationTask::getStatus, CompensationStatus.DONE.name())
-                        .set(DataCompensationTask::getLockedAt, null));
+    private void markDone(DataCompensationTask task) {
+        if (compensationTaskMapper.finishAttempt(task, CompensationStatus.DONE.name(), task.getRetryCount(),
+                null, null) == 1) {
+            log.info("Compensation task {} completed", task.getEventId());
+        }
     }
 
-    /**
-     * 保存至多 512 字符的错误说明并清除锁定时间；未达上限时增加重试计数，
-     * 按 30 × 2^新重试次数秒退避后恢复 PENDING，达到上限则标记 FAILED。
-     */
-    private void handleFailure(DataCompensationTask task, Exception e) {
-        int newRetryCount = task.getRetryCount() + 1;
-        String errMsg = CompensationTaskType.MARKETING_CLICK.name().equals(task.getTaskType())
-                ? (e instanceof ClickDeliveryNotVisibleException ? "DELIVERY_NOT_VISIBLE" : "INFRASTRUCTURE_FAILURE")
-                : e.getMessage() != null
-                ? e.getMessage().substring(0, Math.min(512, e.getMessage().length()))
-                : "Unknown error";
+    private void handleFailure(DataCompensationTask task, Exception failure) {
+        int retryCount = task.getRetryCount() + 1;
+        boolean exhausted = retryCount >= task.getMaxRetry();
+        boolean notVisible = failure instanceof ClickDeliveryNotVisibleException;
+        String error = notVisible ? "DELIVERY_NOT_VISIBLE" : "INFRASTRUCTURE_FAILURE";
+        String status = exhausted ? CompensationStatus.FAILED.name() : CompensationStatus.PENDING.name();
+        Long delay = exhausted ? null : 30L * (1L << Math.min(retryCount, 16));
 
-        if (newRetryCount >= task.getMaxRetry()) {
-            if (e instanceof ClickDeliveryNotVisibleException) {
+        if (!exhausted || !notVisible) {
+            compensationTaskMapper.finishAttempt(task, status, retryCount, error, delay);
+            return;
+        }
+        // Keep the canonical click and its compensation terminal update atomic. The click
+        // lock comes first, matching the event path's lock order.
+        transactionTemplate.executeWithoutResult(transaction -> {
+            userEvents.selectByEventIdForUpdate(task.getEventId());
+            if (compensationTaskMapper.finishAttempt(task, status, retryCount, error, delay) == 1) {
                 clickEventService.exhaustVisibilityRetries(task.getEventId());
             }
-            compensationTaskMapper.update(null,
-                    new LambdaUpdateWrapper<DataCompensationTask>()
-                            .eq(DataCompensationTask::getId, task.getId())
-                            .set(DataCompensationTask::getStatus, CompensationStatus.FAILED.name())
-                            .set(DataCompensationTask::getRetryCount, newRetryCount)
-                            .set(DataCompensationTask::getLastError, errMsg)
-                            .set(DataCompensationTask::getLockedAt, null));
-        } else {
-            long backoffSeconds = (long) Math.pow(2, newRetryCount) * 30;
-            compensationTaskMapper.update(null,
-                    new LambdaUpdateWrapper<DataCompensationTask>()
-                            .eq(DataCompensationTask::getId, task.getId())
-                            .set(DataCompensationTask::getStatus, CompensationStatus.PENDING.name())
-                            .set(DataCompensationTask::getRetryCount, newRetryCount)
-                            .set(DataCompensationTask::getNextRetryAt,
-                                    LocalDateTime.now().plusSeconds(backoffSeconds))
-                            .set(DataCompensationTask::getLastError, errMsg)
-                            .set(DataCompensationTask::getLockedAt, null));
-        }
-    }
-
-    /**
-     * 将补偿载荷 JSON 解析为事件上下文，解析异常交由补偿失败流程处理。
-     */
-    private Map<String, Object> parseEvent(String json) {
-        try {
-            return OBJECT_MAPPER.readValue(json, new TypeReference<Map<String, Object>>() {});
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to parse compensation event payload", e);
-        }
+        });
     }
 }

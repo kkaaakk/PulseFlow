@@ -1,6 +1,6 @@
 # PulseFlow 业务演示
 
-启动隔离的 MySQL 8、Redis、Kafka、Java 和 XXL-JOB Admin。Flyway 运行到 V10 后，在同一业务时区导入 [种子数据](seed-demo-data.sql)。种子只供本地干净演示库使用。启动控制台后查看 Users、Campaigns、Deliveries 与 Attribution。
+启动隔离的 MySQL 8、Redis、Kafka、Java 和 XXL-JOB Admin。Flyway 运行到 V11 后，在同一业务时区导入 [种子数据](seed-demo-data.sql)。种子只供本地干净演示库使用。启动控制台后查看 Users、Campaigns、Deliveries 与 Attribution。
 
 1. EVENT 商品浏览实时促销。向 `POST /api/events` 提交 `CONTENT_VIEW`，`properties.category` 使用 `electronics`。Campaign 97001 命中，发送一条 IN_APP。改用其他分类可观察规则不匹配。重复提交同一 `eventId`，观察触达去重。
 2. DELAYED 加购提醒。提交带 `properties.cartItemId` 的 `ADD_CART`，等待 Campaign 97002 的 60 秒。用另一商品项试一次，在到期前提交相同用户和商品项的 `REMOVE_CART` 或 `ORDER_PAID`，应取消该项提醒。

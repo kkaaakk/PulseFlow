@@ -567,6 +567,9 @@ def validate_window_metrics(args: argparse.Namespace, user_min: int, user_max: i
         key = (user, "order", identity) if 0 < len(identity.encode("utf-8")) <= 256 else (user, "event", event_id)
         first_paid[key] = min(day, first_paid.get(key, day))
     order_counts = Counter(key[0] for key, day in first_paid.items() if day >= paid_since)
+    for user, _, day, _ in orders or []:
+        if day >= paid_since:
+            order_counts.setdefault(user, 0)
     expected = {
         f"{user}|{metric}": decimal_text(value)
         for metric, rows in (
@@ -1148,7 +1151,7 @@ def validate_redis(args: argparse.Namespace, manifest: dict[str, Any], checks: l
     event_query = (
         "SELECT user_id, event_type, effective_event_time, properties FROM user_event "
         f"WHERE event_id LIKE {sql_literal(prefix + '%')} AND user_id IN ({user_sql}) "
-        "ORDER BY id"
+        "ORDER BY effective_event_time, (event_type IN ('REMOVE_CART', 'ORDER_PAID')), id"
     ) if prefix and user_sql else None
     event_rows, event_error = run_mysql(args, event_query) if event_query else (None, "manifest has no sample users")
     if event_error:
@@ -1171,8 +1174,8 @@ def validate_redis(args: argparse.Namespace, manifest: dict[str, Any], checks: l
         if event_type in {"CONTENT_VIEW", "ADD_CART"}:
             active_users.add(user_id)
         item = props.get("cartItemId") if isinstance(props, dict) else None
-        cart_item_id = "" if item is None else str(item)
-        if cart_item_id:
+        cart_item_id = str(item) if type(item) in (str, int) else ""
+        if cart_item_id.strip() and len(cart_item_id.encode("utf-8")) <= 256:
             if event_type == "ADD_CART":
                 expected_cart[user_id][cart_item_id] = props
             elif event_type in {"REMOVE_CART", "ORDER_PAID"}:

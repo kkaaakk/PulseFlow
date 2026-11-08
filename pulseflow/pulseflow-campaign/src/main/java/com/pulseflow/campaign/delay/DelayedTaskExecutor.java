@@ -15,7 +15,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RMap;
 import org.redisson.api.RedissonClient;
 import org.redisson.client.codec.StringCodec;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -86,16 +85,23 @@ public class DelayedTaskExecutor {
      */
     private void processOne(String taskId, long claimedAt) {
         String[] parts = taskId.split(":", 4);
-        if (parts.length < 4) {
-            log.warn("Malformed delayed taskId, cancelling: {}", taskId);
-            delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId, claimedAt);
+        boolean canonicalItem = parts.length == 4 && "cart".equals(parts[0]);
+        if (parts.length != 4 || parts[3].isBlank() || taskId.codePointCount(0, taskId.length()) > 128) {
+            completeMalformedTask(taskId, claimedAt);
             return;
         }
 
-        Long campaignId = Long.valueOf(parts[0]);
-        Long userId = Long.valueOf(parts[1]);
-        String cartItemId = parts[2];
+        Long campaignId;
+        Long userId;
+        try {
+            campaignId = Long.valueOf(parts[canonicalItem ? 1 : 0]);
+            userId = Long.valueOf(parts[canonicalItem ? 2 : 1]);
+        } catch (NumberFormatException e) {
+            completeMalformedTask(taskId, claimedAt);
+            return;
+        }
         String addCartEventId = parts[3];
+        String cartItemId = canonicalItem ? userEventMapper.selectAddedCartItem(addCartEventId, userId) : parts[2];
 
         Campaign campaign = campaignMapper.selectById(campaignId);
         LocalDateTime now = LocalDateTime.now();
@@ -109,9 +115,7 @@ public class DelayedTaskExecutor {
             return;
         }
 
-        // A durable later mutation also cancels this reminder when Redis is behind or replayed out of order.
-        if (!isCartItemPresent(userId, cartItemId)
-                || !userEventMapper.isCurrentCartAddition(addCartEventId, userId, cartItemId)) {
+        if (cartItemId == null || !isCartItemPresent(userId, cartItemId)) {
             delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId, claimedAt);
             log.info("Delayed task cancelled (item no longer in cart): taskId={}", taskId);
             return;
@@ -136,21 +140,15 @@ public class DelayedTaskExecutor {
                 .createdAt(LocalDateTime.now())
                 .build();
 
-        try {
-            deliveryService.createDeliveryTask(dto);
-            // 只有真正成功或命中 dedup_key（之前已创建）才删除 processing 任务。
-            delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId, claimedAt);
-            log.info("Delayed delivery created: campaign={}, userId={}, cartItemId={}",
-                    campaignId, userId, cartItemId);
-        } catch (DuplicateKeyException e) {
-            // 命中 uk_dedup：之前已成功创建过触达任务，安全删除。
-            delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId, claimedAt);
-            log.info("Delayed task already delivered (dedup hit): taskId={}", taskId);
-        }
-        // 其它异常（DB 临时故障、Kafka 不可用等）不删 processing，
-        // 交由 DelayTaskRecoveryJob 超时后放回 pending 重试。
-        // 注意：createDeliveryTask 内部对 Kafka 投递失败已吞掉异常并保留 dispatch_status=PENDING，
-        // 那种情况 task 已落库，可以视为成功创建，此处不会进 catch。
+        // The insert rechecks MySQL after Redis/preferences. A cancellation visible to this
+        // statement prevents materialization, even when the cache still shows an item.
+        deliveryService.createDelayedDeliveryTask(dto, cartItemId);
+        delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId, claimedAt);
+    }
+
+    private void completeMalformedTask(String taskId, long claimedAt) {
+        delayedTaskManager.completeTask(DELAYED_TASK_TYPE, taskId, claimedAt);
+        log.warn("Discarded malformed delayed task key");
     }
 
     /**

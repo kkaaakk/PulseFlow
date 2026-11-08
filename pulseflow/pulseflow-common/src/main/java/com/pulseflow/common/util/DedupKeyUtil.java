@@ -30,7 +30,12 @@ public final class DedupKeyUtil {
      * Generates a dedup key for DELAYED-triggered campaigns.
      */
     public static String forDelayed(Long campaignId, Long userId, String cartItemId, String addCartEventId) {
-        return campaignId + ":" + userId + ":" + cartItemId + ":" + addCartEventId;
+        String legacy = campaignId + ":" + userId + ":" + cartItemId + ":" + addCartEventId;
+        if (cartItemId.indexOf(':') < 0 && legacy.codePointCount(0, legacy.length()) <= 128) {
+            return legacy;
+        }
+        // The canonical event carries the item ID. Keep the old key for previously supported items.
+        return "cart:" + campaignId + ":" + userId + ":" + addCartEventId;
     }
 
     /**

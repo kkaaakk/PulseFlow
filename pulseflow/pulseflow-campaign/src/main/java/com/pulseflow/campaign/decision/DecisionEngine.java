@@ -8,10 +8,12 @@ import com.pulseflow.common.enums.CampaignStatus;
 import com.pulseflow.common.enums.TriggerType;
 import com.pulseflow.common.exception.PulseFlowException;
 import com.pulseflow.common.util.BehaviorWindow;
+import com.pulseflow.common.util.CartEvent;
 import com.pulseflow.common.util.DedupKeyUtil;
 import com.pulseflow.common.util.DelayedTaskConstants;
 import com.pulseflow.common.util.JsonUtil;
 import com.pulseflow.entity.Campaign;
+import com.pulseflow.entity.CampaignExecution;
 import com.pulseflow.entity.CampaignRule;
 import com.pulseflow.mapper.CampaignMapper;
 import com.pulseflow.mapper.CampaignRuleMapper;
@@ -22,7 +24,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -130,10 +131,8 @@ public class DecisionEngine {
             try {
                 if (!inActiveWindow(campaign)) continue;
 
-                Map<String, Object> props = getProperties(eventMap);
-                Object item = props.get("cartItemId");
-                String cartItemId = item == null ? "" : String.valueOf(item);
-                if (cartItemId.isBlank()) {
+                String cartItemId = CartEvent.itemId(getProperties(eventMap));
+                if (cartItemId == null) {
                     log.warn("DELAYED campaign {} matched event {} but no cartItemId in properties, skip",
                             campaign.getId(), eventId);
                     continue;
@@ -181,40 +180,17 @@ public class DecisionEngine {
                 || e instanceof IllegalArgumentException;
     }
 
-    /** Preserve the single-user batch entry point. */
-    @Transactional(isolation = Isolation.READ_COMMITTED)
-    public void evaluateBatch(Campaign campaign, Long userId, Long campaignExecutionId) {
-        evaluateBatch(campaign, List.of(userId), campaignExecutionId);
-    }
-
-    /** Evaluate one enabled-account page and commit its tasks before publishing. */
-    @Transactional(isolation = Isolation.READ_COMMITTED)
-    public void evaluateBatch(Campaign campaign, List<Long> userIds, Long campaignExecutionId) {
-        if (!inActiveWindow(campaign)) return;
+    /** Select a page outside a transaction, then fence its short write against the current lease. */
+    public boolean evaluateBatch(Campaign campaign, List<Long> userIds,
+                                 CampaignExecution attempt, BehaviorWindow window) {
         LocalDateTime now = LocalDateTime.now();
-        List<Long> eligible = matchWindowAudience(userIds, loadRules(campaign.getId()), now).stream()
-                .filter(userId -> userPreferenceService.canDeliver(userId, campaign.getId(), campaign.getChannel()))
-                .toList();
-
-        // READ COMMITTED sees payments committed since the snapshot and the earlier rule reads.
-        if (eligible.isEmpty()) return;
-        LocalDateTime checkTime = LocalDateTime.now();
-        if (!checkTime.toLocalDate().equals(now.toLocalDate())) {
-            throw new IllegalStateException("Calendar date changed while selecting the audience; retry this execution");
+        if (!window.today().equals(now.toLocalDate())) {
+            throw new IllegalStateException("Calendar date changed while selecting the audience");
         }
-        for (Long userId : withoutRecentPayments(eligible, new BehaviorWindow(checkTime.toLocalDate()))) {
-            String dedupKey = campaignExecutionId != null
-                    ? DedupKeyUtil.forScheduled(campaignExecutionId, userId)
-                    : DedupKeyUtil.forEvent(campaign.getId(), userId, "scheduled_" + userId);
-            deliveryService.createDeliveryTask(DeliveryTaskDto.builder()
-                    .campaignId(campaign.getId())
-                    .userId(userId)
-                    .dedupKey(dedupKey)
-                    .channel(campaign.getChannel())
-                    .messageContent(campaign.getMessageTemplate())
-                    .createdAt(LocalDateTime.now())
-                    .build());
-        }
+        List<Long> candidates = inActiveWindow(campaign)
+                ? matchWindowAudience(userIds, loadRules(campaign.getId()), now) : List.of();
+        List<Long> eligible = userPreferenceService.deliverableUsers(candidates, campaign.getId(), campaign.getChannel());
+        return deliveryService.createScheduledPage(campaign, attempt, eligible, window);
     }
 
     /** Audience preview and execution share the window predicate and payment fact lookup. */
@@ -283,15 +259,18 @@ public class DecisionEngine {
         try {
             config = JsonUtil.fromJson(rule.getRuleConfig(), Map.class);
         } catch (RuntimeException e) {
-            log.warn("Cannot parse rule {}", rule.getId(), e);
+            log.warn("Cannot parse rule {} ({})", rule.getId(), e.getClass().getSimpleName());
             return false;
         }
         if (config == null) return false;
         String ruleType = rule.getRuleType();
         String operator = String.valueOf(config.get("operator"));
-        if ("PROFILE".equals(ruleType) && config.get("tagName") instanceof String tagName) {
+        if ("PROFILE".equals(ruleType) && config.get("tagName") != null) {
+            if (!(config.get("tagName") instanceof String tagName) || tagName.isBlank()) return false;
+            String value = String.valueOf(config.get("value"));
+            if ("EQ".equals(operator) && !"1".equals(value) && !"0".equals(value)) return false;
             boolean hasTag = profileService.hasTag(userId, tagName);
-            return "EQ".equals(operator) ? hasTag == "1".equals(String.valueOf(config.get("value"))) : hasTag;
+            return "EQ".equals(operator) ? hasTag == "1".equals(value) : hasTag;
         }
         if (("PROFILE".equals(ruleType) || "FREQUENCY".equals(ruleType))
                 && config.get("metricType") instanceof String metricType) {
@@ -308,11 +287,14 @@ public class DecisionEngine {
                     : profileService.getRuleMetric(userId, type);
             return compare(value, operator, threshold);
         }
-        if ("EVENT".equals(ruleType) && config.get("propertyKey") instanceof String propKey) {
-            return String.valueOf(config.get("propertyValue"))
+        if ("EVENT".equals(ruleType)) {
+            return config.get("propertyKey") instanceof String propKey && !propKey.isBlank()
+                    && config.containsKey("propertyValue")
+                    && String.valueOf(config.get("propertyValue"))
                     .equals(String.valueOf(getProperties(eventMap).get(propKey)));
         }
-        return true; // Preserve the behavior of existing rule types and incomplete legacy rules.
+        // Keep the extension behavior for unknown legacy rule types, but do not broaden known rules.
+        return !"PROFILE".equals(ruleType) && !"FREQUENCY".equals(ruleType);
     }
 
     private boolean compare(BigDecimal left, String operator, BigDecimal right) {

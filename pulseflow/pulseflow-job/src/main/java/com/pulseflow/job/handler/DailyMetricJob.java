@@ -6,6 +6,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -16,6 +19,7 @@ import java.time.temporal.ChronoUnit;
 public class DailyMetricJob {
 
     private final JdbcTemplate jdbcTemplate;
+    private final PlatformTransactionManager transactionManager;
 
     /**
      * 将已完成小时桶汇总到日桶，重算更新聚合值，以便重复调度保持幂等。
@@ -40,7 +44,10 @@ public class DailyMetricJob {
             """;
 
         try {
-            int updated = jdbcTemplate.update(sql, window.activityStart(), now.truncatedTo(ChronoUnit.HOURS));
+            TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+            transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+            int updated = transaction.execute(status ->
+                    jdbcTemplate.update(sql, window.activityStart(), now.truncatedTo(ChronoUnit.HOURS)));
             log.info("DailyMetricJob completed, rows affected: {}", updated);
         } catch (Exception e) {
             log.error("DailyMetricJob failed", e);

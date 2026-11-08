@@ -40,7 +40,9 @@ public class CompensationClaimService {
             return null;
         }
 
-        compensationTaskMapper.markProcessing(task.getId());
-        return task;
+        if (compensationTaskMapper.markProcessing(task.getId()) != 1) {
+            throw new IllegalStateException("Compensation claim did not update the locked row");
+        }
+        return compensationTaskMapper.selectById(task.getId());
     }
 }
