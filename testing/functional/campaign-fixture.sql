@@ -38,8 +38,8 @@ INSERT INTO campaign (
     user_daily_limit, campaign_weekly_limit, status, version, created_by
 )
 VALUES (
-    9203, 'PF_TEST_ATTRIBUTION_V1', 'Phase 1 attribution fixture', 'EVENT', 'ORDER_PAID',
-    'IN_APP', 'Phase 1 attribution fixture message', 3, 3, 'ACTIVE', 0, 9000001
+    9203, 'PF_TEST_ATTRIBUTION_V1', 'Phase 1 attribution fixture', 'EVENT', 'CONTENT_VIEW',
+    'IN_APP', 'Phase 1 attribution fixture message', 3, 3, 'PAUSED', 0, 9000001
 )
 ON DUPLICATE KEY UPDATE
     name = VALUES(name), description = VALUES(description), trigger_type = VALUES(trigger_type),

@@ -1,11 +1,8 @@
 package com.pulseflow.job.handler;
 
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.pulseflow.common.enums.CompensationStatus;
-import com.pulseflow.entity.DataCompensationTask;
 import com.pulseflow.entity.DeliveryTask;
 import com.pulseflow.campaign.delivery.DeliveryRecoveryService;
-import com.pulseflow.mapper.DataCompensationTaskMapper;
 import com.pulseflow.mapper.DeliveryTaskMapper;
 import com.xxl.job.core.handler.annotation.XxlJob;
 import lombok.RequiredArgsConstructor;
@@ -20,11 +17,10 @@ import java.time.LocalDateTime;
 public class RetryCompensationJob {
 
     private final DeliveryTaskMapper deliveryTaskMapper;
-    private final DataCompensationTaskMapper compensationTaskMapper;
     private final DeliveryRecoveryService recovery;
 
     /**
-     * 重置到期触达重试任务并恢复超时处理任务；对达到五次上限的触达或处理中补偿任务标记 FAILED。
+     * 恢复到期或超时的触达任务并记录耗尽状态。
      */
     @XxlJob("retryCompensationJob")
     public void execute() {
@@ -77,13 +73,6 @@ public class RetryCompensationJob {
                         .set(DeliveryTask::getProcessingAt, null).set(DeliveryTask::getNextRetryAt, null));
             }
         }
-
-        // Mark over-retry compensation tasks as FAILED
-        compensationTaskMapper.update(null,
-                new LambdaUpdateWrapper<DataCompensationTask>()
-                        .eq(DataCompensationTask::getStatus, CompensationStatus.PROCESSING.name())
-                        .ge(DataCompensationTask::getRetryCount, 5)
-                        .set(DataCompensationTask::getStatus, CompensationStatus.FAILED.name()));
 
         log.info("RetryCompensationJob completed");
     }

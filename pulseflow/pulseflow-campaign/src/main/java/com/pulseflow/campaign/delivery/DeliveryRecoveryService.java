@@ -3,7 +3,9 @@ package com.pulseflow.campaign.delivery;
 import com.pulseflow.entity.*;
 import com.pulseflow.mapper.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.Objects;
 
@@ -14,6 +16,27 @@ public class DeliveryRecoveryService {
     private final DeliveryTaskMapper tasks;
     private final InAppMessageMapper inApp;
     private final PushRecordMapper push;
+
+    /** Keep the claim valid through the database-backed channel effect, separately from task finalization. */
+    @Transactional
+    public LocalDateTime storeChannelReceipt(DeliveryTask task, LocalDateTime attemptedAt) {
+        if (tasks.lockChannelClaim(task.getId(), task.getProcessingAt()) == null) return null;
+        try {
+            if ("IN_APP".equals(task.getChannel())) {
+                inApp.insert(InAppMessage.builder().businessKey(task.getId()).userId(task.getUserId())
+                        .campaignId(task.getCampaignId()).content(task.getMessageContent()).createdAt(attemptedAt).build());
+            } else {
+                push.insert(PushRecord.builder().businessKey(task.getId()).userId(task.getUserId())
+                        .campaignId(task.getCampaignId()).title("PulseFlow").content(task.getMessageContent())
+                        .pushedAt(attemptedAt).build());
+            }
+        } catch (DuplicateKeyException alreadySent) {
+            // Preserve the original receipt and its time.
+        }
+        LocalDateTime sentAt = successfulSendTime(task);
+        if (sentAt == null) throw new IllegalStateException("CHANNEL_SUCCESS_TIME_MISSING");
+        return sentAt;
+    }
 
     public LocalDateTime successfulSendTime(DeliveryTask task) {
         if ("IN_APP".equals(task.getChannel())) {

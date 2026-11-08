@@ -9,6 +9,7 @@ import com.pulseflow.entity.Campaign;
 import com.pulseflow.entity.CampaignRule;
 import com.pulseflow.mapper.CampaignMapper;
 import com.pulseflow.mapper.CampaignRuleMapper;
+import com.pulseflow.mapper.UserEventMapper;
 import com.pulseflow.profile.service.ProfileService;
 import com.pulseflow.profile.service.UserPreferenceService;
 import org.junit.jupiter.api.BeforeEach;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -60,7 +62,7 @@ class DecisionEngineTest {
         userPreferenceService = mock(UserPreferenceService.class);
         decisionEngine = new DecisionEngine(
                 campaignMapper, campaignRuleMapper, profileService,
-                deliveryService, delayedTaskManager, userPreferenceService);
+                deliveryService, delayedTaskManager, userPreferenceService, mock(UserEventMapper.class));
 
         // Default: user passes pre-filter (DND / unsub / converted).
         when(userPreferenceService.canDeliver(anyLong(), anyLong(), anyString())).thenReturn(true);
@@ -135,13 +137,13 @@ class DecisionEngineTest {
     @Test
     @DisplayName("PROFILE tag EQ rule matches → creates DeliveryTask")
     void profileTagRuleMatches() {
-        Campaign campaign = eventCampaign(100L, "PAGE_VIEW");
+        Campaign campaign = eventCampaign(100L, "CONTENT_VIEW");
         when(campaignMapper.selectList(any())).thenReturn(List.of(campaign), List.of());
         when(campaignRuleMapper.selectList(any())).thenReturn(List.of(
                 rule(100L, "PROFILE", "{\"tagName\":\"HIGH_VALUE\",\"operator\":\"EQ\",\"value\":\"1\"}")));
         when(profileService.hasTag(1001L, "HIGH_VALUE")).thenReturn(true);
 
-        decisionEngine.evaluate(eventMap("evt-1", 1001L, "PAGE_VIEW", Map.of()));
+        decisionEngine.evaluate(eventMap("evt-1", 1001L, "CONTENT_VIEW", Map.of()));
 
         verify(deliveryService).createDeliveryTask(any(DeliveryTaskDto.class));
     }
@@ -152,14 +154,14 @@ class DecisionEngineTest {
     @Test
     @DisplayName("PROFILE metric GTE threshold rule matches → creates DeliveryTask")
     void profileMetricRuleGteThreshold() {
-        Campaign campaign = eventCampaign(101L, "PAGE_VIEW");
+        Campaign campaign = eventCampaign(101L, "CONTENT_VIEW");
         when(campaignMapper.selectList(any())).thenReturn(List.of(campaign), List.of());
         when(campaignRuleMapper.selectList(any())).thenReturn(List.of(
                 rule(101L, "PROFILE",
                         "{\"metricType\":\"activeDays7d\",\"operator\":\"GTE\",\"threshold\":5}")));
-        when(profileService.getMetricValue(1001L, "activeDays7d")).thenReturn(10L);
+        when(profileService.getRuleMetric(1001L, "active_days_7d")).thenReturn(BigDecimal.valueOf(6));
 
-        decisionEngine.evaluate(eventMap("evt-2", 1001L, "PAGE_VIEW", Map.of()));
+        decisionEngine.evaluate(eventMap("evt-2", 1001L, "CONTENT_VIEW", Map.of()));
 
         verify(deliveryService).createDeliveryTask(any(DeliveryTaskDto.class));
     }
@@ -170,13 +172,13 @@ class DecisionEngineTest {
     @Test
     @DisplayName("EVENT property equals rule matches → creates DeliveryTask")
     void eventPropertyRuleMatches() {
-        Campaign campaign = eventCampaign(102L, "ADD_TO_CART");
+        Campaign campaign = eventCampaign(102L, "ADD_CART");
         when(campaignMapper.selectList(any())).thenReturn(List.of(campaign), List.of());
         when(campaignRuleMapper.selectList(any())).thenReturn(List.of(
                 rule(102L, "EVENT",
                         "{\"propertyKey\":\"category\",\"propertyValue\":\"electronics\"}")));
 
-        decisionEngine.evaluate(eventMap("evt-3", 1001L, "ADD_TO_CART",
+        decisionEngine.evaluate(eventMap("evt-3", 1001L, "ADD_CART",
                 Map.of("category", "electronics")));
 
         verify(deliveryService).createDeliveryTask(any(DeliveryTaskDto.class));
@@ -188,15 +190,15 @@ class DecisionEngineTest {
     @Test
     @DisplayName("FREQUENCY rule over limit → rule does NOT match → no DeliveryTask")
     void frequencyRuleBlocksOverLimit() {
-        Campaign campaign = eventCampaign(103L, "PAGE_VIEW");
+        Campaign campaign = eventCampaign(103L, "CONTENT_VIEW");
         when(campaignMapper.selectList(any())).thenReturn(List.of(campaign), List.of());
         // FREQUENCY rule: sendCount24h LT 3 (user has 5 → 5 < 3 is false → rule fails)
         when(campaignRuleMapper.selectList(any())).thenReturn(List.of(
                 rule(103L, "FREQUENCY",
                         "{\"metricType\":\"sendCount24h\",\"operator\":\"LT\",\"threshold\":3}")));
-        when(profileService.getMetricValue(1001L, "sendCount24h")).thenReturn(5L);
+        when(profileService.getRuleMetric(1001L, "sendCount24h")).thenReturn(BigDecimal.valueOf(5));
 
-        decisionEngine.evaluate(eventMap("evt-4", 1001L, "PAGE_VIEW", Map.of()));
+        decisionEngine.evaluate(eventMap("evt-4", 1001L, "CONTENT_VIEW", Map.of()));
 
         verify(deliveryService, never()).createDeliveryTask(any());
     }
@@ -207,7 +209,7 @@ class DecisionEngineTest {
     @Test
     @DisplayName("DuplicateKeyException from delivery is a business skip — no re-throw")
     void dedupDuplicateKeySkipsSilently() {
-        Campaign campaign = eventCampaign(104L, "PAGE_VIEW");
+        Campaign campaign = eventCampaign(104L, "CONTENT_VIEW");
         when(campaignMapper.selectList(any())).thenReturn(List.of(campaign), List.of());
         when(campaignRuleMapper.selectList(any())).thenReturn(List.of(
                 rule(104L, "PROFILE", "{\"tagName\":\"HIGH_VALUE\",\"operator\":\"EQ\",\"value\":\"1\"}")));
@@ -216,7 +218,7 @@ class DecisionEngineTest {
                 .when(deliveryService).createDeliveryTask(any());
 
         // Must not throw — dedup hit is a business-level skip, not an infra failure.
-        assertThatCode(() -> decisionEngine.evaluate(eventMap("evt-5", 1001L, "PAGE_VIEW", Map.of())))
+        assertThatCode(() -> decisionEngine.evaluate(eventMap("evt-5", 1001L, "CONTENT_VIEW", Map.of())))
                 .doesNotThrowAnyException();
 
         verify(deliveryService).createDeliveryTask(any(DeliveryTaskDto.class));
@@ -228,11 +230,11 @@ class DecisionEngineTest {
     @Test
     @DisplayName("DELAYED campaign with cartItemId → schedules delayed task")
     void delayedTaskScheduledWithCartItemId() {
-        Campaign campaign = delayedCampaign(200L, "ADD_TO_CART", 1800);
+        Campaign campaign = delayedCampaign(200L, "ADD_CART", 1800);
         // First selectList (EVENT) returns empty; second (DELAYED) returns our campaign.
         when(campaignMapper.selectList(any())).thenReturn(List.of(), List.of(campaign));
 
-        decisionEngine.evaluate(eventMap("evt-6", 1001L, "ADD_TO_CART",
+        decisionEngine.evaluate(eventMap("evt-6", 1001L, "ADD_CART",
                 Map.of("cartItemId", "SKU-123")));
 
         // taskId = campaignId:userId:cartItemId:eventId = "200:1001:SKU-123:evt-6"
@@ -242,4 +244,15 @@ class DecisionEngineTest {
                 anyLong());
         verify(deliveryService, never()).createDeliveryTask(any());
     }
+
+    @Test
+    void malformedKnownRuleDoesNotBecomeAnUnconditionalMatch() {
+        Campaign campaign = eventCampaign(101L, "CONTENT_VIEW");
+        when(campaignMapper.selectList(any())).thenReturn(List.of(campaign));
+        when(campaignRuleMapper.selectList(any())).thenReturn(List.of(
+                rule(101L, "EVENT", "{\"propertyKey\":99,\"propertyValue\":\"shoes\"}")));
+        decisionEngine.evaluate(eventMap("evt-invalid-rule", 1001L, "CONTENT_VIEW", Map.of()));
+        verify(deliveryService, never()).createDeliveryTask(any(DeliveryTaskDto.class));
+    }
+
 }

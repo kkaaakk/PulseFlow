@@ -1,6 +1,8 @@
 package com.pulseflow.campaign.profile;
 
-import com.pulseflow.common.util.JsonUtil;
+import com.pulseflow.common.util.CartEvent;
+import com.pulseflow.entity.UserEvent;
+import com.pulseflow.mapper.UserEventMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RScript;
@@ -11,30 +13,21 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
-/**
- * 实时画像 Redis 更新的单一事实来源。
- *
- * <p>历史上 {@code EventConsumer}（Phase 2）和 {@code CompensationJob}（重放）
- * 各自维护一份 Lua 脚本，且补偿版本只更新 {@code last_active_at}，导致 Redis
- * 真正故障后补偿无法完整重建实时状态——直接破坏了简历亮点"Redis 故障补偿恢复"。</p>
- *
- * <p>本类抽出完整的 Lua 实现（按事件类型更新 last_login_at / views / search_count /
- * 购物车），正常消费与补偿重放调用同一份脚本，避免再次漂移。</p>
- *
- * <p>幂等保证：{@code event:processed:{eventId}} 标记位（7 天 TTL ≥ Kafka 保留期）
- * 在脚本内 EXISTS 判断，重复执行安全。</p>
- */
+/** Atomically updates core realtime state and marks events processed for seven days. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class RealtimeProfileUpdateService {
 
     private final RedissonClient redissonClient;
+    private final UserEventMapper userEvents;
 
     /** 事件处理标记 TTL（7 天），≥ Kafka 保留期，防止重放窗口内重复执行。 */
     private static final long PROCESSED_FLAG_TTL_SECONDS = 604800;
+    private static final DateTimeFormatter REDIS_TIME = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSS");
 
     /**
      * 完整的实时画像 Lua 脚本。正常消费 Phase 2 与补偿重放共用此脚本。
@@ -55,29 +48,40 @@ public class RealtimeProfileUpdateService {
             local cartItemId = ARGV[3]
             local cartItemJson = ARGV[4]
             local ttl = tonumber(ARGV[5])
+            local revision = ARGV[6]
+            local cartAction = ARGV[7]
 
             -- 幂等：已处理过直接跳过
             if redis.call('EXISTS', processedKey) == 1 then
                 return 0
             end
 
-            -- 按事件类型更新对应 Key
-            if eventType == 'LOGIN' then
-                redis.call('HSET', rtKey, 'last_login_at', effectiveTime)
-            elseif eventType == 'CONTENT_VIEW' then
-                redis.call('HINCRBY', dailyKey, 'views', 1)
-            elseif eventType == 'SEARCH' then
-                redis.call('HINCRBY', dailyKey, 'search_count', 1)
-            elseif eventType == 'ADD_CART' then
-                redis.call('HSET', cartKey, cartItemId, cartItemJson)
-            elseif eventType == 'REMOVE_CART' then
-                redis.call('HDEL', cartKey, cartItemId)
-            elseif eventType == 'ORDER_PAID' then
-                redis.call('HDEL', cartKey, cartItemId)
+            -- Redis serializes scripts but does not roll back earlier writes on errors.
+            local active = eventType == 'CONTENT_VIEW' or eventType == 'ADD_CART'
+            local lastActive = active and redis.call('HGET', rtKey, 'last_active_at')
+            local applyCart = false
+            if revision ~= '' then
+                local current = redis.call('GET', KEYS[5])
+                applyCart = not current or revision >= current
             end
 
-            -- 统一更新最后活跃时间
-            redis.call('HSET', rtKey, 'last_active_at', effectiveTime)
+            if eventType == 'CONTENT_VIEW' then
+                redis.call('HINCRBY', dailyKey, 'views', 1)
+                redis.call('EXPIRE', dailyKey, 172800)
+            end
+
+            if applyCart then
+                if cartAction == 'ADD_CART' then
+                    redis.call('HSET', cartKey, cartItemId, cartItemJson)
+                else
+                    redis.call('HDEL', cartKey, cartItemId)
+                end
+                redis.call('SET', KEYS[5], revision, 'EX', ttl)
+            end
+
+            if active and (not lastActive or effectiveTime > lastActive) then
+                redis.call('HSET', rtKey, 'last_active_at', effectiveTime)
+            end
 
             -- 设置处理标记（7 天 TTL ≥ Kafka 保留期）
             redis.call('SET', processedKey, '1', 'EX', ttl)
@@ -96,32 +100,46 @@ public class RealtimeProfileUpdateService {
         try {
             String eventType = (String) ctx.get("eventType");
             Long userId = toLong(ctx.get("userId"));
-            String effectiveTime = normalizeTime((String) ctx.get("effectiveEventTime"));
-            String dateStr = parseEventTime(effectiveTime)
-                    .format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+            String time = (String) ctx.get("effectiveEventTime");
+            LocalDateTime effectiveTime = time == null ? LocalDateTime.now() : parseEventTime(time);
+            String dateStr = effectiveTime.format(DateTimeFormatter.BASIC_ISO_DATE);
 
-            Map<String, Object> props = getProperties(ctx);
-            String cartItemId = props != null ? String.valueOf(props.getOrDefault("cartItemId", "")) : "";
-            String cartItemJson = props != null ? JsonUtil.toJson(props) : "{}";
+            String cartItemId = switch (eventType) {
+                case "ADD_CART", "REMOVE_CART", "ORDER_PAID" -> CartEvent.itemId(getProperties(ctx));
+                default -> null;
+            };
+            UserEvent latest = cartItemId == null ? null : userEvents.selectLatestCartMutation(userId, cartItemId);
+            String revision = latest == null ? "" : cartRevision(latest);
+            String action = latest == null ? "" : latest.getEventType();
+            String cartItemJson = latest == null ? "" : latest.getProperties();
 
             String processedKey = "event:processed:" + eventId;
             String rtKey = "user:rt:" + userId;
             String dailyKey = "user:daily:" + userId + ":" + dateStr;
             String cartKey = "user:cart:" + userId;
+            String revisionKey = "user:cart-version:" + userId + ":" + cartItemId;
 
             RScript script = redissonClient.getScript(StringCodec.INSTANCE);
             Long result = script.eval(RScript.Mode.READ_WRITE,
                     REALTIME_PROFILE_LUA,
                     RScript.ReturnType.INTEGER,
-                    List.of(processedKey, rtKey, dailyKey, cartKey),
-                    eventType, effectiveTime, cartItemId, cartItemJson, PROCESSED_FLAG_TTL_SECONDS);
+                    List.of(processedKey, rtKey, dailyKey, cartKey, revisionKey),
+                    eventType, effectiveTime.format(REDIS_TIME), cartItemId == null ? "" : cartItemId,
+                    cartItemJson, PROCESSED_FLAG_TTL_SECONDS, revision, action);
 
             // result == 0 表示已处理过（幂等跳过），同样视为成功。
             return result != null && (result == 0 || result == 1);
         } catch (Exception e) {
-            log.error("Realtime profile update failed for event {}: {}", eventId, e.getMessage(), e);
+            log.warn("Realtime profile update failed for event {} ({})", eventId, e.getClass().getSimpleName());
             return false;
         }
+    }
+
+    /** Same ordering as the MySQL index. Keep BIGINT ordering exact in Lua. */
+    private String cartRevision(UserEvent event) {
+        return event.getEffectiveEventTime().format(REDIS_TIME)
+                + ("ADD_CART".equals(event.getEventType()) ? "0" : "1")
+                + String.format(Locale.ROOT, "%020d", event.getId());
     }
 
     /**
@@ -134,16 +152,6 @@ public class RealtimeProfileUpdateService {
             return (Map<String, Object>) props;
         }
         return null;
-    }
-
-    /**
-     * 将 ISO 时间中的 T 改为空格；未提供时间时使用当前本地时间。
-     */
-    private String normalizeTime(String time) {
-        if (time == null) {
-            return LocalDateTime.now().toString().replace("T", " ");
-        }
-        return time.contains("T") ? time.replace("T", " ") : time;
     }
 
     /**

@@ -160,12 +160,22 @@ public class AttributionService {
     @Transactional
     public void onTargetEvent(String targetEventId, Long userId, String targetEventType,
                                LocalDateTime targetEventTime) {
+        String orderId = "ORDER_PAID".equals(targetEventType)
+                ? userEventMapper.selectPaidOrderId(targetEventId, userId) : null;
+        if (orderId != null) {
+            String existingTarget = attributionTaskMapper.selectExistingOrderTarget(userId, orderId);
+            if (existingTarget != null) {
+                recoverOrphanedPendingTask(attributionTaskMapper.selectTargetForUpdate(existingTarget));
+                return;
+            }
+        }
         LocalDateTime graceUntil = targetEventTime.plusSeconds(GRACE_WINDOW_SECONDS);
 
         try {
             AttributionTask task = AttributionTask.builder()
                     .targetEventId(targetEventId)
                     .userId(userId)
+                    .paidOrderId(orderId)
                     .targetEventType(targetEventType)
                     .targetEventTime(targetEventTime)
                     .status(AttributionTaskStatus.PENDING.name())
@@ -180,7 +190,10 @@ public class AttributionService {
             log.info("Attribution task created: targetEventId={}, graceUntil={}",
                     targetEventId, graceUntil);
         } catch (DuplicateKeyException e) {
-            recoverOrphanedPendingTask(targetEventId);
+            AttributionTask existing = orderId == null ? null
+                    : attributionTaskMapper.selectOrderForUpdate(userId, orderId);
+            recoverOrphanedPendingTask(existing == null
+                    ? attributionTaskMapper.selectTargetForUpdate(targetEventId) : existing);
         }
     }
 
@@ -189,16 +202,9 @@ public class AttributionService {
      * MySQL insert but before the Redis ZADD. Only a still-PENDING DB row is
      * eligible for recovery; terminal rows must remain terminal.
      */
-    private void recoverOrphanedPendingTask(String targetEventId) {
-        AttributionTask existing = attributionTaskMapper.selectOne(
-                new LambdaQueryWrapper<AttributionTask>()
-                        .eq(AttributionTask::getTargetEventId, targetEventId));
-
-        if (existing == null) {
-            log.warn("Duplicate attribution task insert but existing row was not found: targetEventId={}",
-                    targetEventId);
-            return;
-        }
+    private void recoverOrphanedPendingTask(AttributionTask existing) {
+        if (existing == null) return; // A historical conversion can outlive its task.
+        String targetEventId = existing.getTargetEventId();
         if (!AttributionTaskStatus.PENDING.name().equals(existing.getStatus())) {
             log.info("Attribution task already terminal for target event: targetEventId={}, status={}",
                     targetEventId, existing.getStatus());

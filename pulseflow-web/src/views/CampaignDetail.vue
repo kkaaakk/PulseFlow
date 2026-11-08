@@ -67,7 +67,11 @@ onMounted(load)
         </section>
         <section class="panel">
           <div class="panel-header"><h2 class="panel-title">人群规则</h2><span class="panel-subtitle">{{ detail.audience.calculationMode || 'AUTHORITATIVE' }}</span></div>
-          <div class="panel-body"><div v-if="detail.rules.length" class="rule-list"><div v-for="rule in detail.rules" :key="rule.id" class="rule-row"><div><div class="rule-code">{{ rule.name }}</div><div class="rule-type">{{ rule.type }} · {{ configValue(rule.name) }}</div></div><StatusTag :status="rule.enabled ? 'VALIDATED' : 'PAUSED'" :label="rule.enabled ? '启用' : '停用'" /></div></div><div v-else class="empty-state">暂无规则</div></div>
+          <div class="panel-body">
+            <p v-if="campaign.triggerType === 'SCHEDULED'" class="panel-subtitle">账号启用 · 近 7 天活跃至少 2 天 · 近 30 天支付订单为 0</p>
+            <p v-if="campaign.triggerType === 'DELAYED'" class="panel-subtitle">加购后等待 {{ campaign.delaySeconds ?? '—' }} 秒，到期时商品仍在购物车才触达。</p>
+            <div v-if="detail.rules.length" class="rule-list"><div v-for="rule in detail.rules" :key="rule.id" class="rule-row"><div><div class="rule-code">{{ rule.name }}</div><div class="rule-type">{{ rule.type }} · {{ configValue(rule.name) }}</div></div><StatusTag :status="rule.enabled ? 'VALIDATED' : 'PAUSED'" :label="rule.enabled ? '启用' : '停用'" /></div></div><div v-else-if="campaign.triggerType === 'EVENT'" class="empty-state">暂无额外规则</div>
+          </div>
         </section>
         <section class="panel">
           <div class="panel-header"><h2 class="panel-title">归因</h2><span class="panel-subtitle">Last-Touch</span></div>

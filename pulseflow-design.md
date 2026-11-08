@@ -134,91 +134,11 @@ delivery_task.dedup_key 再次兜底
 
 ---
 
-## 链路 2：三级用户画像计算
+## 链路 2：实时画像与自然日窗口
 
-PulseFlow 不把用户画像做成单一字段，而是拆成三层：
+`RealtimeProfileUpdateService` 用 Redis Lua 原子更新浏览计数、浏览/加购时间和购物车。旧事件仍可归档。
 
-```text
-实时状态
-+
-窗口指标
-+
-长期标签
-```
-
-### 3.2.1 第一层：实时状态 Redis
-
-```text
-user:rt:{userId}
-  last_login_at
-  last_active_at
-
-user:daily:{userId}:{yyyyMMdd}
-  views
-  search_count
-
-user:cart:{userId}
-  cartItemId -> JSON
-```
-
-事件消费时实时更新，适合 DecisionEngine 的即时判断。
-
-### 3.2.2 第二层：窗口指标
-
-底层先把行为写成小时桶：
-
-```text
-user_metric_hourly
-```
-
-然后通过 XXL-JOB 聚合为：
-
-```text
-user_metric_daily
-user_behavior_summary
-```
-
-当前窗口指标用于表达类似：
-
-```text
-search_1h
-active_7d
-spend_30d
-fav_7d
-```
-
-其价值是避免每次规则判断都从原始 `user_event` 扫描大时间范围。
-
-### 3.2.3 第三层：长期标签
-
-`TagRecalcJob` 根据窗口指标和标签策略周期性计算：
-
-```text
-AI_PREF
-HIGH_VALUE
-CHURN_RISK
-PRICE_SENSITIVE
-...
-```
-
-结果写入：
-
-```text
-user_tag
-```
-
-### 3.2.4 ProfileService 对上层提供统一查询
-
-Campaign 与 AI 层不需要自己理解底层所有表，而是通过 Profile 相关服务访问：
-
-```text
-hasTag(...)
-getMetricValue(...)
-getWindowMetrics(...)
-getUserTags(...)
-```
-
-这样实时指标、窗口指标和长期标签可以作为一个统一用户画像能力被 DecisionEngine 和 AI 聚合层复用。
+`EventPersistenceService` 将规范事件及小时桶同事务写入。`DailyMetricJob` 汇总已完成小时，`WindowMetricJob` 对日桶和小时桶的浏览/加购日期去重，以已提交的支付事实计算订单次数，保存当前日窗口摘要。`ProfileService` 为规则和 Web 查询提供摘要与缓存访问。历史标签和旧摘要供兼容查询，当前画像的指标口径见 [主业务改造报告](docs/marketing-core-convergence.md)。
 
 ---
 
@@ -279,7 +199,7 @@ DelayedTaskExecutor 再检查条件
 条件已失效 → 取消
 ```
 
-延迟任务通过 Redis ZSET 实现时间排序，并有 processing 区和恢复任务防止执行中途宕机造成任务永久丢失。
+延迟任务由 Redis ZSET 排序和恢复。到期时检查 Redis 购物车与 MySQL 的最新商品项变更。Redis 全量丢失时，未生成发送任务的延迟队列缺少自动对账来源。
 
 ### 3.3.3 SCHEDULED：定时圈选
 
@@ -296,17 +216,15 @@ CampaignSelectionJob
 ```text
 扫描到期 ACTIVE + SCHEDULED Campaign
   ↓
-推进 next_trigger_at + version
-  ↓
-创建 campaign_execution(PENDING)
+同事务推进 next_trigger_at + version 并创建 campaign_execution(PENDING)
   ↓
 CAS：PENDING → RUNNING
   ↓
-分页扫描 ACTIVE 用户
+分页扫描账号启用的用户
   ↓
-DecisionEngine.evaluateBatch(...)
+DecisionEngine.evaluateBatch(...) 匹配当前窗口摘要与规则
   ↓
-命中 → delivery_task
+批量复核 MySQL 支付事实 → delivery_task
   ↓
 execution DONE
 ```

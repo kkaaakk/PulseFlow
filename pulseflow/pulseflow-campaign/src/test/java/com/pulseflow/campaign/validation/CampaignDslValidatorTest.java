@@ -56,10 +56,10 @@ class CampaignDslValidatorTest {
                                         .value(5)
                                         .build(),
                                 AudienceCondition.builder()
-                                        .field("spend30d")
-                                        .operator("GT")
-                                        .valueType("DECIMAL")
-                                        .value(500)
+                                        .field("orderCount30d")
+                                        .operator("EQ")
+                                        .valueType("INTEGER")
+                                        .value(0)
                                         .build())))
                         .build())
                 .channel("IN_APP")
@@ -132,13 +132,13 @@ class CampaignDslValidatorTest {
     @DisplayName("DSL with wrong operator for field → INVALID")
     void wrongOperator() {
         CampaignDsl dsl = validDsl();
-        // HIGH_VALUE tag only allows EQ
+        // The purchase condition only accepts EQ 0.
         dsl.getAudience().getConditions().add(
                 AudienceCondition.builder()
-                        .field("HIGH_VALUE")
+                        .field("orderCount30d")
                         .operator("GT")
-                        .valueType("BOOLEAN")
-                        .value(true)
+                        .valueType("INTEGER")
+                        .value(0)
                         .build());
         DslValidationResult result = validator.validate(dsl);
         assertThat(result.getErrors()).anyMatch(e -> e.contains("not allowed for field"));
@@ -286,7 +286,7 @@ class CampaignDslValidatorTest {
      * 验证标签字段接受类型正确的 true 值。
      */
     @Test
-    @DisplayName("TAG field with boolean true value passes")
+    @DisplayName("Legacy tag fields are retained but disabled for new proposals")
     void tagFieldBooleanTrue() {
         CampaignDsl dsl = validDsl();
         dsl.getAudience().getConditions().add(
@@ -297,6 +297,15 @@ class CampaignDslValidatorTest {
                         .value(true)
                         .build());
         DslValidationResult result = validator.validate(dsl);
-        assertThat(result.isValid()).isTrue();
+        assertThat(result.getErrors()).anyMatch(e -> e.contains("HIGH_VALUE") && e.contains("disabled"));
+    }
+    @Test
+    void rejectsOrAndFractionalActiveDays() {
+        CampaignDsl dsl = validDsl();
+        dsl.getAudience().setLogic("OR");
+        dsl.getAudience().getConditions().get(0).setValue(2.5);
+        assertThat(validator.validate(dsl).getErrors())
+                .anyMatch(e -> e.contains("logic must be AND"))
+                .anyMatch(e -> e.contains("value must be integer"));
     }
 }

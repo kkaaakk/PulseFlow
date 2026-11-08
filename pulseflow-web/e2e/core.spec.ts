@@ -11,10 +11,13 @@ test('登录 → Campaign Detail → User 360', async ({ page }) => {
   await page.getByText('高活跃未购买用户召回').first().click()
   await expect(page).toHaveURL(/campaigns\/2001/)
   await expect(page.getByText('Campaign 设置')).toBeVisible()
+  await expect(page.getByText('近 30 天支付订单为 0', { exact: false })).toBeVisible()
   await page.getByRole('link', { name: 'Users' }).click()
   await page.getByText('演示用户 A').click()
   await expect(page).toHaveURL(/users\/1024/)
   await expect(page.getByText('Event Timeline')).toBeVisible()
+  await expect(page.getByText('近 7 天活跃天数')).toBeVisible()
+  await expect(page.getByText('近 30 天支付订单', { exact: true })).toBeVisible()
 })
 
 test('Campaign list and performance view', async ({ page }) => {

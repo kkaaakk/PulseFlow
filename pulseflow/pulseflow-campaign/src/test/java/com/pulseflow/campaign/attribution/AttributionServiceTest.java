@@ -260,7 +260,7 @@ class AttributionServiceTest {
         task.setGraceUntil(LocalDateTime.now().minusMinutes(1));
         doThrow(new DuplicateKeyException("Duplicate target_event_id"))
                 .when(attributionTaskMapper).insert(any());
-        when(attributionTaskMapper.selectOne(any())).thenReturn(task);
+        when(attributionTaskMapper.selectTargetForUpdate(task.getTargetEventId())).thenReturn(task);
 
         RScript script = mock(RScript.class);
         when(redissonClient.getScript(eq(StringCodec.INSTANCE))).thenReturn(script);
@@ -294,7 +294,7 @@ class AttributionServiceTest {
         for (String terminalStatus : List.of("MATCHED", "EXPIRED")) {
             AttributionTask task = pendingTask();
             task.setStatus(terminalStatus);
-            when(attributionTaskMapper.selectOne(any())).thenReturn(task);
+            when(attributionTaskMapper.selectTargetForUpdate(task.getTargetEventId())).thenReturn(task);
 
             attributionService.onTargetEvent(
                     "target-evt-1", 1001L, "ORDER_PAID", task.getTargetEventTime());

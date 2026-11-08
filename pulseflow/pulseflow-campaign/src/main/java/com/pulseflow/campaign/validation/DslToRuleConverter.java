@@ -3,13 +3,13 @@ package com.pulseflow.campaign.validation;
 import com.pulseflow.campaign.dsl.AudienceCondition;
 import com.pulseflow.campaign.dsl.AudienceGroup;
 import com.pulseflow.campaign.dsl.CampaignDsl;
-import com.pulseflow.campaign.dsl.Operator;
 import com.pulseflow.campaign.dsl.ValueType;
 import com.pulseflow.common.util.JsonUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -37,10 +37,7 @@ public class DslToRuleConverter {
     private final CampaignFieldRegistry fieldRegistry;
 
     /**
-     * Returns one rule_config JSON per DSL condition. AND/OR logic is implicit
-     * (DecisionEngine ANDs all rules of a campaign; OR is approximated by
-     * emitting a single composite rule in future — v1 supports AND only via
-     * separate rows).
+     * Returns one rule_config JSON per validated AND condition.
      */
     public List<ConvertedRule> convert(CampaignDsl dsl) {
         List<ConvertedRule> out = new ArrayList<>();
@@ -91,16 +88,10 @@ public class DslToRuleConverter {
         return "true".equalsIgnoreCase(String.valueOf(v));
     }
 
-    /**
-     * 将条件值转为 long 阈值，数值的小数部分被截断，文本解析失败为零；当前 type 参数未参与转换。
-     */
-    private long toThreshold(Object v, ValueType type) {
-        if (v instanceof Number n) return n.longValue();
-        try {
-            return Long.parseLong(String.valueOf(v));
-        } catch (NumberFormatException e) {
-            return 0L;
-        }
+    /** Preserve numeric precision in stored rules. */
+    private Number toThreshold(Object v, ValueType type) {
+        BigDecimal threshold = new BigDecimal(String.valueOf(v));
+        return type == ValueType.INTEGER ? threshold.longValueExact() : threshold;
     }
 
     /**

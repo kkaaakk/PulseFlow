@@ -74,12 +74,10 @@ CHECK_NAMES = {
     "mysql-explicit-skip": "MySQL 校验主动跳过",
     "scheduled-outputs": "定时任务输出范围",
     "profile-window-metrics": "用户窗口指标",
-    "profile-user-tags": "用户标签计算",
     "redis-not-applicable": "Redis 校验适用性",
     "redis-connection": "Redis 测试库连接",
     "redis-processed-flags": "Redis 幂等处理标记",
     "redis-processed-ttl": "Redis 幂等标记 TTL",
-    "redis-realtime-profile": "Redis 实时画像键",
     "redis-business-values": "Redis 业务画像值",
     "redis-realtime-values": "Redis 实时画像值",
     "redis-daily-values": "Redis 日实时指标",
@@ -461,13 +459,16 @@ def validate_compensation(args: argparse.Namespace, manifest: dict[str, Any],
 # 将测试用户日桶汇总与小时桶或规范事实预期对比，记录次数、时长和金额一致性。
 def validate_daily_metrics(args: argparse.Namespace, user_min: int, user_max: int,
                            checks: list[dict[str, Any]]) -> None:
+    now = datetime.now()
+    today = now.date()
+    since = sql_literal((today - timedelta(days=6)).isoformat())
+    current_hour = sql_literal(now.replace(minute=0, second=0, microsecond=0).isoformat(sep=" "))
     expected_query = (
         "SELECT DATE(metric_hour), event_type, COALESCE(SUM(event_count),0), "
         "COALESCE(SUM(duration_sum),0), CAST(COALESCE(SUM(amount_sum),0) AS DECIMAL(20,2)) "
         "FROM user_metric_hourly "
         f"WHERE user_id BETWEEN {user_min} AND {user_max} "
-        "AND metric_hour >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) "
-        "AND metric_hour < DATE_FORMAT(NOW(), '%Y-%m-%d %H:00:00') "
+        f"AND metric_hour >= {since} AND metric_hour < {current_hour} "
         "GROUP BY DATE(metric_hour), event_type ORDER BY DATE(metric_hour), event_type"
     )
     actual_query = (
@@ -475,8 +476,7 @@ def validate_daily_metrics(args: argparse.Namespace, user_min: int, user_max: in
         "COALESCE(SUM(duration_sum),0), CAST(COALESCE(SUM(amount_sum),0) AS DECIMAL(20,2)) "
         "FROM user_metric_daily "
         f"WHERE user_id BETWEEN {user_min} AND {user_max} "
-        "AND metric_date >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) "
-        "AND metric_date <= CURDATE() "
+        f"AND metric_date BETWEEN {since} AND {sql_literal(today.isoformat())} "
         "GROUP BY metric_date, event_type ORDER BY metric_date, event_type"
     )
     expected_rows, expected_error = run_mysql(args, expected_query)
@@ -517,175 +517,78 @@ def validate_daily_metrics(args: argparse.Namespace, user_min: int, user_max: in
               expected=expected, actual=actual, query=actual_query, reason=reason)
 
 
-# 按测试用户与清单预期检查已生成窗口指标，区分不匹配和调度尚未产生数据。
+# Independently derive calendar activity and paid-order identity from canonical events.
 def validate_window_metrics(args: argparse.Namespace, user_min: int, user_max: int,
                             checks: list[dict[str, Any]]) -> None:
-    daily_query = (
-        "SELECT user_id, metric_date, event_type, COALESCE(SUM(event_count),0), "
-        "CAST(COALESCE(SUM(amount_sum),0) AS DECIMAL(20,2)) "
-        "FROM user_metric_daily "
-        f"WHERE user_id BETWEEN {user_min} AND {user_max} "
-        "AND metric_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) "
-        "GROUP BY user_id, metric_date, event_type ORDER BY user_id, metric_date, event_type"
+    today = datetime.now().date()
+    active_since = (today - timedelta(days=6)).isoformat()
+    paid_since = (today - timedelta(days=29)).isoformat()
+    until = sql_literal((today + timedelta(days=1)).isoformat())
+    user_range = f"user_id BETWEEN {user_min} AND {user_max}"
+    active_query = (
+        "SELECT user_id, COUNT(DISTINCT DATE(effective_event_time)) FROM user_event "
+        f"WHERE {user_range} AND effective_event_time >= {sql_literal(active_since)} "
+        f"AND effective_event_time < {until} AND event_type IN ('CONTENT_VIEW','ADD_CART') GROUP BY user_id"
     )
-    hourly_query = (
-        "SELECT user_id, COALESCE(SUM(event_count),0) "
-        "FROM user_metric_hourly "
-        f"WHERE user_id BETWEEN {user_min} AND {user_max} "
-        "AND event_type = 'SEARCH' "
-        "AND metric_hour = DATE_FORMAT(NOW(), '%Y-%m-%d %H:00:00') "
-        "GROUP BY user_id ORDER BY user_id"
+    orders_query = (
+        "SELECT user_id, event_id, DATE(effective_event_time), properties FROM user_event "
+        f"WHERE {user_range} AND effective_event_time < {until} AND event_type='ORDER_PAID'"
     )
-    daily_rows, daily_error = run_mysql(args, daily_query)
-    hourly_rows, hourly_error = run_mysql(args, hourly_query)
-    if daily_error or hourly_error:
-        add_check(checks, "profile-window-metrics", "Profile", "Window metric contents match daily/hourly buckets", "NOT_RUN",
-                  expected="search_1h/active_7d/spend_30d/fav_7d", actual=None,
-                  query=daily_query, reason=daily_error or hourly_error)
-        return
-
-    expected: dict[str, dict[str, Any]] = {}
-    daily_by_user: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in daily_rows or []:
-        if len(row) < 5:
-            continue
-        daily_by_user[row[0]].append({
-            "metricDate": row[1],
-            "eventType": row[2],
-            "eventCount": int(row[3]),
-            "amountSum": Decimal(str(row[4] or "0")),
-        })
-    search_by_user = {row[0]: int(row[1]) for row in hourly_rows or [] if len(row) >= 2}
-    since_7d = (datetime.now().date() - timedelta(days=7)).isoformat()
-    for user_id, metrics in daily_by_user.items():
-        recent_metrics = [item for item in metrics if item["metricDate"] >= since_7d]
-        content_7d = sum(item["eventCount"] for item in recent_metrics if item["eventType"] == "CONTENT_VIEW")
-        paid_30d = sum((item["amountSum"] for item in metrics if item["eventType"] == "ORDER_PAID"), Decimal("0"))
-        favorite_7d = sum(item["eventCount"] for item in recent_metrics if item["eventType"] == "FAVORITE")
-        expected[f"{user_id}|search_1h"] = {"userId": int(user_id), "metricType": "search_1h",
-                                              "metricValue": decimal_text(search_by_user.get(user_id, 0))}
-        expected[f"{user_id}|active_7d"] = {"userId": int(user_id), "metricType": "active_7d",
-                                              "metricValue": decimal_text(content_7d)}
-        expected[f"{user_id}|spend_30d"] = {"userId": int(user_id), "metricType": "spend_30d",
-                                              "metricValue": decimal_text(paid_30d)}
-        expected[f"{user_id}|fav_7d"] = {"userId": int(user_id), "metricType": "fav_7d",
-                                          "metricValue": decimal_text(favorite_7d)}
-
+    spend_query = (
+        "SELECT user_id, SUM(amount_sum) FROM user_metric_hourly "
+        f"WHERE {user_range} AND metric_hour >= {sql_literal(paid_since)} AND metric_hour < {until} "
+        "AND event_type='ORDER_PAID' GROUP BY user_id"
+    )
+    active, active_error = run_mysql(args, active_query)
+    orders, orders_error = run_mysql(args, orders_query)
+    spend, spend_error = run_mysql(args, spend_query)
     actual_query = (
         "SELECT user_id, metric_type, metric_value FROM ("
         "SELECT user_id, metric_type, metric_value, "
         "ROW_NUMBER() OVER (PARTITION BY user_id, metric_type ORDER BY calculated_at DESC) AS rn "
-        "FROM user_behavior_summary "
-        f"WHERE user_id BETWEEN {user_min} AND {user_max}"
+        f"FROM user_behavior_summary WHERE {user_range} AND window_end = {until} "
+        "AND metric_type IN ('active_days_7d','order_count_30d','spend_30d')"
         ") latest WHERE rn = 1 ORDER BY user_id, metric_type"
     )
     actual_rows, actual_error = run_mysql(args, actual_query)
-    if actual_error:
-        add_check(checks, "profile-window-metrics", "Profile", "Window metric contents match daily/hourly buckets", "NOT_RUN",
-                  expected=expected, actual=None, query=actual_query, reason=actual_error)
+    description = "Calendar activity and payment metrics match canonical facts"
+    error = active_error or orders_error or spend_error or actual_error
+    if error:
+        add_check(checks, "profile-window-metrics", "Profile", description, "NOT_RUN",
+                  expected="active_days_7d/order_count_30d/spend_30d", actual=None,
+                  query=actual_query, reason=error)
         return
-    actual = {
-        f"{row[0]}|{row[1]}": {"userId": int(row[0]), "metricType": row[1], "metricValue": decimal_text(row[2])}
-        for row in actual_rows or [] if len(row) >= 3
-    }
-    if not actual:
-        status = "FAIL" if args.jobs_triggered and expected else ("PASS" if args.jobs_triggered else "NOT_RUN")
-        reason = (
-            "user_behavior_summary has no rows after an explicit windowMetricJob trigger"
-            if args.jobs_triggered and expected
-            else "windowMetricJob is not auto-triggered by Functional Replay"
+
+    first_paid: dict[tuple[str, str, str], str] = {}
+    for user, event_id, day, raw_props in orders or []:
+        props = parse_json_value(raw_props) or {}
+        order = props.get("orderId") if isinstance(props, dict) else None
+        identity = str(order).strip(" ") if type(order) in (str, int) else ""
+        key = (user, "order", identity) if 0 < len(identity.encode("utf-8")) <= 256 else (user, "event", event_id)
+        first_paid[key] = min(day, first_paid.get(key, day))
+    order_counts = Counter(key[0] for key, day in first_paid.items() if day >= paid_since)
+    for user, _, day, _ in orders or []:
+        if day >= paid_since:
+            order_counts.setdefault(user, 0)
+    expected = {
+        f"{user}|{metric}": decimal_text(value)
+        for metric, rows in (
+            ("active_days_7d", active or []),
+            ("order_count_30d", order_counts.items()),
+            ("spend_30d", spend or []),
         )
+        for user, value in rows
+    }
+    actual = {f"{user}|{metric}": decimal_text(value) for user, metric, value in actual_rows or []}
+    if not actual and not args.jobs_triggered:
+        status, reason = "NOT_RUN", "windowMetricJob is not auto-triggered by Functional Replay"
     else:
-        status = "PASS" if actual == expected else "FAIL"
-        reason = None
-    add_check(checks, "profile-window-metrics", "Profile", "Window metric contents match daily/hourly buckets", status,
+        status, reason = ("PASS" if expected == actual else "FAIL"), None
+    add_check(checks, "profile-window-metrics", "Profile", description, status,
               expected=expected, actual=actual, query=actual_query, reason=reason)
 
 
-# 按当前标签策略的实际阈值从日指标计算预期标签，供离线验证复用。
-def expected_tag_values(metrics: list[dict[str, Any]]) -> dict[str, str]:
-    total = sum(item["eventCount"] for item in metrics)
-    search = sum(item["eventCount"] for item in metrics if item["eventType"] == "SEARCH")
-    add_cart = sum(item["eventCount"] for item in metrics if item["eventType"] == "ADD_CART")
-    paid = sum(item["eventCount"] for item in metrics if item["eventType"] == "ORDER_PAID")
-    paid_amount = sum((item["amountSum"] for item in metrics if item["eventType"] == "ORDER_PAID"), Decimal("0"))
-    login_days = sum(1 for item in metrics if item["eventType"] == "LOGIN" and item["eventCount"] > 0)
-    has_activity = any(item["eventType"] in {"LOGIN", "CONTENT_VIEW"} for item in metrics)
-    average_order = paid_amount / paid if paid else Decimal("0")
-    return {
-        "AI_PREF": "1" if total and search / total > 0.3 else "0",
-        "HIGH_VALUE": "1" if paid_amount >= Decimal("500") else "0",
-        "CHURN_RISK": "0" if has_activity else "1",
-        "PRICE_SEN": "1" if paid and average_order < Decimal("50") else "0",
-        "ACTIVE_USER": "1" if total >= 50 else "0",
-        "NEW_USER": "1" if total < 10 else "0",
-        "BARGAIN_HUNTER": "1" if (add_cart > 5 if paid == 0 else add_cart / paid > 3.0) else "0",
-        "LOYAL_CUSTOMER": "1" if login_days >= 5 else "0",
-    }
-
-
-# 读取测试用户最新标签，与从输入指标推导的期望值逐项对比。
-def validate_user_tags(args: argparse.Namespace, user_min: int, user_max: int,
-                       checks: list[dict[str, Any]]) -> None:
-    daily_query = (
-        "SELECT user_id, event_type, event_count, amount_sum "
-        "FROM user_metric_daily "
-        f"WHERE user_id BETWEEN {user_min} AND {user_max} "
-        "AND metric_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) "
-        "ORDER BY user_id, event_type"
-    )
-    daily_rows, daily_error = run_mysql(args, daily_query)
-    if daily_error:
-        add_check(checks, "profile-user-tags", "Profile", "Latest user tag values match daily metric contents", "NOT_RUN",
-                  expected="eight current tag values", actual=None, query=daily_query, reason=daily_error)
-        return
-    metrics_by_user: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in daily_rows or []:
-        if len(row) >= 4:
-            metrics_by_user[row[0]].append({
-                "eventType": row[1],
-                "eventCount": int(row[2]),
-                "amountSum": Decimal(str(row[3] or "0")),
-            })
-    expected: dict[str, dict[str, Any]] = {}
-    for user_id, metrics in metrics_by_user.items():
-        for tag_name, tag_value in expected_tag_values(metrics).items():
-            expected[f"{user_id}|{tag_name}"] = {
-                "userId": int(user_id), "tagName": tag_name, "tagValue": tag_value,
-            }
-
-    actual_query = (
-        "SELECT user_id, tag_name, tag_value FROM ("
-        "SELECT user_id, tag_name, tag_value, "
-        "ROW_NUMBER() OVER (PARTITION BY user_id, tag_name ORDER BY calculated_at DESC) AS rn "
-        "FROM user_tag "
-        f"WHERE user_id BETWEEN {user_min} AND {user_max}"
-        ") latest WHERE rn = 1 ORDER BY user_id, tag_name"
-    )
-    actual_rows, actual_error = run_mysql(args, actual_query)
-    if actual_error:
-        add_check(checks, "profile-user-tags", "Profile", "Latest user tag values match daily metric contents", "NOT_RUN",
-                  expected=expected, actual=None, query=actual_query, reason=actual_error)
-        return
-    actual = {
-        f"{row[0]}|{row[1]}": {"userId": int(row[0]), "tagName": row[1], "tagValue": row[2]}
-        for row in actual_rows or [] if len(row) >= 3
-    }
-    if not actual:
-        status = "FAIL" if args.jobs_triggered and expected else ("PASS" if args.jobs_triggered else "NOT_RUN")
-        reason = (
-            "user_tag has no rows after an explicit tagRecalcJob trigger"
-            if args.jobs_triggered and expected
-            else "tagRecalcJob is not auto-triggered by Functional Replay"
-        )
-    else:
-        status = "PASS" if actual == expected else "FAIL"
-        reason = None
-    add_check(checks, "profile-user-tags", "Profile", "Latest user tag values match daily metric contents", status,
-              expected=expected, actual=actual, query=actual_query, reason=reason)
-
-
-# 核对清单中声明需定时任务生成的日指标、窗口指标和标签等派生结果。
+# 核对清单中声明需定时任务生成的日指标和窗口指标。
 def validate_scheduled_outputs(args: argparse.Namespace, manifest: dict[str, Any],
                                checks: list[dict[str, Any]]) -> None:
     scheduled = manifest.get("expected", {}).get("scheduledOutputs", {})
@@ -702,8 +605,6 @@ def validate_scheduled_outputs(args: argparse.Namespace, manifest: dict[str, Any
         validate_daily_metrics(args, int(user_min), int(user_max), checks)
     if "windowMetrics" in scheduled:
         validate_window_metrics(args, int(user_min), int(user_max), checks)
-    if "userTags" in scheduled:
-        validate_user_tags(args, int(user_min), int(user_max), checks)
 
 
 # 检查测试 Campaign 的触达、点击、归因与绩效派生结果，保留所需 fixture 或调度未运行的原因。
@@ -1245,24 +1146,12 @@ def validate_redis(args: argparse.Namespace, manifest: dict[str, Any], checks: l
     add_check(checks, "redis-processed-ttl", "Redis", "Processed flag TTL remains positive",
               "PASS" if not ttl_bad else "FAIL", expected=f">={ttl_min}", actual=ttl_bad or processed)
 
-    realtime: dict[str, Any] = {}
-    for user_id in sample_users:
-        output, error = run_redis(args, ["EXISTS", f"user:rt:{int(user_id)}"])
-        if error:
-            add_check(checks, "redis-realtime-profile", "Redis", "Sample realtime profile keys exist", "NOT_RUN",
-                      expected=True, actual=None, reason=error)
-            return "NOT_RUN"
-        realtime[str(user_id)] = int(output[0]) if output else 0
-    add_check(checks, "redis-realtime-profile", "Redis", "Sample realtime profile keys exist",
-              "PASS" if all(value == 1 for value in realtime.values()) else "FAIL",
-              expected={str(user_id): 1 for user_id in sample_users}, actual=realtime)
-
     prefix = event_prefix(manifest)
     user_sql = ", ".join(str(int(user_id)) for user_id in sample_users)
     event_query = (
         "SELECT user_id, event_type, effective_event_time, properties FROM user_event "
         f"WHERE event_id LIKE {sql_literal(prefix + '%')} AND user_id IN ({user_sql}) "
-        "ORDER BY id"
+        "ORDER BY effective_event_time, (event_type IN ('REMOVE_CART', 'ORDER_PAID')), id"
     ) if prefix and user_sql else None
     event_rows, event_error = run_mysql(args, event_query) if event_query else (None, "manifest has no sample users")
     if event_error:
@@ -1272,7 +1161,7 @@ def validate_redis(args: argparse.Namespace, manifest: dict[str, Any], checks: l
 
     expected_daily: dict[str, dict[str, str]] = defaultdict(dict)
     expected_cart: dict[str, dict[str, Any]] = defaultdict(dict)
-    expects_login: set[str] = set()
+    active_users: set[str] = set()
     for row in event_rows or []:
         if len(row) < 4:
             continue
@@ -1282,14 +1171,11 @@ def validate_redis(args: argparse.Namespace, manifest: dict[str, Any], checks: l
         daily_key = f"{user_id}:{date_text}"
         if event_type == "CONTENT_VIEW":
             expected_daily[daily_key]["views"] = str(int(expected_daily[daily_key].get("views", "0")) + 1)
-        elif event_type == "SEARCH":
-            expected_daily[daily_key]["search_count"] = str(
-                int(expected_daily[daily_key].get("search_count", "0")) + 1
-            )
-        if event_type == "LOGIN":
-            expects_login.add(user_id)
-        cart_item_id = str(props.get("cartItemId", "")) if isinstance(props, dict) else ""
-        if cart_item_id:
+        if event_type in {"CONTENT_VIEW", "ADD_CART"}:
+            active_users.add(user_id)
+        item = props.get("cartItemId") if isinstance(props, dict) else None
+        cart_item_id = str(item) if type(item) in (str, int) else ""
+        if cart_item_id.strip() and len(cart_item_id.encode("utf-8")) <= 256:
             if event_type == "ADD_CART":
                 expected_cart[user_id][cart_item_id] = props
             elif event_type in {"REMOVE_CART", "ORDER_PAID"}:
@@ -1306,19 +1192,17 @@ def validate_redis(args: argparse.Namespace, manifest: dict[str, Any], checks: l
             actual_rt[key] = value or {}
     if rt_errors:
         add_check(checks, "redis-realtime-values", "Redis", "Realtime profile values contain required fields", "NOT_RUN",
-                  expected="last_active_at and last_login_at when applicable", actual=None, reason=rt_errors[0])
+                  expected="last_active_at for views or adds", actual=None, reason=rt_errors[0])
     else:
         missing_fields = {}
         for user_id, value in actual_rt.items():
-            required = {"last_active_at"}
-            if user_id in expects_login:
-                required.add("last_login_at")
+            required = {"last_active_at"} if user_id in active_users else set()
             missing = sorted(field for field in required if field not in value)
             if missing:
                 missing_fields[user_id] = missing
         add_check(checks, "redis-realtime-values", "Redis", "Realtime profile values contain required fields",
                   "PASS" if not missing_fields else "FAIL",
-                  expected="last_active_at and last_login_at when applicable",
+                  expected="last_active_at for views or adds",
                   actual={user_id: sorted(value) for user_id, value in actual_rt.items()}
                   if not missing_fields else missing_fields)
 
@@ -1330,7 +1214,7 @@ def validate_redis(args: argparse.Namespace, manifest: dict[str, Any], checks: l
         if error:
             daily_errors.append(error)
         else:
-            actual_daily[composite_key] = value or {}
+            actual_daily[composite_key] = {k: v for k, v in (value or {}).items() if k == "views"}
     if daily_errors:
         add_check(checks, "redis-daily-values", "Redis", "Daily realtime counters match canonical events", "NOT_RUN",
                   expected=dict(expected_daily), actual=None, reason=daily_errors[0])

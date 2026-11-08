@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.pulseflow.campaign.decision.DecisionEngine;
 import com.pulseflow.campaign.profile.RealtimeProfileUpdateService;
-import com.pulseflow.common.enums.CompensationTaskType;
 import com.pulseflow.common.util.JsonUtil;
 import com.pulseflow.event.service.EventPersistenceService;
 import com.pulseflow.mapper.DataCompensationTaskMapper;
@@ -120,16 +119,12 @@ public class EventConsumer {
 
     /**
      * Durably record an EVENT_REPLAY compensation task (atomic upsert).
-     * On duplicate (event_id, task_type) the row is restored to PENDING.
+     * An existing obligation keeps its current lease, backoff and terminal status.
      */
     private boolean writeCompensationTask(Map<String, Object> ctx) {
         String eventId = (String) ctx.get("eventId");
         try {
-            compensationTaskMapper.upsertPendingRestore(
-                    eventId,
-                    CompensationTaskType.EVENT_REPLAY.name(),
-                    JsonUtil.toJson(ctx),
-                    "phase2_or_phase3_failed");
+            compensationTaskMapper.ensureEventReplayPending(eventId, JsonUtil.toJson(ctx));
             return true;
         } catch (Exception e) {
             log.error("Failed to write compensation task for event {}: {}",

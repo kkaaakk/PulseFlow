@@ -80,6 +80,13 @@ public class EventPersistenceService {
         return PersistResult.ok(event, buildContextFromEvent(event));
     }
 
+    /** Fetch the same canonical fact for compensation, without re-running persistence. */
+    public PersistResult loadCanonical(String eventId) {
+        UserEvent event = userEventMapper.selectCanonicalEvent(eventId);
+        if (event == null) throw new IllegalStateException("CANONICAL_EVENT_MISSING");
+        return PersistResult.ok(event, buildContextFromEvent(event));
+    }
+
     /**
      * Atomic upsert via INSERT ... ON DUPLICATE KEY UPDATE so concurrent
      * consumers / replays accumulate correctly without a select-then-write race.

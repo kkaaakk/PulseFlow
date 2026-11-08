@@ -7,7 +7,6 @@ import com.pulseflow.mapper.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
@@ -17,8 +16,6 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class DeliveryConsumer {
     private final DeliveryTaskMapper tasks;
-    private final InAppMessageMapper inApp;
-    private final PushRecordMapper push;
     private final FrequencyControlService frequency;
     private final DeliveryRecoveryService recovery;
     private static final ObjectMapper JSON = new ObjectMapper().registerModule(new JavaTimeModule());
@@ -34,9 +31,10 @@ public class DeliveryConsumer {
             return;
         }
         // Kafka is only a wake-up. Ownership, content, channel and state come from MySQL.
-        if (tasks.tryClaim(id) != 1) return;
+        LocalDateTime claim = now();
+        if (tasks.tryClaimAt(id, claim) != 1) return;
         DeliveryTask task = tasks.selectById(id);
-        if (task == null || !"PROCESSING".equals(task.getStatus())) return;
+        if (task == null || !"PROCESSING".equals(task.getStatus()) || !claim.equals(task.getProcessingAt())) return;
         try {
             // Must precede frequency checks: an already delivered task cannot be cancelled by quota.
             if (recovery.recover(task)) return;
@@ -59,19 +57,10 @@ public class DeliveryConsumer {
                 log.info("Email sent (simulated): taskId={}, userId={}", id, task.getUserId());
                 recovery.complete(task, now());
             } else {
-                if (tasks.markAttempt(id, task.getProcessingAt(), now()) != 1) return;
-                try {
-                    if ("IN_APP".equals(task.getChannel())) {
-                        inApp.insert(InAppMessage.builder().businessKey(id).userId(task.getUserId())
-                                .campaignId(task.getCampaignId()).content(task.getMessageContent()).createdAt(now()).build());
-                    } else {
-                        push.insert(PushRecord.builder().businessKey(id).userId(task.getUserId())
-                                .campaignId(task.getCampaignId()).title("PulseFlow").content(task.getMessageContent()).pushedAt(now()).build());
-                    }
-                } catch (DuplicateKeyException alreadySent) {
-                    // Read the existing receipt below; never replace its original send time.
-                }
-                recovery.complete(task, recovery.successfulSendTime(task));
+                LocalDateTime attemptedAt = now();
+                if (tasks.markAttempt(id, claim, attemptedAt) != 1) return;
+                LocalDateTime sentAt = recovery.storeChannelReceipt(task, attemptedAt);
+                if (sentAt != null) recovery.complete(task, sentAt);
             }
         } catch (Exception e) {
             String error = e.getMessage() == null ? "Unknown error" : e.getMessage();

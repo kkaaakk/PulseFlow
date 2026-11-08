@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Search, ShoppingCart, View } from '@element-plus/icons-vue'
+import { ArrowLeft, ShoppingCart, View } from '@element-plus/icons-vue'
 
 import { getUser } from '@/api/users'
 import JsonDrawer from '@/components/JsonDrawer.vue'
@@ -51,15 +51,30 @@ onMounted(load)
       <div class="panel-header"><h2 class="panel-title">实时画像</h2><span class="panel-subtitle">来源：{{ user.realtimeSource }}<span v-if="!user.realtimeAvailable"> · Redis 不可用，已使用 MySQL fallback</span></span></div>
       <div class="panel-body profile-sections">
         <div class="profile-metric"><div class="profile-metric-label"><el-icon><View /></el-icon> 今日浏览</div><div class="profile-metric-value">{{ realtime.todayViews ?? '0' }}</div></div>
-        <div class="profile-metric"><div class="profile-metric-label"><el-icon><Search /></el-icon> 今日搜索</div><div class="profile-metric-value">{{ realtime.todaySearches ?? '0' }}</div></div>
         <div class="profile-metric"><div class="profile-metric-label"><el-icon><ShoppingCart /></el-icon> 购物车</div><div class="profile-metric-value">{{ realtime.cartCount ?? '0' }}</div></div>
       </div>
     </section>
 
-    <div class="dashboard-main-grid" style="margin-top:16px">
-      <section class="panel"><div class="panel-header"><h2 class="panel-title">窗口指标</h2><span class="panel-subtitle">后端计算</span></div><div class="panel-body profile-sections" style="margin-top:0"><div class="profile-metric"><div class="profile-metric-label">活跃天数 7d</div><div class="profile-metric-value">{{ formatNumber(Number(windowMetrics.activeDays7d || 0), 0) }} 天</div></div><div class="profile-metric"><div class="profile-metric-label">消费金额 30d</div><div class="profile-metric-value">{{ formatCurrency(Number(windowMetrics.spend30d || 0)) }}</div></div><div class="profile-metric"><div class="profile-metric-label">搜索次数 1h</div><div class="profile-metric-value">{{ formatNumber(Number(windowMetrics.search1h || 0), 0) }}</div></div></div></section>
-      <section class="panel"><div class="panel-header"><h2 class="panel-title">长期标签</h2><span class="panel-subtitle">最新有效标签</span></div><div class="panel-body"><div class="tag-list"><span v-for="tag in user.tags" :key="tag" class="tag">{{ tag }}</span><span v-if="!user.tags.length" class="panel-subtitle">暂无长期标签</span></div><p class="panel-subtitle" style="margin:18px 0 0;line-height:1.6">标签由画像策略异步计算，展示最近一次有效结果。</p></div></section>
-    </div>
+    <section class="panel" style="margin-top:16px">
+      <div class="panel-header">
+        <h2 class="panel-title">窗口指标</h2>
+        <span class="panel-subtitle">自然日窗口，含今天</span>
+      </div>
+      <div class="panel-body profile-sections">
+        <div class="profile-metric">
+          <div class="profile-metric-label">近 7 天活跃天数</div>
+          <div class="profile-metric-value">{{ formatNumber(Number(windowMetrics.activeDays7d ?? 0), 0) }} 天</div>
+        </div>
+        <div class="profile-metric">
+          <div class="profile-metric-label">近 30 天支付订单</div>
+          <div class="profile-metric-value">{{ formatNumber(Number(windowMetrics.orderCount30d ?? 0), 0) }} 单</div>
+        </div>
+        <div class="profile-metric">
+          <div class="profile-metric-label">近 30 天消费金额</div>
+          <div class="profile-metric-value">{{ formatCurrency(Number(windowMetrics.spend30d ?? 0)) }}</div>
+        </div>
+      </div>
+    </section>
 
     <section class="panel" style="margin-top:16px"><div class="panel-header"><h2 class="panel-title">Event Timeline</h2><span class="panel-subtitle">最近 {{ user.recentEvents.items.length }} 条行为</span></div><div class="panel-body"><div v-if="user.recentEvents.items.length" class="timeline"><button v-for="event in user.recentEvents.items" :key="event.eventId" class="timeline-row" style="border:0;border-bottom:1px solid var(--pf-border);background:transparent;text-align:left" @click="openEvent(event)"><span class="timeline-time">{{ eventTime(event) }}</span><span class="timeline-dot" /><span><span class="timeline-type">{{ event.eventType }}</span><span class="timeline-sub">Event {{ event.eventId }}<span v-if="event.targetId"> · Target {{ event.targetId }}</span></span></span><span class="text-button">查看属性</span></button></div><div v-else class="empty-state">暂无最近行为</div></div></section>
     <JsonDrawer v-model="drawerVisible" :title="selectedEvent ? `Event · ${selectedEvent.eventType}` : 'Event 属性'" :value="selectedEvent" />

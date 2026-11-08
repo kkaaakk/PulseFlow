@@ -38,6 +38,7 @@ public class SimulatorController {
         props.put("category", "AI");
         props.put("price", 29.90);
         props.put("cartItemId", "ci_" + ThreadLocalRandom.current().nextInt(100, 999));
+        if ("ORDER_PAID".equals(eventType)) props.put("orderId", "ord_" + eventId);
 
         EventRequest request = EventRequest.builder()
                 .eventId(eventId)
@@ -54,7 +55,7 @@ public class SimulatorController {
     /**
      * Generate a batch of events for a simulated user journey.
      * GET /api/simulator/user-journey?userId=1024
-     * Generates: LOGIN → CONTENT_VIEW → ADD_CART → ORDER_PAID
+     * Generates: CONTENT_VIEW → ADD_CART → ORDER_PAID
      */
     @GetMapping("/user-journey")
     public ApiResponse<?> simulateUserJourney(@RequestParam(defaultValue = "1024") Long userId) {
@@ -68,18 +69,16 @@ public class SimulatorController {
 
         log.info("Simulating user journey for userId={}, productId={}", userId, productId);
 
-        // LOGIN
-        sendEvent(userId, "LOGIN", productId, baseProps);
         // CONTENT_VIEW
         sendEvent(userId, "CONTENT_VIEW", productId, baseProps);
         // ADD_CART
         sendEvent(userId, "ADD_CART", productId, baseProps);
         // ORDER_PAID
         Map<String, Object> orderProps = new HashMap<>(baseProps);
-        orderProps.put("orderId", "ord_" + System.currentTimeMillis());
+        orderProps.put("orderId", "ord_" + UUID.randomUUID());
         sendEvent(userId, "ORDER_PAID", productId, orderProps);
 
-        return ApiResponse.success("User journey simulated: LOGIN → CONTENT_VIEW → ADD_CART → ORDER_PAID");
+        return ApiResponse.success("User journey simulated: CONTENT_VIEW → ADD_CART → ORDER_PAID");
     }
 
     /**
@@ -88,7 +87,8 @@ public class SimulatorController {
      */
     @GetMapping("/bulk")
     public ApiResponse<?> generateBulk(@RequestParam(defaultValue = "100") int count) {
-        EventType[] types = EventType.values();
+        EventType[] types = {EventType.CONTENT_VIEW, EventType.ADD_CART, EventType.REMOVE_CART,
+                EventType.ORDER_PAID, EventType.CLICK};
         int success = 0;
         int failed = 0;
 

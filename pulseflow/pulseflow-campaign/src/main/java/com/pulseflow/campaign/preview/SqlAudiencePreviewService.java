@@ -1,20 +1,13 @@
 package com.pulseflow.campaign.preview;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.pulseflow.campaign.preview.AudiencePreviewResult;
-import com.pulseflow.campaign.preview.AudiencePreviewService;
-import com.pulseflow.campaign.dsl.AudienceCondition;
-import com.pulseflow.campaign.dsl.AudienceGroup;
+import com.pulseflow.campaign.decision.DecisionEngine;
 import com.pulseflow.campaign.dsl.CampaignDsl;
-import com.pulseflow.campaign.dsl.ValueType;
 import com.pulseflow.campaign.validation.CampaignFieldRegistry;
 import com.pulseflow.campaign.validation.DslToRuleConverter;
-import com.pulseflow.entity.UserBehaviorSummary;
+import com.pulseflow.entity.CampaignRule;
 import com.pulseflow.entity.UserProfile;
-import com.pulseflow.entity.UserTag;
-import com.pulseflow.mapper.UserBehaviorSummaryMapper;
 import com.pulseflow.mapper.UserProfileMapper;
-import com.pulseflow.mapper.UserTagMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,218 +15,74 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 
-/**
- * SQL-based audience preview.
- *
- * <p>Strategy:</p>
- * <ol>
- *   <li>For TAG conditions: query {@code user_tag} for matching users.</li>
- *   <li>For METRIC conditions: query {@code user_behavior_summary} for the
- *       latest value per (user, metric_type) and filter.</li>
- *   <li>Intersect (AND) or union (OR) the resulting user sets.</li>
- *   <li>Cap the candidate pool to {@code audiencePreviewLimit} active users
- *       (those with any user_behavior_summary in last 30d) to bound cost.</li>
- * </ol>
- *
- * <p>This is the SAME data the DecisionEngine reads at runtime, so the
- * estimate reflects what would actually be matched.</p>
- */
+/** Estimates the SCHEDULED audience before channel preferences and delivery-time frequency checks. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class SqlAudiencePreviewService implements AudiencePreviewService {
 
+    private static final int CANDIDATE_LIMIT = 50_000;
+    private static final int PAGE_SIZE = 500;
+
     private final UserProfileMapper userProfileMapper;
-    private final UserTagMapper userTagMapper;
-    private final UserBehaviorSummaryMapper behaviorSummaryMapper;
     private final CampaignFieldRegistry fieldRegistry;
     private final DslToRuleConverter converter;
+    private final DecisionEngine decisionEngine;
 
-    /**
-     * 从最多五万名启用用户中匹配人群条件，返回 SNAPSHOT 预估规模；条件求值失败时返回零值并附 preview failed 警告。
-     */
     @Override
     public AudiencePreviewResult preview(CampaignDsl dsl) {
         LocalDateTime now = LocalDateTime.now();
-        String dataVersion = "profile-" + now.format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmm"));
-
-        if (dsl == null || dsl.getAudience() == null
-                || dsl.getAudience().getConditions() == null
-                || dsl.getAudience().getConditions().isEmpty()) {
-            return AudiencePreviewResult.builder()
-                    .estimatedCount(0)
-                    .calculatedAt(now)
-                    .dataVersion(dataVersion)
-                    .calculationMode("SNAPSHOT")
-                    .warnings(List.of("empty audience"))
-                    .build();
-        }
-
-        // 1. Build candidate pool: active users (status=1) limited to a sensible cap.
-        List<UserProfile> candidates = userProfileMapper.selectList(
-                new LambdaQueryWrapper<UserProfile>()
-                        .eq(UserProfile::getStatus, 1)
-                        .last("LIMIT 50000"));
-        Set<Long> candidateIds = candidates.stream()
-                .map(UserProfile::getUserId)
-                .collect(Collectors.toSet());
-        if (candidateIds.isEmpty()) {
-            return emptyResult(now, dataVersion);
-        }
-
-        AudienceGroup audience = dsl.getAudience();
-        String logic = audience.getLogic() == null ? "AND" : audience.getLogic().toUpperCase();
-        List<String> warnings = new ArrayList<>();
-
-        Set<Long> matched;
-        try {
-            matched = evaluateConditions(audience.getConditions(), candidateIds, logic);
-        } catch (Exception e) {
-            log.warn("Audience preview failed: {}", e.getMessage());
-            return AudiencePreviewResult.builder()
-                    .estimatedCount(0)
-                    .calculatedAt(now)
-                    .dataVersion(dataVersion)
-                    .calculationMode("SNAPSHOT")
-                    .warnings(List.of("preview failed: " + e.getMessage()))
-                    .build();
-        }
-
-        return AudiencePreviewResult.builder()
-                .estimatedCount(matched.size())
+        AudiencePreviewResult.AudiencePreviewResultBuilder result = AudiencePreviewResult.builder()
                 .calculatedAt(now)
-                .dataVersion(dataVersion)
-                .calculationMode("SNAPSHOT")
-                .warnings(warnings)
-                .build();
+                .dataVersion("profile-" + now.format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmm")))
+                .calculationMode("SNAPSHOT");
+
+        try {
+            List<Long> candidates = enabledCandidateIds();
+            List<Long> matched = match(dsl, candidates, now);
+            List<String> warnings = candidates.size() == CANDIDATE_LIMIT
+                    ? List.of("preview limited to 50000 enabled accounts") : List.of();
+            return result.estimatedCount(matched.size()).warnings(warnings).build();
+        } catch (RuntimeException e) {
+            log.warn("Audience preview failed", e);
+            return result.estimatedCount(0).warnings(List.of("preview failed: " + e.getMessage())).build();
+        }
     }
 
-    /**
-     * 当前版本仅执行规模预估并始终返回空用户列表，limit 尚不用于导出实际用户 ID。
-     */
     @Override
     public List<Long> previewUserIds(CampaignDsl dsl, int limit) {
-        AudiencePreviewResult r = preview(dsl);
-        if (r.getEstimatedCount() == 0 || r.getEstimatedCount() > limit) {
-            return Collections.emptyList();
-        }
-        // Re-run with the same logic but return ids; for simplicity v1 returns
-        // empty here and downstream aggregate services use SQL aggregation.
-        return Collections.emptyList();
+        List<Long> matched = match(dsl, enabledCandidateIds(), LocalDateTime.now());
+        return matched.size() <= limit ? matched : List.of();
     }
 
-    /**
-     * 逐条件计算候选用户集合，AND 取交集，其他逻辑取并集，返回最终匹配集合。
-     */
-    private Set<Long> evaluateConditions(List<AudienceCondition> conditions,
-                                          Set<Long> candidateIds, String logic) {
-        List<Set<Long>> perCondition = new ArrayList<>();
-        for (AudienceCondition c : conditions) {
-            perCondition.add(evalOne(c, candidateIds));
-        }
-        if (perCondition.isEmpty()) return new HashSet<>();
-
-        Set<Long> result = new HashSet<>(perCondition.get(0));
-        for (int i = 1; i < perCondition.size(); i++) {
-            if ("AND".equals(logic)) {
-                result.retainAll(perCondition.get(i));
-            } else {
-                result.addAll(perCondition.get(i));
-            }
-        }
-        return result;
+    public List<Long> enabledCandidateIds() {
+        return userProfileMapper.selectList(new LambdaQueryWrapper<UserProfile>()
+                        .select(UserProfile::getUserId)
+                        .eq(UserProfile::getStatus, 1)
+                        .orderByAsc(UserProfile::getId)
+                        .last("LIMIT " + CANDIDATE_LIMIT))
+                .stream().map(UserProfile::getUserId).toList();
     }
 
-    /**
-     * 根据注册字段来源读取标签或行为指标并匹配条件，未知字段返回空集合。
-     */
-    private Set<Long> evalOne(AudienceCondition c, Set<Long> candidateIds) {
-        CampaignFieldRegistry.FieldDescriptor fd = fieldRegistry.get(c.getField());
-        if (fd == null) return Set.of();
-
-        if ("TAG".equals(fd.getSourceType())) {
-            // Latest value of tag for each user must be "1"
-            List<UserTag> tags = userTagMapper.selectList(
-                    new LambdaQueryWrapper<UserTag>()
-                            .eq(UserTag::getTagName, fd.getTagName())
-                            .eq(UserTag::getTagValue, "1")
-                            .in(UserTag::getUserId, candidateIds)
-                            .orderByDesc(UserTag::getCalculatedAt));
-            // Deduplicate by userId (keep latest)
-            Set<Long> seen = new HashSet<>();
-            Set<Long> matched = new HashSet<>();
-            for (UserTag t : tags) {
-                if (seen.add(t.getUserId())) {
-                    matched.add(t.getUserId());
-                }
-            }
-            return matched;
+    public List<Long> match(CampaignDsl dsl, List<Long> candidates, LocalDateTime now) {
+        if (dsl == null || dsl.getAudience() == null || dsl.getAudience().getConditions() == null
+                || dsl.getAudience().getConditions().isEmpty()) {
+            return List.of();
         }
-
-        // METRIC: latest value per user for metricType, compared with threshold.
-        String metricType = fd.getMetricType() != null ? fd.getMetricType() : c.getField();
-        List<UserBehaviorSummary> summaries = behaviorSummaryMapper.selectList(
-                new LambdaQueryWrapper<UserBehaviorSummary>()
-                        .eq(UserBehaviorSummary::getMetricType, metricType)
-                        .in(UserBehaviorSummary::getUserId, candidateIds)
-                        .orderByDesc(UserBehaviorSummary::getCalculatedAt));
-        // Latest value per user
-        java.util.Map<Long, Double> latest = new java.util.HashMap<>();
-        for (UserBehaviorSummary s : summaries) {
-            latest.putIfAbsent(s.getUserId(),
-                    s.getMetricValue() != null ? s.getMetricValue().doubleValue() : 0.0);
+        if (!"AND".equals(dsl.getAudience().getLogic()) || dsl.getAudience().getConditions().stream()
+                .anyMatch(condition -> !fieldRegistry.isEnabled(condition.getField()))) {
+            throw new IllegalArgumentException("only enabled recall fields combined with AND can be previewed");
         }
-        double threshold = toDouble(c.getValue());
-        String op = c.getOperator();
-        Set<Long> matched = new HashSet<>();
-        for (var e : latest.entrySet()) {
-            if (compare(e.getValue(), op, threshold)) {
-                matched.add(e.getKey());
-            }
+        List<CampaignRule> rules = converter.convert(dsl).stream()
+                .map(rule -> CampaignRule.builder().ruleType(rule.ruleType()).ruleConfig(rule.ruleConfigJson()).build())
+                .toList();
+        List<Long> matched = new ArrayList<>();
+        for (int offset = 0; offset < candidates.size(); offset += PAGE_SIZE) {
+            List<Long> page = candidates.subList(offset, Math.min(offset + PAGE_SIZE, candidates.size()));
+            matched.addAll(decisionEngine.matchScheduledAudience(page, rules, now));
         }
         return matched;
-    }
-
-    /**
-     * 执行白名单内的数值比较操作，未知操作符按不匹配处理。
-     */
-    private boolean compare(double left, String op, double right) {
-        return switch (op) {
-            case "EQ"  -> left == right;
-            case "NE"  -> left != right;
-            case "GT"  -> left > right;
-            case "GTE" -> left >= right;
-            case "LT"  -> left < right;
-            case "LTE" -> left <= right;
-            default -> false;
-        };
-    }
-
-    /**
-     * 将数值或数字文本转换为 double，解析失败时使用零。
-     */
-    private double toDouble(Object v) {
-        if (v instanceof Number n) return n.doubleValue();
-        try { return Double.parseDouble(String.valueOf(v)); }
-        catch (NumberFormatException e) { return 0.0; }
-    }
-
-    /**
-     * 构造带计算时间、数据版本与 SNAPSHOT 标记的零人群结果。
-     */
-    private AudiencePreviewResult emptyResult(LocalDateTime now, String dataVersion) {
-        return AudiencePreviewResult.builder()
-                .estimatedCount(0)
-                .calculatedAt(now)
-                .dataVersion(dataVersion)
-                .calculationMode("SNAPSHOT")
-                .warnings(List.of("no active users"))
-                .build();
     }
 }

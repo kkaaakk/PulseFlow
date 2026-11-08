@@ -1,6 +1,7 @@
 package com.pulseflow.profile.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.pulseflow.common.util.BehaviorWindow;
 import com.pulseflow.entity.UserBehaviorSummary;
 import com.pulseflow.entity.UserTag;
 import com.pulseflow.mapper.UserBehaviorSummaryMapper;
@@ -12,11 +13,14 @@ import org.redisson.api.RedissonClient;
 import org.redisson.client.codec.StringCodec;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
@@ -27,6 +31,11 @@ public class ProfileService {
     private final RedissonClient redissonClient;
     private final UserBehaviorSummaryMapper behaviorSummaryMapper;
     private final UserTagMapper userTagMapper;
+
+    private static final String WINDOW_GENERATION = "user:window:generation";
+    private static final String WINDOW_CACHE_FIELD = "calendar_snapshot";
+    private static final List<String> CURRENT_METRICS =
+            List.of(BehaviorWindow.ACTIVE_DAYS, BehaviorWindow.ORDER_COUNT, BehaviorWindow.SPEND);
 
     /**
      * Get realtime metrics from Redis.
@@ -42,7 +51,8 @@ public class ProfileService {
         String dateStr = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         RMap<String, String> dailyMap = redissonClient.getMap(
                 "user:daily:" + userId + ":" + dateStr, StringCodec.INSTANCE);
-        result.putAll(dailyMap.readAllMap());
+        String views = dailyMap.get("views");
+        if (views != null) result.put("views", views);
 
         // Cart items
         RMap<String, String> cartMap = redissonClient.getMap("user:cart:" + userId, StringCodec.INSTANCE);
@@ -52,42 +62,83 @@ public class ProfileService {
         return result;
     }
 
-    /**
-     * Get window metrics (cached in Redis, fallback to MySQL).
-     *
-     * <p>MySQL fallback 按 calculated_at DESC 排序，<b>必须用 putIfAbsent</b>：
-     * 同一 metric_type 有多条历史记录，先遍历到的是最新值，putIfAbsent 保留它
-     * 不被后续旧值覆盖。之前用 put 导致最终留下的是最旧值，决策引擎读到陈旧数据。</p>
-     */
+    /** Read the current calendar snapshot for the console, with MySQL fallback. */
     public Map<String, Object> getWindowMetrics(Long userId) {
-        String cacheKey = "user:window:" + userId;
-        RMap<String, Object> cacheMap = redissonClient.getMap(cacheKey);
+        LocalDateTime now = LocalDateTime.now();
+        String version = null;
+        RMap<String, Object> cache = null;
+        try {
+            String generation = redissonClient.<String>getBucket(WINDOW_GENERATION, StringCodec.INSTANCE).get();
+            if (generation != null) {
+                version = generation + ":" + now.toLocalDate();
+                cache = redissonClient.getMap("user:window:" + userId);
+                Object entry = cache.get(WINDOW_CACHE_FIELD);
+                if (entry instanceof Map<?, ?> snapshot && version.equals(snapshot.get("version"))) {
+                    Map<String, Object> result = new HashMap<>();
+                    for (String type : CURRENT_METRICS) {
+                        result.put(type, snapshot.get(type));
+                    }
+                    return result;
+                }
+            }
+        } catch (RuntimeException e) {
+            log.debug("Window cache read failed for user {}", userId, e);
+            cache = null;
+        }
 
-        if (cacheMap.isExists()) {
-            Map<String, Object> cached = new HashMap<>(cacheMap.readAllMap());
-            if (!cached.isEmpty()) {
-                return cached;
+        Map<String, BigDecimal> current = readCurrentWindowMetrics(List.of(userId), now)
+                .getOrDefault(userId, Map.of());
+        Map<String, Object> result = new HashMap<>();
+        for (String type : CURRENT_METRICS) {
+            result.put(type, current.getOrDefault(type, BigDecimal.ZERO));
+        }
+        if (cache != null) {
+            Map<String, Object> snapshot = new HashMap<>(result);
+            snapshot.put("version", version);
+            try {
+                cache.fastPut(WINDOW_CACHE_FIELD, snapshot);
+                cache.expire(5, TimeUnit.MINUTES);
+            } catch (RuntimeException e) {
+                log.debug("Window cache write failed for user {}", userId, e);
             }
         }
-
-        // Fallback to MySQL：按 calculated_at DESC，putIfAbsent 保留最新值
-        List<UserBehaviorSummary> summaries = behaviorSummaryMapper.selectList(
-                new LambdaQueryWrapper<UserBehaviorSummary>()
-                        .eq(UserBehaviorSummary::getUserId, userId)
-                        .orderByDesc(UserBehaviorSummary::getCalculatedAt));
-
-        Map<String, Object> result = new HashMap<>();
-        for (UserBehaviorSummary s : summaries) {
-            result.putIfAbsent(s.getMetricType(), s.getMetricValue());
-        }
-
-        // Cache in Redis
-        if (!result.isEmpty()) {
-            cacheMap.putAll(result);
-            cacheMap.expire(3600, TimeUnit.SECONDS);
-        }
-
         return result;
+    }
+
+    /** The job advances the cache generation only after its MySQL transaction commits. */
+    public void invalidateWindowCaches() {
+        try {
+            redissonClient.<String>getBucket(WINDOW_GENERATION, StringCodec.INSTANCE)
+                    .set(UUID.randomUUID().toString());
+        } catch (RuntimeException e) {
+            log.warn("Window cache generation could not be refreshed; cached entries expire in five minutes", e);
+        }
+    }
+
+    /** Decision and preview read the same current-day snapshot directly in bounded pages. */
+    public Map<Long, Map<String, BigDecimal>> readCurrentWindowMetrics(List<Long> userIds, LocalDateTime now) {
+        Map<Long, Map<String, BigDecimal>> result = new HashMap<>();
+        if (userIds.isEmpty()) return result;
+        BehaviorWindow window = new BehaviorWindow(now.toLocalDate());
+        for (UserBehaviorSummary row : behaviorSummaryMapper.selectCurrentWindows(
+                userIds, window.today().atStartOfDay(), now, window.endExclusive())) {
+            result.computeIfAbsent(row.getUserId(), id -> new HashMap<>())
+                    .put(row.getMetricType(), row.getMetricValue() == null ? BigDecimal.ZERO : row.getMetricValue());
+        }
+        return result;
+    }
+
+    public static String ruleMetricType(String type) {
+        return switch (type) {
+            case "activeDays7d", "active_7d" -> BehaviorWindow.ACTIVE_DAYS;
+            case "orderCount30d" -> BehaviorWindow.ORDER_COUNT;
+            case "spend30d" -> BehaviorWindow.SPEND;
+            default -> type;
+        };
+    }
+
+    public static boolean isCurrentMetric(String type) {
+        return CURRENT_METRICS.contains(type);
     }
 
     /**
@@ -100,16 +151,25 @@ public class ProfileService {
                         .orderByDesc(UserTag::getCalculatedAt));
     }
 
-    /**
-     * Get specific metric value for rule evaluation.
-     */
+    /** Retain the integral accessor for existing callers. */
     public Long getMetricValue(Long userId, String metricType) {
-        Map<String, Object> metrics = getWindowMetrics(userId);
-        Object val = metrics.get(metricType);
-        if (val instanceof Number) {
-            return ((Number) val).longValue();
+        return getRuleMetric(userId, metricType).longValue();
+    }
+
+    public BigDecimal getRuleMetric(Long userId, String metricType) {
+        String type = ruleMetricType(metricType);
+        if (isCurrentMetric(type)) {
+            return readCurrentWindowMetrics(List.of(userId), LocalDateTime.now())
+                    .getOrDefault(userId, Map.of()).getOrDefault(type, BigDecimal.ZERO);
         }
-        return 0L;
+        // Existing stored rules can still access the last value of a retired metric.
+        UserBehaviorSummary latest = behaviorSummaryMapper.selectOne(
+                new LambdaQueryWrapper<UserBehaviorSummary>()
+                        .eq(UserBehaviorSummary::getUserId, userId)
+                        .eq(UserBehaviorSummary::getMetricType, type)
+                        .orderByDesc(UserBehaviorSummary::getCalculatedAt)
+                        .last("LIMIT 1"));
+        return latest == null || latest.getMetricValue() == null ? BigDecimal.ZERO : latest.getMetricValue();
     }
 
     /**

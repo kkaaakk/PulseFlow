@@ -2,7 +2,6 @@ package com.pulseflow.boot.web;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.pulseflow.entity.Campaign;
-import com.pulseflow.entity.UserBehaviorSummary;
 import com.pulseflow.entity.UserEvent;
 import com.pulseflow.entity.UserProfile;
 import com.pulseflow.entity.UserTag;
@@ -11,7 +10,6 @@ import com.pulseflow.mapper.CampaignMapper;
 import com.pulseflow.mapper.CampaignRuleMapper;
 import com.pulseflow.mapper.ClickEventMapper;
 import com.pulseflow.mapper.DeliveryTaskMapper;
-import com.pulseflow.mapper.UserBehaviorSummaryMapper;
 import com.pulseflow.mapper.UserEventMapper;
 import com.pulseflow.mapper.UserProfileMapper;
 import com.pulseflow.mapper.UserTagMapper;
@@ -49,7 +47,6 @@ class WebQueryServiceTest {
     @Mock private AttributionRecordMapper attributionRecordMapper;
     @Mock private UserProfileMapper userProfileMapper;
     @Mock private UserEventMapper userEventMapper;
-    @Mock private UserBehaviorSummaryMapper behaviorSummaryMapper;
     @Mock private UserTagMapper userTagMapper;
     @Mock private ProfileService profileService;
     @Mock private JdbcTemplate jdbcTemplate;
@@ -66,7 +63,7 @@ class WebQueryServiceTest {
         service = new WebQueryService(
                 campaignMapper, campaignRuleMapper, deliveryTaskMapper,
                 clickEventMapper, attributionRecordMapper, userProfileMapper, userEventMapper,
-                behaviorSummaryMapper, userTagMapper, profileService, jdbcTemplate,
+                userTagMapper, profileService, jdbcTemplate,
                 redissonClient, performanceCalculator);
     }
 
@@ -149,11 +146,10 @@ class WebQueryServiceTest {
         UserProfile profile = UserProfile.builder().userId(1024L).nickname("演示用户").status(1).build();
         when(userProfileMapper.selectOne(any())).thenReturn(profile);
         when(profileService.getRealtimeMetrics(1024L)).thenThrow(new IllegalStateException("redis down"));
-        when(profileService.getWindowMetrics(1024L)).thenThrow(new IllegalStateException("redis down"));
+        when(profileService.getWindowMetrics(1024L)).thenReturn(Map.of(
+                "active_days_7d", new BigDecimal("6"), "order_count_30d", BigDecimal.ONE));
         when(userEventMapper.selectList(any())).thenReturn(List.of(UserEvent.builder()
                 .eventType("CONTENT_VIEW").effectiveEventTime(LocalDateTime.now()).build()));
-        when(behaviorSummaryMapper.selectList(any())).thenReturn(List.of(UserBehaviorSummary.builder()
-                .metricType("active_7d").metricValue(new BigDecimal("6")).calculatedAt(LocalDateTime.now()).build()));
         when(userTagMapper.selectList(any())).thenReturn(List.of(UserTag.builder()
                 .tagName("HIGH_VALUE").tagValue("1").calculatedAt(LocalDateTime.now()).build()));
         Page<UserEvent> eventPage = new Page<>(1, 20);
@@ -166,7 +162,8 @@ class WebQueryServiceTest {
         assertThat(detail.realtimeSource()).isEqualTo("MYSQL_FALLBACK");
         assertThat(detail.realtimeAvailable()).isFalse();
         assertThat(detail.realtimeMetrics()).containsEntry("todayViews", "1");
-        assertThat(detail.windowMetrics()).containsEntry("activeDays7d", new BigDecimal("6"));
+        assertThat(detail.windowMetrics()).containsEntry("activeDays7d", new BigDecimal("6"))
+                .containsEntry("orderCount30d", BigDecimal.ONE);
         assertThat(detail.tags()).containsExactly("HIGH_VALUE");
     }
 }

@@ -26,6 +26,8 @@ public class AttributionTask {
 
     private Long userId;
 
+    private String paidOrderId;
+
     private String targetEventType;
 
     private LocalDateTime targetEventTime;

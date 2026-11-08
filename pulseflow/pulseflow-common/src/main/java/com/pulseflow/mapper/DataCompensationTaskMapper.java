@@ -20,27 +20,14 @@ public interface DataCompensationTaskMapper extends BaseMapper<DataCompensationT
             + "ON DUPLICATE KEY UPDATE event_id = VALUES(event_id)")
     int ensureMarketingClickPending(@Param("eventId") String eventId);
 
-    /**
-     * Atomic upsert for compensation task.
-     * On duplicate (event_id, task_type) the row is explicitly restored to PENDING:
-     * retry_count reset to 0, locked_at cleared, next_retry_at set to NOW(),
-     * last_error refreshed. This matches the design's "INSERT ... ON DUPLICATE KEY
-     * UPDATE status='PENDING', retry_count=0, next_retry_at=NOW(), locked_at=NULL"
-     * and avoids the non-atomic insert-then-update sequence.
-     */
-    @Insert("INSERT INTO data_compensation_task (event_id, task_type, payload, status, retry_count, max_retry, next_retry_at, locked_at, last_error) " +
-            "VALUES (#{eventId}, #{taskType}, #{payload}, 'PENDING', 0, 5, NOW(), NULL, #{lastError}) " +
-            "ON DUPLICATE KEY UPDATE " +
-            "  status = 'PENDING', " +
-            "  retry_count = 0, " +
-            "  max_retry = 5, " +
-            "  next_retry_at = NOW(), " +
-            "  locked_at = NULL, " +
-            "  last_error = VALUES(last_error)")
-    int upsertPendingRestore(@Param("eventId") String eventId,
-                             @Param("taskType") String taskType,
-                             @Param("payload") String payload,
-                             @Param("lastError") String lastError);
+    /** Duplicate deliveries preserve the current lease, backoff and terminal result. */
+    @Insert("""
+            INSERT INTO data_compensation_task
+                (event_id, task_type, payload, status, retry_count, max_retry, next_retry_at, last_error)
+            VALUES (#{eventId}, 'EVENT_REPLAY', #{payload}, 'PENDING', 0, 5, NOW(), 'phase2_or_phase3_failed')
+            ON DUPLICATE KEY UPDATE event_id = VALUES(event_id)
+            """)
+    int ensureEventReplayPending(@Param("eventId") String eventId, @Param("payload") String payload);
 
     /**
      * 领取一个到期的 PENDING 补偿任务（FOR UPDATE SKIP LOCKED）。
@@ -62,6 +49,17 @@ public interface DataCompensationTaskMapper extends BaseMapper<DataCompensationT
      * 标记领取（status → PROCESSING，locked_at = NOW）。
      */
     @Update("UPDATE data_compensation_task SET status = 'PROCESSING', locked_at = NOW() " +
-            "WHERE id = #{id}")
+            "WHERE id = #{id} AND status = 'PENDING'")
     int markProcessing(@Param("id") Long id);
+
+    @Update("""
+            UPDATE data_compensation_task
+            SET status = #{status}, retry_count = #{retryCount}, last_error = #{error}, locked_at = NULL,
+                next_retry_at = TIMESTAMPADD(SECOND, #{delaySeconds}, NOW())
+            WHERE id = #{claim.id} AND status = 'PROCESSING' AND retry_count = #{claim.retryCount}
+              AND locked_at = #{claim.lockedAt}
+            """)
+    int finishAttempt(@Param("claim") DataCompensationTask claim, @Param("status") String status,
+                      @Param("retryCount") int retryCount, @Param("error") String error,
+                      @Param("delaySeconds") Long delaySeconds);
 }

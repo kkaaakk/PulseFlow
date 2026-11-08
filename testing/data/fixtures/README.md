@@ -1,6 +1,8 @@
 # 固定 Fixture
 
-## 中文说明
+## 历史接入兼容性
+
+固定 v1 夹具保留旧事件。新生成的 v2 数据集与 v1 使用不同事件 ID，生成器和压测使用核心五种事件。
 
 这里保存少量可以提交到 Git 的固定 Fixture。`smoke-events-v1.jsonl` 用于快速验证
 Functional Replay 和 Validator 连通性，旁边的 Manifest 保存精确 checksum 与预期小时指标。

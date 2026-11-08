@@ -10,6 +10,9 @@ import org.redisson.api.RSet;
 import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Service;
 
+import java.util.HashSet;
+import java.util.List;
+
 /**
  * 快速预过滤：免打扰 / 已退订 / 已转化。
  *
@@ -56,6 +59,22 @@ public class UserPreferenceService {
             return false;
         }
         return true;
+    }
+
+    /** Batch the MySQL conversion lookup. Redis preference reads stay outside the delivery transaction. */
+    public List<Long> deliverableUsers(List<Long> candidates, Long campaignId, String channel) {
+        if (candidates.isEmpty()) return List.of();
+        var converted = new HashSet<Long>();
+        for (AttributionRecord row : attributionRecordMapper.selectList(
+                new LambdaQueryWrapper<AttributionRecord>()
+                        .select(AttributionRecord::getUserId)
+                        .eq(AttributionRecord::getCampaignId, campaignId)
+                        .in(AttributionRecord::getUserId, candidates)
+                        .groupBy(AttributionRecord::getUserId))) {
+            converted.add(row.getUserId());
+        }
+        return candidates.stream().filter(userId -> !converted.contains(userId)
+                && !isDnd(userId) && !isUnsubscribed(userId, channel)).toList();
     }
 
     /** 免打扰：Redis String 标记，存在即开启。 */
